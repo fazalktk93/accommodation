@@ -90,3 +90,23 @@ class WaitingListOut(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+class GwlIn(BaseModel):
+    employee_id: int
+    colony_id: int | None = None
+    entitlement_date: date
+    priority_points: int = 0
+
+class FileIn(BaseModel):
+    file_no: str
+    employee_id: int
+    house_id: int | None = None
+    opened_at: date | None = None
+    notes: str | None = None
+
+class FileMovementIssueIn(BaseModel):
+    file_id: int
+    issued_to: str
+    remarks: str | None = None
+
+class FileMovementReturnIn(BaseModel):
+    remarks: str | None = None
