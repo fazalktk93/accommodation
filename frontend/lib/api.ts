@@ -1,24 +1,20 @@
 // lib/api.ts
-const ABSOLUTE_API_ORIGIN = process.env.NEXT_PUBLIC_API_BASE
-  ? process.env.NEXT_PUBLIC_API_BASE.replace(/\/$/, "")
-  : null;
-
-// If ABSOLUTE_API_ORIGIN is null, we call relative "/api" and let next.config.js proxy it.
-const API_PREFIX = ABSOLUTE_API_ORIGIN ? "" : "/api";
-const API_BASE_FOR_DISPLAY =
-  ABSOLUTE_API_ORIGIN ?? "(via Next.js proxy @ /api → backend)";
+// Uses the Next.js proxy (/api/*) for all browser calls.
+// If you later set NEXT_PUBLIC_API_BASE, this helper will still prefer the proxy
+// because the proxy removes CORS headaches and localhost/host mismatches.
 
 export function authHeaders(token?: string) {
   const t =
     token ?? (typeof window !== "undefined" ? localStorage.getItem("token") ?? "" : "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (t) headers.Authorization = `Bearer ${t}`;
-  return headers;
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (t) h.Authorization = `Bearer ${t}`;
+  return h;
 }
 
 export async function API<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const target = `${ABSOLUTE_API_ORIGIN ?? ""}${API_PREFIX}${path}`;
-  const res = await fetch(target, {
+  // Always call through Next.js proxy (relative URL)
+  const url = `/api${path.startsWith("/") ? path : `/${path}`}`;
+  const res = await fetch(url, {
     ...init,
     headers: { ...(init.headers || {}), ...authHeaders() },
     cache: "no-store",
@@ -28,9 +24,4 @@ export async function API<T = any>(path: string, init: RequestInit = {}): Promis
     throw new Error(`API ${res.status} ${res.statusText}: ${text}`);
   }
   return res.json();
-}
-
-// Export a helper just for showing what base we're using in UI
-export function apiBaseLabel() {
-  return API_BASE_FOR_DISPLAY;
 }

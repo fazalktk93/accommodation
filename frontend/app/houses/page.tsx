@@ -17,18 +17,18 @@ export default function HousesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let mounted = true;
+    let active = true;
     (async () => {
       try {
         const data = await API<House[]>("/houses");
-        if (mounted) setItems(data);
+        if (active) setItems(data);
       } catch (e: any) {
-        if (mounted) setError(e.message || "Failed to load houses");
+        if (active) setError(e.message || "Failed to fetch");
       } finally {
-        if (mounted) setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-    return () => { mounted = false; };
+    return () => { active = false; };
   }, []);
 
   return (
@@ -39,13 +39,7 @@ export default function HousesPage() {
       {!loading && !error && (
         <table cellPadding={8} style={{ borderCollapse:"collapse", border:"1px solid #ddd" }}>
           <thead>
-            <tr>
-              <th>ID</th>
-              <th>Colony ID</th>
-              <th>House No</th>
-              <th>Type</th>
-              <th>Status</th>
-            </tr>
+            <tr><th>ID</th><th>Colony ID</th><th>House No</th><th>Type</th><th>Status</th></tr>
           </thead>
           <tbody>
             {items.map(h => (

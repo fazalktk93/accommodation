@@ -15,8 +15,7 @@ export default function LoginPage() {
     setMsg("");
     setLoading(true);
     try {
-      // 🚫 DO NOT call http://localhost:8000 here
-      // ✅ Call the Next.js proxy instead:
+      // Proxy via Next.js → FastAPI
       const res = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,26 +41,13 @@ export default function LoginPage() {
     <main style={{ padding: "2rem" }}>
       <h1>Login</h1>
       <form onSubmit={onSubmit} style={{ display: "grid", gap: "0.5rem", maxWidth: 320 }}>
-        <input
-          placeholder="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoComplete="username"
-        />
-        <input
-          placeholder="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-        />
-        <button type="submit" disabled={loading}>
-          {loading ? "Signing in…" : "Login"}
-        </button>
+        <input placeholder="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input placeholder="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <button type="submit" disabled={loading}>{loading ? "Signing in…" : "Login"}</button>
       </form>
       <p style={{ marginTop: ".75rem" }}>{msg}</p>
       <p style={{ opacity: 0.7, fontSize: 12 }}>
-        Calls go to <code>/api/auth/login</code> and are proxied to your FastAPI.
+        Calls go to <code>/api/*</code> and are proxied to FastAPI.
       </p>
     </main>
   );

@@ -1,11 +1,14 @@
 // next.config.js
 /** @type {import('next').NextConfig} */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://192.168.1.7:8000";
+
+// If Next.js (port 3000) and FastAPI (port 8000) run on the SAME server,
+// this default works. If they are on DIFFERENT hosts, set BACKEND_ORIGIN to that host.
+const API_BASE = process.env.BACKEND_ORIGIN || "http://127.0.0.1:8000";
 
 module.exports = {
   async rewrites() {
     return [
-      // Proxy browser requests like /api/auth/login -> http://<server>:8000/auth/login
+      // proxy /api/* → FastAPI /*  (no CORS; no localhost confusion)
       { source: "/api/:path*", destination: `${API_BASE}/:path*` },
     ];
   },
