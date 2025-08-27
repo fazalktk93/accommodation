@@ -1,18 +1,9 @@
 // app/login/page.tsx
 "use client";
 import { useState } from "react";
-
-function getApiBase() {
-  // Derive API base from current host so it works when accessed via server IP
-  const derived =
-    typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:8000`
-      : "http://localhost:8000";
-  return (process.env.NEXT_PUBLIC_API_BASE ?? derived).replace(/\/$/, "");
-}
+import { apiBaseLabel } from "@/lib/api";
 
 export default function LoginPage() {
-  const API_BASE = getApiBase();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
@@ -23,7 +14,7 @@ export default function LoginPage() {
     setMsg("");
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
+      const res = await fetch(`/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -66,7 +57,7 @@ export default function LoginPage() {
       </form>
       <p style={{ marginTop: ".75rem" }}>{msg}</p>
       <p style={{ opacity: 0.7, fontSize: 12 }}>
-        API base: <code>{getApiBase()}</code>
+        API base: <code>{apiBaseLabel()}</code>
       </p>
     </main>
   );

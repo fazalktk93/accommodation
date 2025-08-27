@@ -1,12 +1,12 @@
 // lib/api.ts
-// Uses NEXT_PUBLIC_API_BASE if set; otherwise derives http(s)://<current-host>:8000 in the browser.
+const ABSOLUTE_API_ORIGIN = process.env.NEXT_PUBLIC_API_BASE
+  ? process.env.NEXT_PUBLIC_API_BASE.replace(/\/$/, "")
+  : null;
 
-const derivedBase =
-  typeof window !== "undefined"
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
-    : "http://localhost:8000";
-
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? derivedBase).replace(/\/$/, "");
+// If ABSOLUTE_API_ORIGIN is null, we call relative "/api" and let next.config.js proxy it.
+const API_PREFIX = ABSOLUTE_API_ORIGIN ? "" : "/api";
+const API_BASE_FOR_DISPLAY =
+  ABSOLUTE_API_ORIGIN ?? "(via Next.js proxy @ /api → backend)";
 
 export function authHeaders(token?: string) {
   const t =
@@ -17,7 +17,8 @@ export function authHeaders(token?: string) {
 }
 
 export async function API<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const target = `${ABSOLUTE_API_ORIGIN ?? ""}${API_PREFIX}${path}`;
+  const res = await fetch(target, {
     ...init,
     headers: { ...(init.headers || {}), ...authHeaders() },
     cache: "no-store",
@@ -27,4 +28,9 @@ export async function API<T = any>(path: string, init: RequestInit = {}): Promis
     throw new Error(`API ${res.status} ${res.statusText}: ${text}`);
   }
   return res.json();
+}
+
+// Export a helper just for showing what base we're using in UI
+export function apiBaseLabel() {
+  return API_BASE_FOR_DISPLAY;
 }
