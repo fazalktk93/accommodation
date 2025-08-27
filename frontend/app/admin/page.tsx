@@ -57,6 +57,9 @@ export default function AdminLanding() {
         <li><a href="/meta/bps">BPS</a></li>
         <li><a href="/meta/colonies">Colonies</a></li>
         <li><a href="/meta/departments">Departments</a></li>
+        <li><a href="/gwl">General Waiting List</a></li>
+        <li><a href="/files">Accommodation Files</a></li>
+        <li><a href="/record-room">Record Room</a></li>
       </ul>
     </main>
   );

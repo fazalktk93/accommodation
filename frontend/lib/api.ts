@@ -1,8 +1,4 @@
 // lib/api.ts
-// Uses the Next.js proxy (/api/*) for all browser calls.
-// If you later set NEXT_PUBLIC_API_BASE, this helper will still prefer the proxy
-// because the proxy removes CORS headaches and localhost/host mismatches.
-
 export function authHeaders(token?: string) {
   const t =
     token ?? (typeof window !== "undefined" ? localStorage.getItem("token") ?? "" : "");
@@ -12,7 +8,6 @@ export function authHeaders(token?: string) {
 }
 
 export async function API<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  // Always call through Next.js proxy (relative URL)
   const url = `/api${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {
     ...init,
