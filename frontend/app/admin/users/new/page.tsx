@@ -1,47 +1,56 @@
 // app/admin/users/new/page.tsx
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { authHeaders } from "@/lib/api";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000").replace(/\/$/, "");
-
 export default function NewUserPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "operator" | "user">("user");
   const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type":"application/json", ...authHeaders() },
-      body: JSON.stringify({ email, password, role }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(()=>"");
-      setMsg(`Error: ${res.status} ${res.statusText} ${text}`);
-      return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ email, password, role }),
+      });
+      const text = await res.text().catch(() => "");
+      if (!res.ok) {
+        setMsg(`Error: ${res.status} ${res.statusText} ${text}`);
+        return;
+      }
+      setMsg("User created ✔");
+      setEmail(""); setPassword(""); setRole("user");
+      setTimeout(() => router.push("/admin"), 800);
+    } catch (e: any) {
+      setMsg(`Network error: ${e?.message ?? "Failed to reach API"}`);
+    } finally {
+      setLoading(false);
     }
-    setMsg("User created ✔");
-    setEmail(""); setPassword(""); setRole("user");
   }
 
   return (
-    <main style={{ padding:"2rem", maxWidth: 420 }}>
+    <main style={{ padding: "2rem", maxWidth: 420 }}>
       <h1>Register User</h1>
-      <form onSubmit={onSubmit} style={{ display:"grid", gap:".6rem" }}>
-        <input placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-        <input placeholder="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} />
-        <label>Role:
-          <select value={role} onChange={e=>setRole(e.target.value as any)} style={{ marginLeft: 8 }}>
+      <form onSubmit={onSubmit} style={{ display: "grid", gap: ".6rem" }}>
+        <input placeholder="Email" value={email} onChange={(e)=>setEmail(e.target.value)} />
+        <input placeholder="Password" type="password" value={password} onChange={(e)=>setPassword(e.target.value)} />
+        <label>Role:&nbsp;
+          <select value={role} onChange={(e)=>setRole(e.target.value as any)}>
             <option value="user">user</option>
             <option value="operator">operator</option>
             <option value="admin">admin</option>
           </select>
         </label>
-        <button type="submit">Create</button>
+        <button type="submit" disabled={loading}>{loading ? "Creating…" : "Create"}</button>
       </form>
       {msg && <p style={{ marginTop: ".75rem" }}>{msg}</p>}
       <p style={{ opacity:.7, fontSize:13 }}>

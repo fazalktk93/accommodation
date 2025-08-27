@@ -9,20 +9,10 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-    if (!token) {
-      router.replace("/login");
-    } else {
-      setChecking(false);
-    }
+    if (!token) router.replace("/login");
+    else setChecking(false);
   }, [router]);
 
-  if (checking) {
-    return (
-      <main style={{ padding: "2rem" }}>
-        <p>Checking session…</p>
-      </main>
-    );
-  }
-
+  if (checking) return <main style={{ padding: "2rem" }}>Checking session…</main>;
   return <>{children}</>;
 }
