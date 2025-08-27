@@ -1,0 +1,33 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .db import Base, engine
+from .config import settings
+from .routers import auth, users, meta, employees, houses, applications, allotments
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="House Allotment Management System (FastAPI)")
+    Base.metadata.create_all(bind=engine)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(auth.router)
+    app.include_router(users.router)
+    app.include_router(meta.router)
+    app.include_router(employees.router)
+    app.include_router(houses.router)
+    app.include_router(applications.router)
+    app.include_router(allotments.router)
+
+    @app.get("/healthz")
+    def healthz():
+        return {"status": "ok"}
+
+    return app
+
+app = create_app()
