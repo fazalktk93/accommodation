@@ -1,53 +1,57 @@
+// app/(protected)/employees/page.tsx
 "use client";
 import { useEffect, useState } from "react";
-import { API, authHeaders } from "@/lib/api";
+import { API } from "@/lib/api";
 
-type Employee = { id:number; nic:string; name:string };
+type Employee = { id: number; nic: string; name: string };
 
 export default function EmployeesPage() {
-  const [list, setList] = useState<Employee[]>([]);
-  const [nic, setNic] = useState(""); const [name, setName] = useState("");
-  const load = async () => {
-    const res = await fetch(`${API}/employees`, { headers: { ...authHeaders() }});
-    setList(await res.json());
-  };
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await fetch(`${API}/employees`, {
-      method:"POST",
-      headers: { "Content-Type":"application/json", ...authHeaders() },
-      body: JSON.stringify({ nic, name })
-    });
-    setNic(""); setName(""); load();
-  };
-  useEffect(() => { load(); }, []);
-  return (
-    <div className="space-y-4">
-      <form onSubmit={add} className="card flex gap-2 items-end">
-        <div className="flex-1">
-          <label className="block text-sm">NIC</label>
-          <input className="input" value={nic} onChange={e=>setNic(e.target.value)} required />
-        </div>
-        <div className="flex-1">
-          <label className="block text-sm">Name</label>
-          <input className="input" value={name} onChange={e=>setName(e.target.value)} required />
-        </div>
-        <button className="btn">Add</button>
-      </form>
+  const [items, setItems] = useState<Employee[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-      <div className="card">
-        <h2 className="font-semibold mb-3">Employees</h2>
-        <table className="w-full text-sm">
-          <thead><tr className="text-left"><th className="py-2">ID</th><th>NIC</th><th>Name</th></tr></thead>
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await API<Employee[]>("/employees");
+        if (mounted) setItems(data);
+      } catch (e: any) {
+        if (mounted) setError(e.message || "Failed to load employees");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <main style={{ padding: "2rem" }}>
+      <h1>Employees</h1>
+      {loading && <p>Loading…</p>}
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {!loading && !error && (
+        <table cellPadding={8} style={{ borderCollapse: "collapse", border: "1px solid #ddd" }}>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>NIC</th>
+              <th>Name</th>
+            </tr>
+          </thead>
           <tbody>
-            {list.map(e=>(
-              <tr key={e.id} className="border-t">
-                <td className="py-2">{e.id}</td><td>{e.nic}</td><td>{e.name}</td>
+            {items.map((e) => (
+              <tr key={e.id}>
+                <td>{e.id}</td>
+                <td>{e.nic}</td>
+                <td>{e.name}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </div>
+      )}
+    </main>
   );
 }
