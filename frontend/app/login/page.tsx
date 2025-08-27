@@ -1,9 +1,19 @@
 // app/login/page.tsx
 "use client";
 import { useState } from "react";
-import { apiBaseLabel } from "@/lib/api";
+import { useRouter } from "next/navigation";
+
+function getApiBase() {
+  const derived =
+    typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.hostname}:8000`
+      : "http://localhost:8000";
+  return (process.env.NEXT_PUBLIC_API_BASE ?? derived).replace(/\/$/, "");
+}
 
 export default function LoginPage() {
+  const API_BASE = getApiBase();
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
@@ -14,7 +24,7 @@ export default function LoginPage() {
     setMsg("");
     setLoading(true);
     try {
-      const res = await fetch(`/api/auth/login`, {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -26,7 +36,9 @@ export default function LoginPage() {
       }
       const data = await res.json();
       localStorage.setItem("token", data.access_token);
-      setMsg("Logged in ✔ You can now visit /admin or /employees");
+      setMsg("Logged in ✔ Redirecting…");
+      // Redirect where you want after login:
+      router.push("/admin"); // or "/employees"
     } catch (err: any) {
       setMsg(`Network error: ${err?.message ?? "Failed to reach API"}`);
     } finally {
@@ -57,7 +69,7 @@ export default function LoginPage() {
       </form>
       <p style={{ marginTop: ".75rem" }}>{msg}</p>
       <p style={{ opacity: 0.7, fontSize: 12 }}>
-        API base: <code>{apiBaseLabel()}</code>
+        API base: <code>{API_BASE}</code>
       </p>
     </main>
   );
