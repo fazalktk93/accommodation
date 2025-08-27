@@ -2,8 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from ..deps import get_db, require_roles
-from ..models.domain import House, Colony, RoleEnum, User
+from ..models.domain import House, Colony, RoleEnum, User, Occupancy
+from ..schemas import HouseIn, HouseOut, OccupancyOut     
 from pydantic import BaseModel
+
 
 router = APIRouter(prefix="/houses", tags=["Houses"])
 
@@ -30,7 +32,12 @@ def list_houses(status: str | None = None, db: Session = Depends(get_db)):
     stmt = select(House)
     if status: stmt = stmt.where(House.status == status)
     return db.scalars(stmt.order_by(House.id.desc())).all()
+
 # routers/houses.py (history)
 @router.get("/{house_id}/history", response_model=list[OccupancyOut])
 def history(house_id: int, db: Session = Depends(get_db)):
-    return db.scalars(select(Occupancy).where(Occupancy.house_id==house_id).order_by(Occupancy.start_date.desc())).all()
+    return db.scalars(
+        select(Occupancy)
+        .where(Occupancy.house_id == house_id)
+        .order_by(Occupancy.start_date.desc())
+    ).all()

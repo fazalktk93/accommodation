@@ -1,6 +1,8 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import date, datetime
+from datetime import date
+from pydantic import BaseModel
 from enum import Enum
 
 class RoleEnum(str, Enum):
@@ -82,7 +84,18 @@ class ApplicationOut(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+        
+class OccupancyOut(BaseModel):
+    id: int
+    house_id: int
+    employee_id: int
+    start_date: date
+    end_date: date | None = None
+    reason: str | None = None
 
+    class Config:
+        from_attributes = True
+        
 class WaitingListOut(BaseModel):
     id: int
     application_id: int
