@@ -2,7 +2,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { API } from "@/lib/api";
 
 type Me = { id: number; email: string; role: "admin" | "operator" | "user" };
 
@@ -10,17 +9,50 @@ export default function AdminLanding() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rawErr, setRawErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const data = await API<Me>("/users/me");
+        const token =
+          typeof window !== "undefined" ? localStorage.getItem("token") ?? "" : "";
+        if (!token) {
+          setError("No token in storage.");
+          router.replace("/login");
+          return;
+        }
+
+        // Call through Next proxy so we avoid CORS/host issues.
+        const res = await fetch(`/api/users/me`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          setRawErr(`status=${res.status} ${res.statusText} body=${body}`);
+          if (res.status === 401) {
+            setError("Unauthorized. Please log in again.");
+            router.replace("/login");
+            return;
+          }
+          setError(`Failed to load current user.`);
+          return;
+        }
+
+        const data = (await res.json()) as Me;
         setMe(data);
+        setError(null);
+        setRawErr(null);
       } catch (e: any) {
-        setError("Failed to load current user. Try logging in again.");
+        setError("Network error.");
+        setRawErr(String(e?.message ?? e));
       }
     })();
-  }, []);
+  }, [router]);
 
   function onLogout() {
     localStorage.removeItem("token");
@@ -31,7 +63,7 @@ export default function AdminLanding() {
     <main style={{ padding: "2rem", maxWidth: 900 }}>
       <h1>Admin</h1>
 
-      <div style={{ margin: "0.5rem 0 1rem", opacity: 0.8 }}>
+      <div style={{ margin: "0.5rem 0 1rem", opacity: 0.9 }}>
         {me && (
           <>
             Signed in as <b>{me.email}</b> ({me.role}){" "}
@@ -41,7 +73,24 @@ export default function AdminLanding() {
           </>
         )}
         {!me && !error && <span>Loading account…</span>}
-        {error && <span style={{ color: "crimson" }}>{error}</span>}
+        {error && (
+          <div style={{ color: "crimson" }}>
+            {error}
+            {rawErr && (
+              <pre
+                style={{
+                  background: "#f6f6f6",
+                  padding: "8px",
+                  borderRadius: 6,
+                  marginTop: 8,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {rawErr}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
 
       <section
@@ -56,21 +105,18 @@ export default function AdminLanding() {
             <li><a href="/admin/users/new">Register User</a></li>
           </ul>
         </Card>
-
         <Card title="Employees">
           <ul>
             <li><a href="/employees">Browse employees</a></li>
             <li><a href="/employees/new">Create employee</a></li>
           </ul>
         </Card>
-
         <Card title="Houses">
           <ul>
             <li><a href="/houses">Browse houses</a></li>
             <li><a href="/houses/new">Add house</a></li>
           </ul>
         </Card>
-
         <Card title="Metadata">
           <ul>
             <li><a href="/meta/bps">BPS Codes</a></li>
@@ -78,7 +124,6 @@ export default function AdminLanding() {
             <li><a href="/meta/departments">Departments</a></li>
           </ul>
         </Card>
-
         <Card title="Applications & Allotments">
           <ul>
             <li><a href="/applications">Applications</a></li>
