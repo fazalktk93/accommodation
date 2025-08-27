@@ -103,8 +103,8 @@ class Allotment(Base):
 class WaitingList(Base):
     __tablename__ = "waiting_list"
     id = sa.Column(sa.Integer, primary_key=True)
-    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employee.id"), nullable=False)
-    colony_id   = sa.Column(sa.Integer, sa.ForeignKey("colony.id"), nullable=True)
+    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employees.id"), nullable=False)
+    colony_id   = sa.Column(sa.Integer, sa.ForeignKey("colonies.id"),  nullable=True)
     entitlement_date = sa.Column(sa.Date, nullable=False, index=True)  # DoE
     priority_points  = sa.Column(sa.Integer, default=0)
     status = sa.Column(sa.Enum("pending","allotted","withdrawn","skipped", name="waiting_status"),
@@ -121,8 +121,8 @@ class AccommodationFile(Base):
     __tablename__ = "accommodation_file"
     id = sa.Column(sa.Integer, primary_key=True)
     file_no = sa.Column(sa.String(64), nullable=False, unique=True, index=True)
-    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employee.id"), nullable=False, index=True)
-    house_id    = sa.Column(sa.Integer, sa.ForeignKey("house.id"), nullable=True, index=True)
+    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employees.id"), nullable=False)
+    house_id    = sa.Column(sa.Integer, sa.ForeignKey("houses.id"),    nullable=True)
     opened_at   = sa.Column(sa.Date, nullable=False, server_default=sa.func.current_date())
     closed_at   = sa.Column(sa.Date, nullable=True)
     notes       = sa.Column(sa.Text, nullable=True)
@@ -133,7 +133,7 @@ class AccommodationFile(Base):
 class FileMovement(Base):
     __tablename__ = "file_movement"
     id = sa.Column(sa.Integer, primary_key=True)
-    file_id  = sa.Column(sa.Integer, sa.ForeignKey("accommodation_file.id"), nullable=False, index=True)
+    file_id   = sa.Column(sa.Integer, sa.ForeignKey("accommodation_file.id"), nullable=False)
     issued_to = sa.Column(sa.String(120), nullable=False)     # person/section
     issued_at = sa.Column(sa.DateTime, nullable=False, server_default=sa.func.now(), index=True)
     returned_at = sa.Column(sa.DateTime, nullable=True, index=True)
@@ -148,8 +148,8 @@ class FileMovement(Base):
 class Occupancy(Base):
     __tablename__ = "occupancy"
     id = sa.Column(sa.Integer, primary_key=True)
-    house_id    = sa.Column(sa.Integer, sa.ForeignKey("house.id"), nullable=False, index=True)
-    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employee.id"), nullable=False, index=True)
+    house_id    = sa.Column(sa.Integer, sa.ForeignKey("houses.id"),    nullable=False)
+    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employees.id"), nullable=False)
     start_date  = sa.Column(sa.Date, nullable=False, index=True)
     end_date    = sa.Column(sa.Date, nullable=True, index=True)
     reason      = sa.Column(sa.String(120), nullable=True)  # allotted/transfer/vacated/etc.
