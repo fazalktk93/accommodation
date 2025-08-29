@@ -57,7 +57,7 @@ class House(Base):
     # Business identifiers
     house_no = Column(String(100), nullable=False, index=True)     # "Quarter No"
     house_type = Column(String(50), nullable=True)                 # A–H
-    file_number = Column(String(50), nullable=True)                # NEW
+    file_no = Column(String, unique=True, nullable=True)                # NEW
 
     # New address fields
     street = Column(String(120), nullable=True)                    # NEW
@@ -135,30 +135,18 @@ class WaitingList(Base):
 # helpful composite index
 __table_args__ = (sa.Index("ix_wl_status_doe", "status", "entitlement_date"),)
 # models/domain.py
-class AccommodationFile(Base):
-    __tablename__ = "accommodation_files"
-
-    id = Column(Integer, primary_key=True)
-    file_no = Column(String(50), nullable=False, unique=True, index=True)
-
-    # Link to house (optional, may be temporarily null)
-    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
-    house = relationship("House", backref="accommodation_files")
-
-    opened_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    closed_at = Column(DateTime, nullable=True)
-# models/domain.py
 class FileMovement(Base):
     __tablename__ = "file_movements"
-
     id = Column(Integer, primary_key=True)
-    accommodation_file_id = Column(Integer, ForeignKey("accommodation_files.id"), nullable=False, index=True)
-    accommodation_file = relationship("AccommodationFile", backref="movements")
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True)  # <- new FK
+    file_number = Column(String, nullable=False)  # keep the literal number
+    movement = Column(String, nullable=False)     # "issue" | "receive"
+    to_whom = Column(String, nullable=True)
+    remarks = Column(Text, nullable=True)
+    moved_at = Column(DateTime, server_default=func.now(), nullable=False)
+    moved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    movement = Column(String(10), nullable=False)        # "issue" or "receive"
-    moved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    to_whom = Column(String(120), nullable=True)         # person/section the file issued to
-    remarks = Column(String(250), nullable=True)
+    house = relationship("House")
 
 # models/domain.py
 class Occupancy(Base):

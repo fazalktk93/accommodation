@@ -8,7 +8,6 @@ from .config import settings
 
 def create_app() -> FastAPI:
     app = FastAPI(title="House Allotment Management System (FastAPI)")
-    app.include_router(files.router)
     Base.metadata.create_all(bind=engine)
 
     # 👇 add this line so you see the DB in logs
