@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from pydantic import BaseModel
+from ..models.domain import House
 
 from ..deps import get_db, require_roles, get_current_user
 from ..models.domain import (
@@ -49,17 +50,8 @@ class HouseOut(BaseModel):
 
 
 # -------------------- Helpers --------------------
-def _active_file_for_house(db: Session, house_id: int) -> Optional[AccommodationFile]:
-    """
-    'Active' accommodation file = linked to this house and not closed.
-    If multiple, return the most recently opened.
-    """
-    return db.scalar(
-        select(AccommodationFile)
-        .where(AccommodationFile.house_id == house_id, AccommodationFile.closed_at.is_(None))
-        .order_by(AccommodationFile.opened_at.desc())
-        .limit(1)
-    )
+def _active_file_for_house(db: Session, house_id: int) -> Optional[House]:
+    return db.get(House, house_id)
 
 
 def _to_out(db: Session, h: House) -> HouseOut:
