@@ -4,7 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, MetaData, Table, or_, func
+from sqlalchemy import select, MetaData, Table, or_
 
 from ..deps import get_db, require_roles, get_current_user
 from ..models.domain import House, Occupancy, RoleEnum, User
@@ -14,6 +14,20 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/houses", tags=["Houses"])
 
 ALLOWED_TYPES = {"A", "B", "C", "D", "E", "F", "G", "H"}
+
+# ---------- Detect how the House model exposes the file number ----------
+# Some repos kept Python attr "file_no" mapped to DB column "file_number".
+HOUSE_FILE_ATTR = (
+    "file_number" if hasattr(House, "file_number")
+    else ("file_no" if hasattr(House, "file_no") else None)
+)
+
+def _get_house_file(h: House) -> Optional[str]:
+    return getattr(h, HOUSE_FILE_ATTR, None) if HOUSE_FILE_ATTR else None
+
+def _set_house_file(h: House, value: Optional[str]) -> None:
+    if HOUSE_FILE_ATTR:
+        setattr(h, HOUSE_FILE_ATTR, value)
 
 
 # -------------------- Pydantic Schemas --------------------
@@ -59,7 +73,7 @@ def _house_to_out(h: House) -> HouseOut:
         sector=getattr(h, "sector", None),
         type_letter=h.house_type or "",
         status=h.status,
-        file_number=getattr(h, "file_number", None),
+        file_number=_get_house_file(h),
     )
 
 def _upsert_accommodation_file(db: Session, house_id: int, file_no: Optional[str]) -> None:
@@ -131,8 +145,7 @@ def create_house(
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
-    if hasattr(House, "file_number"):
-        h.file_number = file_no
+    _set_house_file(h, file_no)
 
     db.add(h)
     db.commit()
@@ -162,13 +175,17 @@ def list_houses(
         stmt = stmt.where(House.house_type == type_letter)
     if sector and hasattr(House, "sector"):
         stmt = stmt.where(House.sector == sector)
-    if file_number and hasattr(House, "file_number"):
-        stmt = stmt.where(House.file_number == file_number)
+
+    # Use whichever attr the model exposes
+    file_attr = getattr(House, HOUSE_FILE_ATTR) if HOUSE_FILE_ATTR else None
+    if file_number and file_attr is not None:
+        stmt = stmt.where(file_attr == file_number)
+
     if q:
         like = f"%{q}%"
         ors = [House.house_no.like(like)]
-        if hasattr(House, "file_number"):
-            ors.append(House.file_number.like(like))
+        if file_attr is not None:
+            ors.append(file_attr.like(like))
         stmt = stmt.where(or_(*ors))
 
     houses = db.scalars(stmt.order_by(House.id.desc())).all()
@@ -222,7 +239,7 @@ def update_house(
     if raw_file is not None:
         new_file_no = (raw_file or "").strip() or None
     else:
-        new_file_no = getattr(h, "file_number", None)
+        new_file_no = _get_house_file(h)
 
     h.colony_id = payload.colony_id
     h.house_no = quarter_no
@@ -231,8 +248,7 @@ def update_house(
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
-    if hasattr(House, "file_number"):
-        h.file_number = new_file_no
+    _set_house_file(h, new_file_no)
 
     db.add(h)
     db.commit()
