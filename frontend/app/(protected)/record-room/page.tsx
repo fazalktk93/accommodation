@@ -1,13 +1,8 @@
-// RecordRoom.tsx (Next.js page or CRA component)
-// - CRUD selector (Browse / Issue / Receive)
-// - Issue: pick file (shows House No & Sector), enter Issued To + Remarks, Issue
-// - Browse: lists open movements (10/page) with "Keep in Record" button (Receive)
-// - Receive: pick open movement from dropdown and Receive
-
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 
+/* --------------------------- Types --------------------------- */
 type FileLite = {
   accommodation_file_id: number | null;
   house_id: number;
@@ -32,17 +27,47 @@ type Page<T> = {
   items: T[];
 };
 
+/* -------------------------- Config --------------------------- */
 const API = process.env.NEXT_PUBLIC_API ?? "http://127.0.0.1:8000";
 
-async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+/* ---------------------- Auth + Fetch ------------------------- */
+function getToken(): string | null {
+  // Try common storage keys; adjust if your app uses a specific one
+  const keys = ["token", "access_token", "jwt", "authToken"];
+  for (const k of keys) {
+    const v = typeof window !== "undefined" ? localStorage.getItem(k) : null;
+    if (v) {
+      try {
+        // if stored as JSON like {"access":"..."} pick the first string field
+        const parsed = JSON.parse(v);
+        if (typeof parsed === "string") return parsed;
+        const firstStr = Object.values(parsed).find((x) => typeof x === "string") as string | undefined;
+        if (firstStr) return firstStr;
+      } catch {
+        return v;
+      }
+    }
+  }
+  return null;
+}
+
+async function fetchJSON<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init.headers as Record<string, string>),
+  };
+  const token = getToken();
+  if (token) headers.Authorization = headers.Authorization ?? `Bearer ${token}`;
+
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status} - ${txt || res.statusText}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
   }
   return res.json();
 }
 
+/* -------------------------- Page ----------------------------- */
 export default function RecordRoom() {
   const [mode, setMode] = useState<"browse" | "issue" | "receive">("browse");
 
@@ -57,79 +82,104 @@ export default function RecordRoom() {
   const [issuedTo, setIssuedTo] = useState("");
   const [issueRemarks, setIssueRemarks] = useState("");
 
-  // Browse / Receive state
+  // Movements
   const [page, setPage] = useState(1);
   const perPage = 10;
   const [openMovements, setOpenMovements] = useState<Page<Movement> | null>(null);
 
-  // Receive state
+  // Receive
   const [receiveMovementId, setReceiveMovementId] = useState<number | "">("");
   const [receiveRemarks, setReceiveRemarks] = useState("");
 
-  // Load files for dropdown when in Issue mode
+  // Errors
+  const [error, setError] = useState<string | null>(null);
+
+  /* -------------------- Load files (Issue) -------------------- */
   useEffect(() => {
     if (mode !== "issue") return;
     const ctrl = new AbortController();
-    getJSON<FileLite[]>(
+    setError(null);
+    fetchJSON<FileLite[]>(
       `${API}/recordroom/files?q=${encodeURIComponent(fileQuery)}`,
       { signal: ctrl.signal }
     )
       .then((arr) => setFiles(Array.isArray(arr) ? arr : []))
-      .catch(() => setFiles([]));
+      .catch((e) => {
+        console.error("/recordroom/files error:", e);
+        setFiles([]);
+        setError("Could not load files. Are you logged in?");
+      });
     return () => ctrl.abort();
   }, [mode, fileQuery]);
 
-  // Load open movements (used by Browse + Receive)
+  /* --------------- Load open movements (Browse/Receive) --------------- */
   function refreshOpenMovements(newPage = page) {
-    const url = `${API}/recordroom/movements?status=open&page=${newPage}&per_page=${perPage}`;
-    getJSON<Page<Movement>>(url)
+    setError(null);
+    fetchJSON<Page<Movement>>(
+      `${API}/recordroom/movements?status=open&page=${newPage}&per_page=${perPage}`
+    )
       .then((d) => setOpenMovements(d))
-      .catch(() => setOpenMovements({ page: newPage, per_page: perPage, total: 0, items: [] }));
+      .catch((e) => {
+        console.error("/recordroom/movements error:", e);
+        setOpenMovements({ page: newPage, per_page: perPage, total: 0, items: [] });
+        setError("Could not load open movements. Are you logged in?");
+      });
   }
+
   useEffect(() => {
     refreshOpenMovements(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, mode]); // reload when mode changes so Receive dropdown stays fresh
+  }, [page, mode]);
 
-  // Actions
+  /* ------------------------- Actions ------------------------- */
   async function handleIssue() {
     if (selectedFileId === "" || !issuedTo.trim()) {
       alert("Select a file and enter ‘Issued To’.");
       return;
     }
-    await getJSON(`${API}/recordroom/issue`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        house_id: selectedFile!.house_id,
-        to_whom: issuedTo.trim(),
-        remarks: issueRemarks.trim() || null,
-      }),
-    });
-    setIssuedTo("");
-    setIssueRemarks("");
-    setSelectedFileId("");
-    setFileQuery("");
-    setMode("browse");
-    setPage(1);
-    refreshOpenMovements(1);
+    const file = files.find((f) => f.id === selectedFileId);
+    if (!file) return;
+
+    try {
+      await fetchJSON(`${API}/recordroom/issue`, {
+        method: "POST",
+        body: JSON.stringify({
+          house_id: file.house_id,                 // backend creates AF if missing
+          to_whom: issuedTo.trim(),
+          remarks: issueRemarks.trim() || null,
+        }),
+      });
+      setIssuedTo("");
+      setIssueRemarks("");
+      setSelectedFileId("");
+      setFileQuery("");
+      setMode("browse");
+      setPage(1);
+      refreshOpenMovements(1);
+    } catch (e: any) {
+      console.error("issue error:", e);
+      alert(e.message || "Issue failed");
+    }
   }
 
   async function handleReceiveById(movementId: number, remarks?: string) {
-    await getJSON(`${API}/recordroom/receive`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        movement_id: movementId,
-        remarks: remarks?.trim() || null,
-      }),
-    });
-    // refresh current page; if last item removed, go back a page if needed
-    const totalAfter = (openMovements?.total ?? 1) - 1;
-    const maxPage = Math.max(1, Math.ceil(totalAfter / perPage));
-    const nextPage = Math.min(page, maxPage);
-    setPage(nextPage);
-    refreshOpenMovements(nextPage);
+    try {
+      await fetchJSON(`${API}/recordroom/receive`, {
+        method: "POST",
+        body: JSON.stringify({
+          movement_id: movementId,
+          remarks: remarks?.trim() || null,
+        }),
+      });
+      const totalAfter = (openMovements?.total ?? 1) - 1;
+      const maxPage = Math.max(1, Math.ceil(totalAfter / perPage));
+      const nextPage = Math.min(page, maxPage);
+      setPage(nextPage);
+      refreshOpenMovements(nextPage);
+    } catch (e: any) {
+      console.error("receive error:", e);
+      alert(e.message || "Receive failed");
+    }
   }
 
   async function handleReceiveSubmit() {
@@ -143,7 +193,7 @@ export default function RecordRoom() {
     setMode("browse");
   }
 
-  // Small UI helpers
+  /* --------------------------- UI ---------------------------- */
   function FileLabel({ f }: { f: FileLite }) {
     return (
       <>
@@ -158,6 +208,12 @@ export default function RecordRoom() {
   return (
     <div style={{ maxWidth: 1040, margin: "0 auto", padding: 16 }}>
       <h2 style={{ marginBottom: 8 }}>Record Room</h2>
+
+      {error && (
+        <div style={{ background: "#fee", border: "1px solid #f99", padding: 8, borderRadius: 6, marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
 
       {/* CRUD selector */}
       <div style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
