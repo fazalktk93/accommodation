@@ -1,12 +1,12 @@
-// app/(protected)/record-room/page.tsx
 "use client";
+
 import { useEffect, useState } from "react";
-import { API } from "@/lib/api";
+import { API } from "@/lib/api"; // your existing helper that adds auth headers
 
 type Movement = {
   id: number;
   file_number: string;
-  movement: "ISSUE" | "RETURN";
+  movement: "issue" | "receive";
   moved_at: string;
   to_whom: string | null;
   remarks: string | null;
@@ -17,69 +17,76 @@ export default function RecordRoomPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // issue form
+  // Issue form
   const [fileNo, setFileNo] = useState("");
   const [toWhom, setToWhom] = useState("");
   const [issueRemarks, setIssueRemarks] = useState("");
 
-  // return form
+  // Receive form
   const [retFileNo, setRetFileNo] = useState("");
+  const [retToWhom, setRetToWhom] = useState("");
   const [retRemarks, setRetRemarks] = useState("");
 
-  async function loadOpen() {
+  async function refresh() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await API<Movement[]>("/record-room/open");
-      setOpen(data);
+      const data = await API<Movement[]>("/recordroom/movements");
+      // “Open” = latest movement for a file is ISSUE. We’ll filter client-side.
+      const latestByFile = new Map<string, Movement>();
+      for (const m of data) {
+        const prev = latestByFile.get(m.file_number);
+        if (!prev || new Date(m.moved_at) > new Date(prev.moved_at)) {
+          latestByFile.set(m.file_number, m);
+        }
+      }
+      const openList = [...latestByFile.values()].filter(m => m.movement === "issue");
+      setOpen(openList);
     } catch (e: any) {
-      setErr(e.message || "Failed to fetch");
+      setErr(e.message || "Failed to load movements");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    // initial load
-    loadOpen();
+    refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function onIssue(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await API("/record-room/issue", {
+      await API("/recordroom/issue", {
         method: "POST",
         body: JSON.stringify({
           file_number: fileNo.trim(),
           to_whom: toWhom.trim() || null,
-          remarks: issueRemarks.trim() || null,
-        }),
+          remarks: issueRemarks.trim() || null
+        })
       });
-      setFileNo("");
-      setToWhom("");
-      setIssueRemarks("");
-      await loadOpen();
+      setFileNo(""); setToWhom(""); setIssueRemarks("");
+      refresh();
     } catch (e: any) {
       alert(e.message || "Issue failed");
     }
   }
 
-  async function onReturn(e: React.FormEvent) {
+  async function onReceive(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await API("/record-room/return", {
+      await API("/recordroom/receive", {
         method: "POST",
         body: JSON.stringify({
           file_number: retFileNo.trim(),
-          remarks: retRemarks.trim() || null,
-        }),
+          to_whom: retToWhom.trim() || null,
+          remarks: retRemarks.trim() || null
+        })
       });
-      setRetFileNo("");
-      setRetRemarks("");
-      await loadOpen();
+      setRetFileNo(""); setRetToWhom(""); setRetRemarks("");
+      refresh();
     } catch (e: any) {
-      alert(e.message || "Return failed");
+      alert(e.message || "Receive failed");
     }
   }
 
@@ -87,18 +94,14 @@ export default function RecordRoomPage() {
     <main style={{ padding: "2rem", maxWidth: 900 }}>
       <h1>Record Room</h1>
 
-      {err && (
-        <p style={{ color: "crimson", marginTop: 8 }}>
-          {err}
-        </p>
-      )}
+      {err && <p style={{ color: "crimson", marginTop: 8 }}>{err}</p>}
 
       <section
         style={{
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
           gap: 16,
-          marginTop: 16,
+          marginTop: 16
         }}
       >
         <form onSubmit={onIssue} style={{ border: "1px solid #ddd", padding: 16, borderRadius: 8 }}>
@@ -135,17 +138,13 @@ export default function RecordRoomPage() {
             />
           </label>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{ padding: "8px 12px" }}
-          >
+          <button type="submit" disabled={loading} style={{ padding: "8px 12px" }}>
             {loading ? "Working..." : "Issue"}
           </button>
         </form>
 
-        <form onSubmit={onReturn} style={{ border: "1px solid #ddd", padding: 16, borderRadius: 8 }}>
-          <h2 style={{ fontWeight: 600, marginBottom: 12 }}>Return File</h2>
+        <form onSubmit={onReceive} style={{ border: "1px solid #ddd", padding: 16, borderRadius: 8 }}>
+          <h2 style={{ fontWeight: 600, marginBottom: 12 }}>Receive/Return File</h2>
 
           <label style={{ display: "block", marginBottom: 8 }}>
             <span>File Number</span>
@@ -154,6 +153,16 @@ export default function RecordRoomPage() {
               value={retFileNo}
               onChange={(e) => setRetFileNo(e.target.value)}
               placeholder="e.g. A-1234"
+              style={{ width: "100%", padding: 8, marginTop: 4 }}
+            />
+          </label>
+
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span>Received From / Location</span>
+            <input
+              value={retToWhom}
+              onChange={(e) => setRetToWhom(e.target.value)}
+              placeholder="Person/section"
               style={{ width: "100%", padding: 8, marginTop: 4 }}
             />
           </label>
@@ -168,12 +177,8 @@ export default function RecordRoomPage() {
             />
           </label>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{ padding: "8px 12px" }}
-          >
-            {loading ? "Working..." : "Return"}
+          <button type="submit" disabled={loading} style={{ padding: "8px 12px" }}>
+            {loading ? "Working..." : "Receive"}
           </button>
         </form>
       </section>
