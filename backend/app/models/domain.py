@@ -51,7 +51,7 @@ class House(Base):
 
     # Keep colony_id in the model (we can hide it in the UI)
     colony_id = Column(Integer, ForeignKey("colonies.id"), nullable=False, index=True)
-    colony = relationship("Colony", back_populates="houses")
+    colony = relationship("Colony", backref="houses")
 
     # Business identifiers
     house_no = Column(String(100), nullable=False, index=True)     # "Quarter No"
