@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, func, ForeignKey, Date, DateTime, Enum, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
 from ..db import Base
 import sqlalchemy as sa
@@ -57,7 +58,8 @@ class House(Base):
     # Business identifiers
     house_no = Column(String(100), nullable=False, index=True)     # "Quarter No"
     house_type = Column(String(50), nullable=True)                 # A–H
-    file_no = Column(String, unique=True, nullable=True)                # NEW
+    file_no = Column(String, unique=True, nullable=True)  
+    file_no: Mapped[str | None] = mapped_column("file_number", String, unique=True, index=True, nullable=True)
 
     # New address fields
     street = Column(String(120), nullable=True)                    # NEW
