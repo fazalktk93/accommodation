@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ..deps import get_db, require_roles, get_current_user
 from ..models.domain import AccommodationFile, FileMovement, RoleEnum, User
 
-router = APIRouter(prefix="/record-room", tags=["Record Room"])
+router = APIRouter(prefix="/recordroom", tags=["Record Room"])
 
 class MovementIn(BaseModel):
     file_number: str
