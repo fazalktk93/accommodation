@@ -4,8 +4,6 @@ from .db import Base, engine
 from .config import settings
 from .routers import auth, users, meta, employees, houses, applications, allotments
 from .config import settings
-from .routers import record_room
-app.include_router(record_room.router)
 
 def create_app() -> FastAPI:
     app = FastAPI(title="House Allotment Management System (FastAPI)")
