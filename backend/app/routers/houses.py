@@ -23,8 +23,9 @@ class HouseIn(BaseModel):
     street: Optional[str] = None
     sector: Optional[str] = None
     type_letter: str  # A–H
-    # This is stored in houses.file_number and mirrored to accommodation_files.file_no
+    # accept either name from the UI; we'll normalize
     file_number: Optional[str] = None
+    file_no: Optional[str] = None
 
 
 class HouseOut(BaseModel):
@@ -49,9 +50,6 @@ def _af_table(db: Session) -> Table:
     meta = MetaData()
     return Table("accommodation_files", meta, autoload_with=engine)
 
-def _af_has_column(af: Table, name: str) -> bool:
-    return name in af.columns.keys()
-
 def _house_to_out(h: House) -> HouseOut:
     return HouseOut(
         id=h.id,
@@ -68,11 +66,11 @@ def _upsert_accommodation_file(db: Session, house_id: int, file_no: Optional[str
     """
     Keep accommodation_files consistent with the house's file number.
     - If file_no is None/blank: unlink any rows pointing to this house.
-    - Else: link existing same file_no or create a new row with opened_at set.
+    - Else: link existing same file_no or create a new row (sets opened_at).
     """
     af = _af_table(db)
 
-    # Unlink anything that currently points to this house_id
+    # unlink anything that currently points to this house_id
     db.execute(af.update().where(af.c.house_id == house_id).values(house_id=None))
 
     if not file_no:
@@ -88,11 +86,10 @@ def _upsert_accommodation_file(db: Session, house_id: int, file_no: Optional[str
             raise HTTPException(409, "That accommodation file is already linked to another house")
         db.execute(af.update().where(af.c.id == existing.id).values(house_id=house_id))
     else:
+        # INSERT with a real datetime object for opened_at (NOT NULL in your DB)
         values = {"file_no": file_no, "house_id": house_id}
-        # Your table requires opened_at NOT NULL; set it if the column exists
-        if _af_has_column(af, "opened_at"):
-            # SQLite understands plain ISO strings; datetime.utcnow() is fine
-            values["opened_at"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        if "opened_at" in af.c:
+            values["opened_at"] = datetime.utcnow()
         db.execute(af.insert().values(**values))
 
     db.commit()
@@ -120,6 +117,10 @@ def create_house(
     if exists:
         raise HTTPException(400, "A house with this Quarter No already exists in the selected colony")
 
+    # normalize file number from either field name
+    raw_file = payload.file_number or payload.file_no
+    file_no = (raw_file or "").strip() or None
+
     h = House(
         colony_id=payload.colony_id,
         house_no=quarter_no,
@@ -130,8 +131,6 @@ def create_house(
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
-
-    file_no = (payload.file_number or "").strip() or None
     if hasattr(House, "file_number"):
         h.file_number = file_no
 
@@ -218,6 +217,13 @@ def update_house(
     if conflict:
         raise HTTPException(400, "Another house with the same Quarter No exists in that colony")
 
+    # normalize file number updates
+    raw_file = payload.file_number if payload.file_number is not None else payload.file_no
+    if raw_file is not None:
+        new_file_no = (raw_file or "").strip() or None
+    else:
+        new_file_no = getattr(h, "file_number", None)
+
     h.colony_id = payload.colony_id
     h.house_no = quarter_no
     h.house_type = t
@@ -225,14 +231,8 @@ def update_house(
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
-
-    # If file_number provided, update; if omitted (None), leave unchanged
-    new_file_no: Optional[str]
-    if payload.file_number is not None and hasattr(House, "file_number"):
-        new_file_no = (payload.file_number or "").strip() or None
+    if hasattr(House, "file_number"):
         h.file_number = new_file_no
-    else:
-        new_file_no = getattr(h, "file_number", None)
 
     db.add(h)
     db.commit()
