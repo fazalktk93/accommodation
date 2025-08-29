@@ -2,9 +2,7 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select
-from pydantic import BaseModel
-from ..models.domain import House
+from sqlalchemy import select, MetaData, Table, func
 
 from ..deps import get_db, require_roles, get_current_user
 from ..models.domain import (
@@ -22,14 +20,16 @@ ALLOWED_TYPES = {"A", "B", "C", "D", "E", "F", "G", "H"}
 
 
 # -------------------- Pydantic Schemas --------------------
+from pydantic import BaseModel
+
+
 class HouseIn(BaseModel):
-    # colony_id remains internal (UI can hide or default it)
     colony_id: int = 1
     quarter_no: str
     street: Optional[str] = None
     sector: Optional[str] = None
     type_letter: str  # A–H
-    # This is the SAME value used by AccommodationFile.file_no
+    # SAME value we mirror to accommodation_files.file_no
     file_number: Optional[str] = None
 
 
@@ -41,22 +41,23 @@ class HouseOut(BaseModel):
     sector: Optional[str] = None
     type_letter: str
     status: str
-    # Echoes the active AccommodationFile.file_no (linked to this house)
+    # Echoes houses.file_number (and we also mirror to accommodation_files.file_no)
     file_number: Optional[str] = None
 
     class Config:
-        # works for pydantic v1 and v2
         orm_mode = True
         from_attributes = True
 
 
 # -------------------- Helpers --------------------
-def _active_file_for_house(db: Session, house_id: int) -> Optional[House]:
-    return db.get(House, house_id)
+def _af_table(db: Session) -> Table:
+    """Reflect the accommodation_files table (id, file_no, house_id, ...)."""
+    engine = db.get_bind()
+    meta = MetaData()
+    return Table("accommodation_files", meta, autoload_with=engine)
 
 
-def _to_out(db: Session, h: House) -> HouseOut:
-    af = _active_file_for_house(db, h.id)
+def _house_to_out(h: House) -> HouseOut:
     return HouseOut(
         id=h.id,
         colony_id=h.colony_id,
@@ -65,8 +66,45 @@ def _to_out(db: Session, h: House) -> HouseOut:
         sector=getattr(h, "sector", None),
         type_letter=h.house_type or "",
         status=h.status,
-        file_number=(af.file_no if af else None),
+        file_number=getattr(h, "file_number", None),
     )
+
+
+def _upsert_accommodation_file(db: Session, house_id: int, file_no: str | None) -> None:
+    """
+    Ensure accommodation_files mirrors the house's file number.
+    - If file_no is None/blank: unlink any row pointing to this house.
+    - Else: find by file_no; if exists and linked elsewhere -> 409; otherwise link/create.
+    """
+    af = _af_table(db)
+
+    # Always unlink any row currently pointing to this house if we're about to change it
+    # (Do this first to avoid "linked elsewhere" false positives when moving numbers around)
+    db.execute(af.update().where(af.c.house_id == house_id).values(house_id=None))
+
+    if not file_no:
+        # Nothing else to do; we only unlinked
+        db.commit()
+        return
+
+    existing = db.execute(
+        select(af.c.id, af.c.house_id).where(af.c.file_no == file_no)
+    ).first()
+
+    if existing:
+        if existing.house_id and existing.house_id != house_id:
+            raise HTTPException(409, "That accommodation file is already linked to another house")
+        # Link it to this house
+        db.execute(
+            af.update().where(af.c.id == existing.id).values(house_id=house_id)
+        )
+    else:
+        # Create new row
+        db.execute(
+            af.insert().values(file_no=file_no, house_id=house_id)
+        )
+
+    db.commit()
 
 
 # -------------------- CRUD Endpoints --------------------
@@ -76,8 +114,8 @@ def create_house(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator)),
 ):
-    qn = (payload.quarter_no or "").strip()
-    if not qn:
+    quarter_no = (payload.quarter_no or "").strip()
+    if not quarter_no:
         raise HTTPException(400, "Quarter No is required")
 
     t = (payload.type_letter or "").strip().upper()
@@ -85,44 +123,36 @@ def create_house(
         raise HTTPException(400, "Type must be one of A–H")
 
     # Uniqueness within colony
-    exists = db.scalar(select(House).where(House.colony_id == payload.colony_id, House.house_no == qn))
+    exists = db.scalar(
+        select(House).where(House.colony_id == payload.colony_id, House.house_no == quarter_no)
+    )
     if exists:
         raise HTTPException(400, "A house with this Quarter No already exists in the selected colony")
 
     h = House(
         colony_id=payload.colony_id,
-        house_no=qn,
+        house_no=quarter_no,
         house_type=t,
         status="available",
     )
-    # address fields are optional in DB; set only if present
     if hasattr(House, "street"):
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
 
+    # Set houses.file_number if provided
+    file_no = (payload.file_number or "").strip() or None
+    if hasattr(House, "file_number"):
+        h.file_number = file_no
+
     db.add(h)
     db.commit()
     db.refresh(h)
 
-    # Link / create accommodation file using the SAME file number
-    if payload.file_number:
-        fn = payload.file_number.strip()
-        house = db.scalar(select(House).where(House.file_no == fn))
-        if house:
-            # prevent linking to a different house
-            if house.id and house.id != h.id:
-                raise HTTPException(409, "That accommodation file is already linked to another house")
-            house.id = h.id
-            db.add(house)
-            db.commit()
-        else:
-            # auto-create accommodation file with this number, linked to the house
-            file = AccommodationFile(file_no=fn, house_id=h.id)
-            db.add(file)
-            db.commit()
+    # Mirror to accommodation_files
+    _upsert_accommodation_file(db, h.id, file_no)
 
-    return _to_out(db, h)
+    return _house_to_out(h)
 
 
 @router.get("", response_model=List[HouseOut])
@@ -130,30 +160,31 @@ def list_houses(
     status: Optional[str] = Query(default=None, description="Filter by status"),
     type_letter: Optional[str] = Query(default=None, description="Filter by Type A–H"),
     sector: Optional[str] = Query(default=None, description="Filter by sector"),
-    file_number: Optional[str] = Query(default=None, description="Filter by accommodation file number"),
+    file_number: Optional[str] = Query(default=None, description="Filter by file number"),
+    q: Optional[str] = Query(default=None, description="Search quarter no or file number"),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     stmt = select(House)
+
     if status:
         stmt = stmt.where(House.status == status)
     if type_letter:
         stmt = stmt.where(House.house_type == type_letter)
     if sector and hasattr(House, "sector"):
         stmt = stmt.where(House.sector == sector)
+    if file_number and hasattr(House, "file_number"):
+        stmt = stmt.where(House.file_number == file_number)
+    if q:
+        # basic search across quarter_no and file_number
+        like = f"%{q}%"
+        clauses = [House.house_no.like(like)]
+        if hasattr(House, "file_number"):
+            clauses.append(House.file_number.like(like))
+        stmt = stmt.where(func.coalesce(*clauses).is_not(None))  # simple way to apply OR without text()
 
     houses = db.scalars(stmt.order_by(House.id.desc())).all()
-
-    # Optional filter by derived file_number
-    if file_number:
-        filtered: List[HouseOut] = []
-        for h in houses:
-            af = _active_file_for_house(db, h.id)
-            if af and af.file_no == file_number:
-                filtered.append(_to_out(db, h))
-        return filtered
-
-    return [_to_out(db, h) for h in houses]
+    return [_house_to_out(h) for h in houses]
 
 
 @router.get("/{house_id}", response_model=HouseOut)
@@ -165,7 +196,7 @@ def get_house(
     h = db.get(House, house_id)
     if not h:
         raise HTTPException(404, "House not found")
-    return _to_out(db, h)
+    return _house_to_out(h)
 
 
 @router.put("/{house_id}", response_model=HouseOut)
@@ -179,65 +210,44 @@ def update_house(
     if not h:
         raise HTTPException(404, "House not found")
 
-    qn = (payload.quarter_no or "").strip()
-    if not qn:
+    quarter_no = (payload.quarter_no or "").strip()
+    if not quarter_no:
         raise HTTPException(400, "Quarter No is required")
 
     t = (payload.type_letter or "").strip().upper()
     if t not in ALLOWED_TYPES:
         raise HTTPException(400, "Type must be one of A–H")
 
-    # uniqueness within colony
+    # Uniqueness within colony
     conflict = db.scalar(
-        select(House).where(House.id != house_id, House.colony_id == payload.colony_id, House.house_no == qn)
+        select(House).where(House.id != house_id, House.colony_id == payload.colony_id, House.house_no == quarter_no)
     )
     if conflict:
         raise HTTPException(400, "Another house with the same Quarter No exists in that colony")
 
     h.colony_id = payload.colony_id
-    h.house_no = qn
+    h.house_no = quarter_no
     h.house_type = t
     if hasattr(House, "street"):
         h.street = payload.street
     if hasattr(House, "sector"):
         h.sector = payload.sector
 
+    # Update houses.file_number if provided; keep as-is if None (no change)
+    if payload.file_number is not None and hasattr(House, "file_number"):
+        new_file_no = (payload.file_number or "").strip() or None
+        h.file_number = new_file_no
+    else:
+        new_file_no = getattr(h, "file_number", None)
+
     db.add(h)
     db.commit()
-
-    # Handle file number relinking:
-    # - payload.file_number == None  -> keep as-is
-    # - payload.file_number == ""    -> unlink active file
-    # - payload.file_number == "..." -> link existing or create new with that number
-    if payload.file_number is not None:
-        fn = payload.file_number.strip()
-        if fn == "":
-            af = _active_file_for_house(db, h.id)
-            if af:
-                af.house_id = None
-                db.add(af)
-                db.commit()
-        else:
-            file = db.scalar(select(AccommodationFile).where(AccommodationFile.file_no == fn))
-            if file and file.house_id and file.house_id != h.id:
-                raise HTTPException(409, "That accommodation file is already linked to another house")
-
-            # unlink current active file if different
-            af = _active_file_for_house(db, h.id)
-            if af and (not file or af.id != file.id):
-                af.house_id = None
-                db.add(af)
-
-            if not file:
-                file = AccommodationFile(file_no=fn, house_id=h.id)
-            else:
-                file.house_id = h.id
-
-            db.add(file)
-            db.commit()
-
     db.refresh(h)
-    return _to_out(db, h)
+
+    # Mirror to accommodation_files
+    _upsert_accommodation_file(db, h.id, new_file_no)
+
+    return _house_to_out(h)
 
 
 @router.delete("/{house_id}")
@@ -255,11 +265,9 @@ def delete_house(
     if occ:
         raise HTTPException(400, "House has occupancy history; cannot delete")
 
-    # Unlink any active accommodation file
-    af = _active_file_for_house(db, house_id)
-    if af:
-        af.house_id = None
-        db.add(af)
+    # Unlink any accommodation_files pointing to this house
+    af = _af_table(db)
+    db.execute(af.update().where(af.c.house_id == house_id).values(house_id=None))
 
     db.delete(h)
     db.commit()
