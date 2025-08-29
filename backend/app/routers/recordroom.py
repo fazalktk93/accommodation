@@ -16,11 +16,11 @@ accommodation_files = Table("accommodation_files", meta)
 
 # ---------- Schemas ----------
 class FileLite(BaseModel):
-    id: int                      # accommodation_file_id
-    file_number: str             # from accommodation_files.file_no
-    house_id: Optional[int] = None
-    house_no: Optional[str] = None
-    sector: Optional[str] = None
+    accommodation_file_id: int | None  # may be None if not created yet
+    house_id: int
+    file_number: str
+    house_no: str | None = None
+    sector: str | None = None
 
 class MovementOut(BaseModel):
     id: int
@@ -37,13 +37,13 @@ class Page(BaseModel):
     items: List[MovementOut]
 
 class IssueIn(BaseModel):
-    accommodation_file_id: int
+    house_id: int
     to_whom: str
-    remarks: Optional[str] = None
+    remarks: str | None = None
 
 class ReceiveIn(BaseModel):
     movement_id: int
-    remarks: Optional[str] = None
+    remarks: str | None = None
 
 def paginate(q, page: int, per_page: int, db: Session):
     total = db.scalar(select(func.count()).select_from(q.subquery()))
@@ -52,37 +52,35 @@ def paginate(q, page: int, per_page: int, db: Session):
 
 # ---------- Endpoints ----------
 
-@router.get("/files", response_model=List[FileLite])
+@router.get("/files", response_model=list[FileLite])
 def list_files(q: str = Query("", description="search by file number"),
-               db: Session = Depends(get_db),
-               user: User = Depends(get_current_user)):
-    """
-    Dropdown source:
-      - accommodation_files.file_no as file_number
-      - join houses for house_no/sector label
-    """
+            db: Session = Depends(get_db),
+            user: User = Depends(get_current_user)):
     stmt = (
         select(
-            accommodation_files.c.id.label("id"),
-            accommodation_files.c.file_no.label("file_number"),
-            accommodation_files.c.house_id.label("house_id"),
+            accommodation_files.c.id.label("accommodation_file_id"),
+            House.id.label("house_id"),
+            House.file_number.label("file_number"),
             House.house_no,
             House.sector,
         )
-        .select_from(accommodation_files.outerjoin(House, House.id == accommodation_files.c.house_id))
-        .where(accommodation_files.c.file_no.is_not(None))
-        .where(accommodation_files.c.file_no.ilike(f"%{q}%"))
-        .order_by(accommodation_files.c.file_no)
+        .select_from(House.outerjoin(accommodation_files, accommodation_files.c.house_id == House.id))
+        .where(House.file_number.is_not(None))
+        .where(House.file_number.ilike(f"%{q}%"))
+        .order_by(House.file_number)
         .limit(30)
     )
     rows = db.execute(stmt).all()
-    return [FileLite(
-        id=r.id,
-        file_number=r.file_number,
-        house_id=r.house_id,
-        house_no=r.house_no,
-        sector=r.sector
-    ) for r in rows]
+    return [
+        FileLite(
+            accommodation_file_id=r.accommodation_file_id,
+            house_id=r.house_id,
+            file_number=r.file_number,
+            house_no=r.house_no,
+            sector=r.sector,
+        )
+        for r in rows
+    ]
 
 @router.get("/movements", response_model=Page)
 def list_movements(page: int = Query(1, ge=1),
@@ -132,21 +130,34 @@ def list_movements(page: int = Query(1, ge=1),
 def issue_file(payload: IssueIn,
                db: Session = Depends(get_db),
                user: User = Depends(get_current_user)):
-    """
-    Issue by accommodation_file_id: look up file_no and write both
-    accommodation_file_id and file_number to file_movements.
-    """
-    # Get file_no and house info for label
-    af = db.execute(
-        select(accommodation_files.c.file_no, accommodation_files.c.house_id)
-        .where(accommodation_files.c.id == payload.accommodation_file_id)
+
+    # Find the house; must have a file_number
+    house = db.get(House, payload.house_id)
+    if not house or not getattr(house, "file_number", None):
+        raise HTTPException(404, "House or file number not found")
+
+    # Find or create accommodation_file for this house
+    af_row = db.execute(
+        select(accommodation_files.c.id, accommodation_files.c.file_no)
+        .where(accommodation_files.c.house_id == house.id)
     ).first()
-    if not af:
-        raise HTTPException(404, "Accommodation file not found")
+
+    if af_row:
+        af_id = af_row.id
+        file_no = af_row.file_no or house.file_number
+    else:
+        # create it now so everything aligns
+        ins = accommodation_files.insert().values(
+            file_no=house.file_number,
+            house_id=house.id,
+        )
+        af_id = db.execute(ins).inserted_primary_key[0]
+        file_no = house.file_number
+        db.commit()
 
     mv = FileMovement(
-        accommodation_file_id=payload.accommodation_file_id,
-        file_number=af.file_no,          # keep denormalized copy for easy queries
+        accommodation_file_id=af_id,
+        file_number=file_no,          # denormalized for fast listing
         movement="issue",
         to_whom=payload.to_whom,
         remarks=payload.remarks,

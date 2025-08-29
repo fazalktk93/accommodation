@@ -9,9 +9,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 type FileLite = {
-  id: number;            // accommodation_file_id
-  file_number: string;   // from accommodation_files.file_no
-  house_id?: number | null;
+  accommodation_file_id: number | null;
+  house_id: number;
+  file_number: string;
   house_no?: string | null;
   sector?: string | null;
 };
@@ -101,7 +101,7 @@ export default function RecordRoom() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        accommodation_file_id: selectedFileId,
+        house_id: selectedFile!.house_id,
         to_whom: issuedTo.trim(),
         remarks: issueRemarks.trim() || null,
       }),
