@@ -174,7 +174,7 @@ export default function HousesPage() {
                 className="border rounded px-2 py-1"
                 value={form.file_number ?? ""}
                 onChange={(e) => onChange("file_number", e.target.value)}
-                placeholder="e.g. GWL-2024-0157"
+                placeholder="e.g. 0157"
               />
             </label>
           </div>
