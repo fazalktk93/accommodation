@@ -15,6 +15,18 @@ from ..models.domain import (
 )
 from ..schemas import OccupancyOut
 
+# --- BEGIN DIAGNOSTICS (remove after fixing) ---
+try:
+    url = db.get_bind().url
+    print(f"[DIAG] Using DB URL: {url!s}")
+    rows = db.execute(text("PRAGMA database_list;")).all()
+    print("[DIAG] PRAGMA database_list:", rows)
+    cols = db.execute(text("PRAGMA table_info(houses);")).all()
+    print("[DIAG] houses columns:", cols)
+except Exception as e:
+    print("[DIAG] failed:", e)
+# --- END DIAGNOSTICS ---
+
 router = APIRouter(prefix="/houses", tags=["Houses"])
 
 ALLOWED_TYPES = {"A", "B", "C", "D", "E", "F", "G", "H"}
