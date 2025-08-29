@@ -186,4 +186,9 @@ def receive_file(payload: ReceiveIn,
 
     return MovementOut(
         id=mv2.id,
-        file_number=mv2.file_number or "-
+        file_number=mv2.file_number or "-",
+        movement=mv2.movement,
+        moved_at=mv2.moved_at.isoformat(),
+        to_whom=mv2.to_whom,
+        remarks=mv2.remarks,
+    )
