@@ -1,204 +1,350 @@
+// RecordRoom.tsx (Next.js page or CRA component)
+// - CRUD selector (Browse / Issue / Receive)
+// - Issue: pick file (shows House No & Sector), enter Issued To + Remarks, Issue
+// - Browse: lists open movements (10/page) with "Keep in Record" button (Receive)
+// - Receive: pick open movement from dropdown and Receive
+
 "use client";
 
-import { useEffect, useState } from "react";
-import { API } from "@/lib/api"; // your existing helper that adds auth headers
+import React, { useEffect, useMemo, useState } from "react";
+
+type FileLite = {
+  id: number;            // accommodation_file_id
+  file_number: string;   // from accommodation_files.file_no
+  house_id?: number | null;
+  house_no?: string | null;
+  sector?: string | null;
+};
 
 type Movement = {
   id: number;
-  file_number: string;
+  file_number: string | null;
   movement: "issue" | "receive";
   moved_at: string;
-  to_whom: string | null;
-  remarks: string | null;
+  to_whom?: string | null;
+  remarks?: string | null;
 };
 
-export default function RecordRoomPage() {
-  const [open, setOpen] = useState<Movement[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+type Page<T> = {
+  page: number;
+  per_page: number;
+  total: number;
+  items: T[];
+};
 
-  // Issue form
-  const [fileNo, setFileNo] = useState("");
-  const [toWhom, setToWhom] = useState("");
+const API = process.env.NEXT_PUBLIC_API ?? "http://127.0.0.1:8000";
+
+async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status} - ${txt || res.statusText}`);
+  }
+  return res.json();
+}
+
+export default function RecordRoom() {
+  const [mode, setMode] = useState<"browse" | "issue" | "receive">("browse");
+
+  // Issue state
+  const [fileQuery, setFileQuery] = useState("");
+  const [files, setFiles] = useState<FileLite[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<number | "">("");
+  const selectedFile = useMemo(
+    () => files.find((f) => f.id === (typeof selectedFileId === "number" ? selectedFileId : -1)),
+    [files, selectedFileId]
+  );
+  const [issuedTo, setIssuedTo] = useState("");
   const [issueRemarks, setIssueRemarks] = useState("");
 
-  // Receive form
-  const [retFileNo, setRetFileNo] = useState("");
-  const [retToWhom, setRetToWhom] = useState("");
-  const [retRemarks, setRetRemarks] = useState("");
+  // Browse / Receive state
+  const [page, setPage] = useState(1);
+  const perPage = 10;
+  const [openMovements, setOpenMovements] = useState<Page<Movement> | null>(null);
 
-  async function refresh() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const data = await API<Movement[]>("/recordroom/movements");
-      // “Open” = latest movement for a file is ISSUE. We’ll filter client-side.
-      const latestByFile = new Map<string, Movement>();
-      for (const m of data) {
-        const prev = latestByFile.get(m.file_number);
-        if (!prev || new Date(m.moved_at) > new Date(prev.moved_at)) {
-          latestByFile.set(m.file_number, m);
-        }
-      }
-      const openList = [...latestByFile.values()].filter(m => m.movement === "issue");
-      setOpen(openList);
-    } catch (e: any) {
-      setErr(e.message || "Failed to load movements");
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Receive state
+  const [receiveMovementId, setReceiveMovementId] = useState<number | "">("");
+  const [receiveRemarks, setReceiveRemarks] = useState("");
 
+  // Load files for dropdown when in Issue mode
   useEffect(() => {
-    refresh();
+    if (mode !== "issue") return;
+    const ctrl = new AbortController();
+    getJSON<FileLite[]>(
+      `${API}/recordroom/files?q=${encodeURIComponent(fileQuery)}`,
+      { signal: ctrl.signal }
+    )
+      .then((arr) => setFiles(Array.isArray(arr) ? arr : []))
+      .catch(() => setFiles([]));
+    return () => ctrl.abort();
+  }, [mode, fileQuery]);
+
+  // Load open movements (used by Browse + Receive)
+  function refreshOpenMovements(newPage = page) {
+    const url = `${API}/recordroom/movements?status=open&page=${newPage}&per_page=${perPage}`;
+    getJSON<Page<Movement>>(url)
+      .then((d) => setOpenMovements(d))
+      .catch(() => setOpenMovements({ page: newPage, per_page: perPage, total: 0, items: [] }));
+  }
+  useEffect(() => {
+    refreshOpenMovements(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page, mode]); // reload when mode changes so Receive dropdown stays fresh
 
-  async function onIssue(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await API("/recordroom/issue", {
-        method: "POST",
-        body: JSON.stringify({
-          file_number: fileNo.trim(),
-          to_whom: toWhom.trim() || null,
-          remarks: issueRemarks.trim() || null
-        })
-      });
-      setFileNo(""); setToWhom(""); setIssueRemarks("");
-      refresh();
-    } catch (e: any) {
-      alert(e.message || "Issue failed");
+  // Actions
+  async function handleIssue() {
+    if (selectedFileId === "" || !issuedTo.trim()) {
+      alert("Select a file and enter ‘Issued To’.");
+      return;
     }
+    await getJSON(`${API}/recordroom/issue`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accommodation_file_id: selectedFileId,
+        to_whom: issuedTo.trim(),
+        remarks: issueRemarks.trim() || null,
+      }),
+    });
+    setIssuedTo("");
+    setIssueRemarks("");
+    setSelectedFileId("");
+    setFileQuery("");
+    setMode("browse");
+    setPage(1);
+    refreshOpenMovements(1);
   }
 
-  async function onReceive(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await API("/recordroom/receive", {
-        method: "POST",
-        body: JSON.stringify({
-          file_number: retFileNo.trim(),
-          to_whom: retToWhom.trim() || null,
-          remarks: retRemarks.trim() || null
-        })
-      });
-      setRetFileNo(""); setRetToWhom(""); setRetRemarks("");
-      refresh();
-    } catch (e: any) {
-      alert(e.message || "Receive failed");
-    }
+  async function handleReceiveById(movementId: number, remarks?: string) {
+    await getJSON(`${API}/recordroom/receive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        movement_id: movementId,
+        remarks: remarks?.trim() || null,
+      }),
+    });
+    // refresh current page; if last item removed, go back a page if needed
+    const totalAfter = (openMovements?.total ?? 1) - 1;
+    const maxPage = Math.max(1, Math.ceil(totalAfter / perPage));
+    const nextPage = Math.min(page, maxPage);
+    setPage(nextPage);
+    refreshOpenMovements(nextPage);
   }
+
+  async function handleReceiveSubmit() {
+    if (receiveMovementId === "") {
+      alert("Choose an open movement to receive.");
+      return;
+    }
+    await handleReceiveById(receiveMovementId as number, receiveRemarks);
+    setReceiveMovementId("");
+    setReceiveRemarks("");
+    setMode("browse");
+  }
+
+  // Small UI helpers
+  function FileLabel({ f }: { f: FileLite }) {
+    return (
+      <>
+        {f.file_number} — House {f.house_no ?? "-"}, Sector {f.sector ?? "-"}
+      </>
+    );
+  }
+
+  const totalPages =
+    openMovements?.total ? Math.max(1, Math.ceil(openMovements.total / (openMovements.per_page || perPage))) : 1;
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 900 }}>
-      <h1>Record Room</h1>
+    <div style={{ maxWidth: 1040, margin: "0 auto", padding: 16 }}>
+      <h2 style={{ marginBottom: 8 }}>Record Room</h2>
 
-      {err && <p style={{ color: "crimson", marginTop: 8 }}>{err}</p>}
+      {/* CRUD selector */}
+      <div style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
+        <label>Choose action:</label>
+        <select value={mode} onChange={(e) => setMode(e.target.value as any)}>
+          <option value="browse">Browse (Open files)</option>
+          <option value="issue">Issue file</option>
+          <option value="receive">Receive / Keep in Record</option>
+        </select>
+      </div>
 
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 16,
-          marginTop: 16
-        }}
-      >
-        <form onSubmit={onIssue} style={{ border: "1px solid #ddd", padding: 16, borderRadius: 8 }}>
-          <h2 style={{ fontWeight: 600, marginBottom: 12 }}>Issue File</h2>
+      {/* ISSUE */}
+      {mode === "issue" && (
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+          <h4 style={{ marginTop: 0 }}>Issue File</h4>
 
-          <label style={{ display: "block", marginBottom: 8 }}>
-            <span>File Number</span>
-            <input
-              required
-              value={fileNo}
-              onChange={(e) => setFileNo(e.target.value)}
-              placeholder="e.g. A-1234"
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div>
+              <label style={{ fontWeight: 600 }}>Search File Number</label>
+              <input
+                value={fileQuery}
+                onChange={(e) => setFileQuery(e.target.value)}
+                placeholder="Type part of the file number…"
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+              />
+            </div>
 
-          <label style={{ display: "block", marginBottom: 8 }}>
-            <span>Issued To</span>
-            <input
-              value={toWhom}
-              onChange={(e) => setToWhom(e.target.value)}
-              placeholder="Person/section"
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
+            <div>
+              <label style={{ fontWeight: 600 }}>Select File</label>
+              <select
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+                value={selectedFileId}
+                onChange={(e) => setSelectedFileId(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">— Select —</option>
+                {(files ?? []).map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.file_number} — House {f.house_no ?? "-"}, Sector {f.sector ?? "-"}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
+                {selectedFile ? (
+                  <>Selected: <FileLabel f={selectedFile} /></>
+                ) : (
+                  "Select a file to see House & Sector"
+                )}
+              </div>
+            </div>
 
-          <label style={{ display: "block", marginBottom: 12 }}>
-            <span>Remarks</span>
-            <textarea
-              value={issueRemarks}
-              onChange={(e) => setIssueRemarks(e.target.value)}
-              rows={3}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
+            <div>
+              <label style={{ fontWeight: 600 }}>Issued To</label>
+              <input
+                value={issuedTo}
+                onChange={(e) => setIssuedTo(e.target.value)}
+                placeholder="Person / Section"
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+              />
+            </div>
 
-          <button type="submit" disabled={loading} style={{ padding: "8px 12px" }}>
-            {loading ? "Working..." : "Issue"}
-          </button>
-        </form>
+            <div>
+              <label style={{ fontWeight: 600 }}>Remarks</label>
+              <textarea
+                value={issueRemarks}
+                onChange={(e) => setIssueRemarks(e.target.value)}
+                placeholder="Optional"
+                rows={3}
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+              />
+            </div>
 
-        <form onSubmit={onReceive} style={{ border: "1px solid #ddd", padding: 16, borderRadius: 8 }}>
-          <h2 style={{ fontWeight: 600, marginBottom: 12 }}>Receive/Return File</h2>
-
-          <label style={{ display: "block", marginBottom: 8 }}>
-            <span>File Number</span>
-            <input
-              required
-              value={retFileNo}
-              onChange={(e) => setRetFileNo(e.target.value)}
-              placeholder="e.g. A-1234"
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
-
-          <label style={{ display: "block", marginBottom: 8 }}>
-            <span>Received From / Location</span>
-            <input
-              value={retToWhom}
-              onChange={(e) => setRetToWhom(e.target.value)}
-              placeholder="Person/section"
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
-
-          <label style={{ display: "block", marginBottom: 12 }}>
-            <span>Remarks</span>
-            <textarea
-              value={retRemarks}
-              onChange={(e) => setRetRemarks(e.target.value)}
-              rows={3}
-              style={{ width: "100%", padding: 8, marginTop: 4 }}
-            />
-          </label>
-
-          <button type="submit" disabled={loading} style={{ padding: "8px 12px" }}>
-            {loading ? "Working..." : "Receive"}
-          </button>
-        </form>
-      </section>
-
-      <h2 style={{ marginTop: 24, fontWeight: 600 }}>Currently Issued (Open Movements)</h2>
-      {loading ? (
-        <p>Loading…</p>
-      ) : (
-        <ul style={{ marginTop: 8 }}>
-          {open.length === 0 && <li>No open movements.</li>}
-          {open.map((m) => (
-            <li key={m.id} style={{ padding: "8px 0", borderBottom: "1px solid #eee" }}>
-              <div style={{ fontWeight: 600 }}>{m.file_number}</div>
-              <div>Issued to: {m.to_whom || "—"}</div>
-              <div>When: {new Date(m.moved_at).toLocaleString()}</div>
-              {m.remarks && <div>Remarks: {m.remarks}</div>}
-            </li>
-          ))}
-        </ul>
+            <div>
+              <button onClick={handleIssue} style={{ padding: "8px 12px" }}>
+                Issue
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </main>
+
+      {/* RECEIVE */}
+      {mode === "receive" && (
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+          <h4 style={{ marginTop: 0 }}>Receive / Keep in Record</h4>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div>
+              <label style={{ fontWeight: 600 }}>Open Movement</label>
+              <select
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+                value={receiveMovementId}
+                onChange={(e) => setReceiveMovementId(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">— Select —</option>
+                {(openMovements?.items ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {(m.file_number ?? "-")} — issued to {m.to_whom ?? "-"} at{" "}
+                    {new Date(m.moved_at).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontWeight: 600 }}>Remarks</label>
+              <textarea
+                value={receiveRemarks}
+                onChange={(e) => setReceiveRemarks(e.target.value)}
+                placeholder="Optional"
+                rows={3}
+                style={{ width: "100%", padding: 8, marginTop: 4 }}
+              />
+            </div>
+
+            <div>
+              <button onClick={handleReceiveSubmit} style={{ padding: "8px 12px" }}>
+                Receive
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BROWSE (Open Movements) */}
+      <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: 12 }}>
+        <h4 style={{ marginTop: 0 }}>Currently Issued (Open Movements)</h4>
+
+        <div style={{ overflowX: "auto" }}>
+          <table width="100%" cellPadding={6} style={{ borderCollapse: "collapse", minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th align="left">File Number</th>
+                <th align="left">Issued To</th>
+                <th align="left">Remarks</th>
+                <th align="left">Issued At</th>
+                <th align="left">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(openMovements?.items ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={5}>No open movements.</td>
+                </tr>
+              ) : (
+                openMovements!.items.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.file_number ?? "-"}</td>
+                    <td>{m.to_whom ?? "-"}</td>
+                    <td>{m.remarks ?? "-"}</td>
+                    <td>{new Date(m.moved_at).toLocaleString()}</td>
+                    <td>
+                      <button
+                        onClick={() => {
+                          const r = prompt("Optional remarks for receiving this file:", "");
+                          handleReceiveById(m.id, r ?? undefined);
+                        }}
+                      >
+                        Keep in Record
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+          <button disabled={(openMovements?.page ?? 1) <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            Prev
+          </button>
+          <div>
+            Page {openMovements?.page ?? 1} / {totalPages}
+          </div>
+          <button
+            disabled={!openMovements || openMovements.page * openMovements.per_page >= openMovements.total}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </button>
+          <div style={{ marginLeft: "auto", opacity: 0.7 }}>
+            Total open: {openMovements?.total ?? 0}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
+
+export default RecordRoom;
