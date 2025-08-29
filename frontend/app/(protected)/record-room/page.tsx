@@ -30,22 +30,21 @@ type Page<T> = {
 /* -------------------------- Config --------------------------- */
 const API = process.env.NEXT_PUBLIC_API ?? "http://127.0.0.1:8000";
 
-/* ---------------------- Auth + Fetch ------------------------- */
 function getToken(): string | null {
-  // Try common storage keys; adjust if your app uses a specific one
-  const keys = ["token", "access_token", "jwt", "authToken"];
+  const keys = [
+    "token","access_token","jwt","authToken",
+    "accessToken","Authorization","bearer","auth"
+  ];
   for (const k of keys) {
-    const v = typeof window !== "undefined" ? localStorage.getItem(k) : null;
-    if (v) {
-      try {
-        // if stored as JSON like {"access":"..."} pick the first string field
-        const parsed = JSON.parse(v);
-        if (typeof parsed === "string") return parsed;
-        const firstStr = Object.values(parsed).find((x) => typeof x === "string") as string | undefined;
-        if (firstStr) return firstStr;
-      } catch {
-        return v;
-      }
+    const v = typeof window !== "undefined" ? (localStorage.getItem(k) || sessionStorage.getItem(k)) : null;
+    if (!v) continue;
+    try {
+      const parsed = JSON.parse(v);
+      if (typeof parsed === "string") return parsed;
+      const firstStr = Object.values(parsed).find((x) => typeof x === "string") as string | undefined;
+      if (firstStr) return firstStr;
+    } catch {
+      return v;
     }
   }
   return null;
@@ -57,9 +56,14 @@ async function fetchJSON<T>(url: string, init: RequestInit = {}): Promise<T> {
     ...(init.headers as Record<string, string>),
   };
   const token = getToken();
-  if (token) headers.Authorization = headers.Authorization ?? `Bearer ${token}`;
-
-  const res = await fetch(url, { ...init, headers });
+  if (token && !headers.Authorization) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  }
+  const res = await fetch(url, {
+    ...init,
+    headers,
+    credentials: "include",   // send cookies too (if your login uses them)
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
