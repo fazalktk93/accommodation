@@ -201,11 +201,11 @@ export default function HousesPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-3 py-2 text-left">ID</th>
+              <th className="px-3 py-2 text-left">File Number</th>
               <th className="px-3 py-2 text-left">Quarter No</th>
               <th className="px-3 py-2 text-left">Street</th>
               <th className="px-3 py-2 text-left">Sector</th>
               <th className="px-3 py-2 text-left">Type</th>
-              <th className="px-3 py-2 text-left">File Number</th>
               <th className="px-3 py-2 text-left">Status</th>
               <th className="px-3 py-2"></th>
             </tr>
@@ -214,11 +214,11 @@ export default function HousesPage() {
             {items.map(h => (
               <tr key={h.id} className="border-t">
                 <td className="px-3 py-2">{h.id}</td>
+                <td className="px-3 py-2">{h.file_number || "—"}</td>
                 <td className="px-3 py-2">{h.quarter_no}</td>
                 <td className="px-3 py-2">{h.street || "—"}</td>
                 <td className="px-3 py-2">{h.sector || "—"}</td>
                 <td className="px-3 py-2">{h.type_letter}</td>
-                <td className="px-3 py-2">{h.file_number || "—"}</td>
                 <td className="px-3 py-2">{h.status}</td>
                 <td className="px-3 py-2 text-right">
                   {me && (me.role === "admin" || me.role === "operator") ? (
