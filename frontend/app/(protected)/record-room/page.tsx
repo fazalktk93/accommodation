@@ -1,4 +1,10 @@
 "use client";
+const API =
+  process.env.NEXT_PUBLIC_API ??
+  (typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : "http://192.168.0.105:8000");
+
 
 import React, { useEffect, useMemo, useState } from "react";
 
