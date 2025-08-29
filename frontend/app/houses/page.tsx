@@ -8,12 +8,13 @@ type Role = "admin" | "operator" | "viewer";
 
 type House = {
   id: number;
-  colony_id: number;
+  colony_id: number;       // still present but hidden in UI
   quarter_no: string;
   street?: string | null;
   sector?: string | null;
   type_letter: string;
   status: string;
+  file_number?: string | null;
 };
 
 type Me = { id: number; email: string; role: Role };
@@ -26,19 +27,19 @@ export default function HousesPage() {
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
 
-  // Form state
+  // Form state (no Colony ID input now; we keep colony_id=1 by default for now)
   const [form, setForm] = useState<Partial<House>>({
-    colony_id: 1, // default colony (replace with dropdown if you like)
+    colony_id: 1,
     quarter_no: "",
     street: "",
     sector: "",
     type_letter: "A",
+    file_number: "",
   });
   const [editingId, setEditingId] = useState<number | null>(null);
   const canWrite = me?.role === "admin" || me?.role === "operator";
 
   useEffect(() => {
-    // simple client-side guard
     if (typeof window !== "undefined" && !localStorage.getItem("token")) {
       router.replace("/login");
       return;
@@ -72,30 +73,20 @@ export default function HousesPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
+      const payload = {
+        colony_id: form.colony_id ?? 1, // hidden default
+        quarter_no: form.quarter_no,
+        street: form.street,
+        sector: form.sector,
+        type_letter: form.type_letter,
+        file_number: form.file_number,
+      };
       if (editingId) {
-        await API(`/houses/${editingId}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            colony_id: form.colony_id,
-            quarter_no: form.quarter_no,
-            street: form.street,
-            sector: form.sector,
-            type_letter: form.type_letter,
-          }),
-        });
+        await API(`/houses/${editingId}`, { method: "PUT", body: JSON.stringify(payload) });
       } else {
-        await API("/houses", {
-          method: "POST",
-          body: JSON.stringify({
-            colony_id: form.colony_id,
-            quarter_no: form.quarter_no,
-            street: form.street,
-            sector: form.sector,
-            type_letter: form.type_letter,
-          }),
-        });
+        await API("/houses", { method: "POST", body: JSON.stringify(payload) });
       }
-      setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A" });
+      setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A", file_number: "" });
       setEditingId(null);
       await refresh();
     } catch (e:any) {
@@ -111,6 +102,7 @@ export default function HousesPage() {
       street: h.street || "",
       sector: h.sector || "",
       type_letter: h.type_letter,
+      file_number: h.file_number || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -134,18 +126,6 @@ export default function HousesPage() {
       {canWrite && (
         <form onSubmit={onSubmit} className="grid gap-3 bg-white p-4 rounded border">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <label className="flex flex-col text-sm">
-              <span className="mb-1">Colony ID</span>
-              <input
-                className="border rounded px-2 py-1"
-                value={form.colony_id ?? 1}
-                onChange={(e) => onChange("colony_id", Number(e.target.value) || 1)}
-                type="number"
-                min={1}
-                required
-              />
-            </label>
-
             <label className="flex flex-col text-sm">
               <span className="mb-1">Quarter No</span>
               <input
@@ -187,19 +167,26 @@ export default function HousesPage() {
                 {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </label>
+
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">File Number</span>
+              <input
+                className="border rounded px-2 py-1"
+                value={form.file_number ?? ""}
+                onChange={(e) => onChange("file_number", e.target.value)}
+                placeholder="e.g. GWL-2024-0157"
+              />
+            </label>
           </div>
 
           <div className="flex gap-2">
-            <button
-              type="submit"
-              className="px-3 py-2 rounded bg-black text-white"
-            >
+            <button type="submit" className="px-3 py-2 rounded bg-black text-white">
               {editingId ? "Update House" : "Add House"}
             </button>
             {editingId && (
               <button
                 type="button"
-                onClick={() => { setEditingId(null); setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A" }); }}
+                onClick={() => { setEditingId(null); setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A", file_number: "" }); }}
                 className="px-3 py-2 rounded border"
               >
                 Cancel
@@ -214,11 +201,11 @@ export default function HousesPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-3 py-2 text-left">ID</th>
-              <th className="px-3 py-2 text-left">Colony</th>
               <th className="px-3 py-2 text-left">Quarter No</th>
               <th className="px-3 py-2 text-left">Street</th>
               <th className="px-3 py-2 text-left">Sector</th>
               <th className="px-3 py-2 text-left">Type</th>
+              <th className="px-3 py-2 text-left">File Number</th>
               <th className="px-3 py-2 text-left">Status</th>
               <th className="px-3 py-2"></th>
             </tr>
@@ -227,17 +214,17 @@ export default function HousesPage() {
             {items.map(h => (
               <tr key={h.id} className="border-t">
                 <td className="px-3 py-2">{h.id}</td>
-                <td className="px-3 py-2">{h.colony_id}</td>
                 <td className="px-3 py-2">{h.quarter_no}</td>
                 <td className="px-3 py-2">{h.street || "—"}</td>
                 <td className="px-3 py-2">{h.sector || "—"}</td>
                 <td className="px-3 py-2">{h.type_letter}</td>
+                <td className="px-3 py-2">{h.file_number || "—"}</td>
                 <td className="px-3 py-2">{h.status}</td>
                 <td className="px-3 py-2 text-right">
-                  {canWrite ? (
+                  {me && (me.role === "admin" || me.role === "operator") ? (
                     <div className="flex gap-2 justify-end">
                       <button onClick={() => onEdit(h)} className="px-2 py-1 border rounded">Edit</button>
-                      {me?.role === "admin" && (
+                      {me.role === "admin" && (
                         <button onClick={() => onDelete(h.id)} className="px-2 py-1 border rounded">Delete</button>
                       )}
                     </div>

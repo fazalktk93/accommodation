@@ -49,7 +49,7 @@ class Colony(Base):
 class House(Base):
     __tablename__ = "houses"
     id = Column(Integer, primary_key=True)
-    colony_id = Column(Integer, ForeignKey("colonies.id", ondelete="RESTRICT"), nullable=False)
+    file_number = Column(String(50), nullable=True)
     house_no = Column(String(50), nullable=False)
     house_type = Column(String(50), nullable=True)
     street = Column(String(120), nullable=True)

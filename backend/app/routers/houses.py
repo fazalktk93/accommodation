@@ -15,11 +15,13 @@ ALLOWED_TYPES = {"A","B","C","D","E","F","G","H"}
 
 # ---- Pydantic schemas ----
 class HouseIn(BaseModel):
-    colony_id: int
+    # colony_id stays in the payload for now; UI won’t expose it
+    colony_id: int = 1
     quarter_no: str
     street: Optional[str] = None
     sector: Optional[str] = None
     type_letter: str  # A–H
+    file_number: Optional[str] = None
 
 class HouseOut(BaseModel):
     id: int
@@ -29,8 +31,10 @@ class HouseOut(BaseModel):
     sector: Optional[str] = None
     type_letter: str
     status: str
+    file_number: Optional[str] = None
 
     class Config:
+        orm_mode = True
         from_attributes = True
 
 def _to_out(h: House) -> HouseOut:
@@ -42,6 +46,7 @@ def _to_out(h: House) -> HouseOut:
         sector=getattr(h, "sector", None),
         type_letter=h.house_type or "",
         status=h.status,
+        file_number=getattr(h, "file_number", None),
     )
 
 # ---- CRUD endpoints ----
@@ -72,6 +77,11 @@ def create_house(
         sector=payload.sector,
         status="available",
     )
+
+    # set file number only if the column exists (safe during rollout)
+    if hasattr(House, "file_number"):
+        row.file_number = payload.file_number
+
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -139,6 +149,8 @@ def update_house(
     h.house_type = payload.type_letter
     h.street = payload.street
     h.sector = payload.sector
+    if hasattr(House, "file_number"):
+        h.file_number = payload.file_number
 
     db.add(h)
     db.commit()
@@ -155,7 +167,6 @@ def delete_house(
     if not h:
         raise HTTPException(404, "House not found")
 
-    # safety: block delete if occupancy history exists
     occ = db.scalar(select(Occupancy).where(Occupancy.house_id == house_id))
     if occ:
         raise HTTPException(400, "House has occupancy history; cannot delete")
