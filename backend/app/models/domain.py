@@ -135,32 +135,30 @@ class WaitingList(Base):
 __table_args__ = (sa.Index("ix_wl_status_doe", "status", "entitlement_date"),)
 # models/domain.py
 class AccommodationFile(Base):
-    __tablename__ = "accommodation_file"
-    id = sa.Column(sa.Integer, primary_key=True)
-    file_no = sa.Column(sa.String(64), nullable=False, unique=True, index=True)
-    employee_id = sa.Column(sa.Integer, sa.ForeignKey("employees.id"), nullable=False)
-    house_id    = sa.Column(sa.Integer, sa.ForeignKey("houses.id"),    nullable=True)
-    opened_at   = sa.Column(sa.Date, nullable=False, server_default=sa.func.current_date())
-    closed_at   = sa.Column(sa.Date, nullable=True)
-    notes       = sa.Column(sa.Text, nullable=True)
+    __tablename__ = "accommodation_files"
 
-    employee = sa.orm.relationship("Employee")
-    house    = sa.orm.relationship("House")
+    id = Column(Integer, primary_key=True)
+    file_no = Column(String(50), nullable=False, unique=True, index=True)
+
+    # Link to house (optional, may be temporarily null)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
+    house = relationship("House", backref="accommodation_files")
+
+    opened_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
 # models/domain.py
 class FileMovement(Base):
-    __tablename__ = "file_movement"
-    id = sa.Column(sa.Integer, primary_key=True)
-    file_id   = sa.Column(sa.Integer, sa.ForeignKey("accommodation_file.id"), nullable=False)
-    issued_to = sa.Column(sa.String(120), nullable=False)     # person/section
-    issued_at = sa.Column(sa.DateTime, nullable=False, server_default=sa.func.now(), index=True)
-    returned_at = sa.Column(sa.DateTime, nullable=True, index=True)
-    remarks   = sa.Column(sa.Text, nullable=True)
+    __tablename__ = "file_movements"
 
-    file = sa.orm.relationship("AccommodationFile")
+    id = Column(Integer, primary_key=True)
+    accommodation_file_id = Column(Integer, ForeignKey("accommodation_files.id"), nullable=False, index=True)
+    accommodation_file = relationship("AccommodationFile", backref="movements")
 
-    @property
-    def is_out(self) -> bool:
-        return self.returned_at is None
+    movement = Column(String(10), nullable=False)        # "issue" or "receive"
+    moved_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    to_whom = Column(String(120), nullable=True)         # person/section the file issued to
+    remarks = Column(String(250), nullable=True)
+
 # models/domain.py
 class Occupancy(Base):
     __tablename__ = "occupancy"
