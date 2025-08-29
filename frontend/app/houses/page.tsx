@@ -2,58 +2,254 @@
 "use client";
 import { useEffect, useState } from "react";
 import { API } from "@/lib/api";
+import { useRouter } from "next/navigation";
+
+type Role = "admin" | "operator" | "viewer";
 
 type House = {
   id: number;
   colony_id: number;
-  house_no: string;
-  house_type?: string | null;
+  quarter_no: string;
+  street?: string | null;
+  sector?: string | null;
+  type_letter: string;
   status: string;
 };
 
+type Me = { id: number; email: string; role: Role };
+
+const TYPES = ["A","B","C","D","E","F","G","H"] as const;
+
 export default function HousesPage() {
+  const router = useRouter();
   const [items, setItems] = useState<House[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState<Me | null>(null);
+
+  // Form state
+  const [form, setForm] = useState<Partial<House>>({
+    colony_id: 1, // default colony (replace with dropdown if you like)
+    quarter_no: "",
+    street: "",
+    sector: "",
+    type_letter: "A",
+  });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const canWrite = me?.role === "admin" || me?.role === "operator";
 
   useEffect(() => {
-    let active = true;
+    // simple client-side guard
+    if (typeof window !== "undefined" && !localStorage.getItem("token")) {
+      router.replace("/login");
+      return;
+    }
     (async () => {
       try {
-        const data = await API<House[]>("/houses");
-        if (active) setItems(data);
-      } catch (e: any) {
-        if (active) setError(e.message || "Failed to fetch");
-      } finally {
-        if (active) setLoading(false);
+        const m = await API<Me>("/users/me");
+        setMe(m);
+      } catch (e:any) {
+        setError(e.message || String(e));
       }
+      await refresh();
     })();
-    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function refresh() {
+    try {
+      const data = await API<House[]>("/houses");
+      setItems(data);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || String(e));
+    }
+  }
+
+  function onChange<K extends keyof House>(key: K, val: any) {
+    setForm(prev => ({ ...prev, [key]: val }));
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      if (editingId) {
+        await API(`/houses/${editingId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            colony_id: form.colony_id,
+            quarter_no: form.quarter_no,
+            street: form.street,
+            sector: form.sector,
+            type_letter: form.type_letter,
+          }),
+        });
+      } else {
+        await API("/houses", {
+          method: "POST",
+          body: JSON.stringify({
+            colony_id: form.colony_id,
+            quarter_no: form.quarter_no,
+            street: form.street,
+            sector: form.sector,
+            type_letter: form.type_letter,
+          }),
+        });
+      }
+      setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A" });
+      setEditingId(null);
+      await refresh();
+    } catch (e:any) {
+      setError(e.message || String(e));
+    }
+  }
+
+  async function onEdit(h: House) {
+    setEditingId(h.id);
+    setForm({
+      colony_id: h.colony_id,
+      quarter_no: h.quarter_no,
+      street: h.street || "",
+      sector: h.sector || "",
+      type_letter: h.type_letter,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function onDelete(id: number) {
+    if (!confirm("Delete this house? This cannot be undone.")) return;
+    try {
+      await API(`/houses/${id}`, { method: "DELETE" });
+      await refresh();
+    } catch (e:any) {
+      setError(e.message || String(e));
+    }
+  }
+
   return (
-    <main style={{ padding: "2rem" }}>
-      <h1>Houses</h1>
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {!loading && !error && (
-        <table cellPadding={8} style={{ borderCollapse:"collapse", border:"1px solid #ddd" }}>
-          <thead>
-            <tr><th>ID</th><th>Colony ID</th><th>House No</th><th>Type</th><th>Status</th></tr>
+    <main className="mx-auto max-w-6xl p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Houses</h1>
+
+      {error && <div className="p-3 bg-red-50 border border-red-200 text-red-800">{error}</div>}
+
+      {canWrite && (
+        <form onSubmit={onSubmit} className="grid gap-3 bg-white p-4 rounded border">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Colony ID</span>
+              <input
+                className="border rounded px-2 py-1"
+                value={form.colony_id ?? 1}
+                onChange={(e) => onChange("colony_id", Number(e.target.value) || 1)}
+                type="number"
+                min={1}
+                required
+              />
+            </label>
+
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Quarter No</span>
+              <input
+                className="border rounded px-2 py-1"
+                value={form.quarter_no ?? ""}
+                onChange={(e) => onChange("quarter_no", e.target.value)}
+                placeholder="e.g. 12-B"
+                required
+              />
+            </label>
+
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Street</span>
+              <input
+                className="border rounded px-2 py-1"
+                value={form.street ?? ""}
+                onChange={(e) => onChange("street", e.target.value)}
+                placeholder="Street name/number"
+              />
+            </label>
+
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Sector</span>
+              <input
+                className="border rounded px-2 py-1"
+                value={form.sector ?? ""}
+                onChange={(e) => onChange("sector", e.target.value)}
+                placeholder="e.g. Sector G-1"
+              />
+            </label>
+
+            <label className="flex flex-col text-sm">
+              <span className="mb-1">Type (A–H)</span>
+              <select
+                className="border rounded px-2 py-1"
+                value={form.type_letter as string}
+                onChange={(e) => onChange("type_letter", e.target.value)}
+              >
+                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="px-3 py-2 rounded bg-black text-white"
+            >
+              {editingId ? "Update House" : "Add House"}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={() => { setEditingId(null); setForm({ colony_id: 1, quarter_no: "", street: "", sector: "", type_letter: "A" }); }}
+                className="px-3 py-2 rounded border"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      )}
+
+      <div className="overflow-x-auto bg-white border rounded">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left">ID</th>
+              <th className="px-3 py-2 text-left">Colony</th>
+              <th className="px-3 py-2 text-left">Quarter No</th>
+              <th className="px-3 py-2 text-left">Street</th>
+              <th className="px-3 py-2 text-left">Sector</th>
+              <th className="px-3 py-2 text-left">Type</th>
+              <th className="px-3 py-2 text-left">Status</th>
+              <th className="px-3 py-2"></th>
+            </tr>
           </thead>
           <tbody>
             {items.map(h => (
-              <tr key={h.id}>
-                <td>{h.id}</td>
-                <td>{h.colony_id}</td>
-                <td>{h.house_no}</td>
-                <td>{h.house_type ?? "—"}</td>
-                <td>{h.status}</td>
+              <tr key={h.id} className="border-t">
+                <td className="px-3 py-2">{h.id}</td>
+                <td className="px-3 py-2">{h.colony_id}</td>
+                <td className="px-3 py-2">{h.quarter_no}</td>
+                <td className="px-3 py-2">{h.street || "—"}</td>
+                <td className="px-3 py-2">{h.sector || "—"}</td>
+                <td className="px-3 py-2">{h.type_letter}</td>
+                <td className="px-3 py-2">{h.status}</td>
+                <td className="px-3 py-2 text-right">
+                  {canWrite ? (
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => onEdit(h)} className="px-2 py-1 border rounded">Edit</button>
+                      {me?.role === "admin" && (
+                        <button onClick={() => onDelete(h.id)} className="px-2 py-1 border rounded">Delete</button>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400">read-only</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
-      )}
+      </div>
     </main>
   );
 }

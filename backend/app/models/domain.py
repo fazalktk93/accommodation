@@ -52,6 +52,8 @@ class House(Base):
     colony_id = Column(Integer, ForeignKey("colonies.id", ondelete="RESTRICT"), nullable=False)
     house_no = Column(String(50), nullable=False)
     house_type = Column(String(50), nullable=True)
+    street = Column(String(120), nullable=True)
+    sector = Column(String(50), nullable=True)
     status = Column(String(20), nullable=False, default="available")  # available/occupied/maintenance
     colony = relationship("Colony")
     __table_args__ = (UniqueConstraint("colony_id", "house_no", name="uq_colony_house"),)

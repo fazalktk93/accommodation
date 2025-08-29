@@ -1,57 +1,178 @@
 # backend/app/routers/houses.py
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from ..deps import get_db, require_roles
-from ..models.domain import House, Colony, RoleEnum, User, Occupancy  # ← include Occupancy model
-from ..schemas import OccupancyOut                                   # ← import ONLY this
 from pydantic import BaseModel
+
+from ..deps import get_db, require_roles, get_current_user
+from ..models.domain import House, Occupancy, RoleEnum, User
+from ..schemas import OccupancyOut
 
 router = APIRouter(prefix="/houses", tags=["Houses"])
 
-# ---- Local Pydantic schemas for this router ----
+ALLOWED_TYPES = {"A","B","C","D","E","F","G","H"}
+
+# ---- Pydantic schemas ----
 class HouseIn(BaseModel):
     colony_id: int
-    house_no: str
-    house_type: Optional[str] = None
-    status: str = "available"
+    quarter_no: str
+    street: Optional[str] = None
+    sector: Optional[str] = None
+    type_letter: str  # A–H
 
 class HouseOut(BaseModel):
     id: int
     colony_id: int
-    house_no: str
-    house_type: Optional[str] = None
+    quarter_no: str
+    street: Optional[str] = None
+    sector: Optional[str] = None
+    type_letter: str
     status: str
+
     class Config:
         from_attributes = True
 
-# ---- Endpoints ----
+def _to_out(h: House) -> HouseOut:
+    return HouseOut(
+        id=h.id,
+        colony_id=h.colony_id,
+        quarter_no=h.house_no,
+        street=getattr(h, "street", None),
+        sector=getattr(h, "sector", None),
+        type_letter=h.house_type or "",
+        status=h.status,
+    )
+
+# ---- CRUD endpoints ----
 @router.post("", response_model=HouseOut)
 def create_house(
     payload: HouseIn,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator)),
 ):
-    if not db.get(Colony, payload.colony_id):
-        raise HTTPException(404, "Colony not found")
-    house = House(**payload.model_dump())
-    db.add(house)
-    db.commit()
-    db.refresh(house)
-    return house
+    qn = (payload.quarter_no or "").strip()
+    if not qn:
+        raise HTTPException(400, "Quarter No is required")
+    if payload.type_letter not in ALLOWED_TYPES:
+        raise HTTPException(400, "Type must be one of A, B, C, D, E, F, G, H")
 
-@router.get("", response_model=list[HouseOut])
-def list_houses(status: Optional[str] = None, db: Session = Depends(get_db)):
+    # unique per (colony_id, house_no)
+    exists = db.scalar(
+        select(House).where(House.colony_id == payload.colony_id, House.house_no == qn)
+    )
+    if exists:
+        raise HTTPException(400, "A house with this Quarter No already exists in the selected colony")
+
+    row = House(
+        colony_id=payload.colony_id,
+        house_no=qn,
+        house_type=payload.type_letter,
+        street=payload.street,
+        sector=payload.sector,
+        status="available",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _to_out(row)
+
+@router.get("", response_model=List[HouseOut])
+def list_houses(
+    status: Optional[str] = Query(default=None, description="Filter by status"),
+    type_letter: Optional[str] = Query(default=None, description="Filter by Type A-H"),
+    sector: Optional[str] = Query(default=None, description="Filter by sector"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     stmt = select(House)
     if status:
         stmt = stmt.where(House.status == status)
-    return db.scalars(stmt.order_by(House.id.desc())).all()
+    if type_letter:
+        stmt = stmt.where(House.house_type == type_letter)
+    if sector:
+        stmt = stmt.where(House.sector == sector)
+    items = db.scalars(stmt.order_by(House.id.desc())).all()
+    return [_to_out(h) for h in items]
 
-@router.get("/{house_id}/history", response_model=list[OccupancyOut])
-def history(house_id: int, db: Session = Depends(get_db)):
-    return db.scalars(
+@router.get("/{house_id}", response_model=HouseOut)
+def get_house(
+    house_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    h = db.get(House, house_id)
+    if not h:
+        raise HTTPException(404, "House not found")
+    return _to_out(h)
+
+@router.put("/{house_id}", response_model=HouseOut)
+def update_house(
+    house_id: int,
+    payload: HouseIn,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator)),
+):
+    h = db.get(House, house_id)
+    if not h:
+        raise HTTPException(404, "House not found")
+
+    qn = (payload.quarter_no or "").strip()
+    if not qn:
+        raise HTTPException(400, "Quarter No is required")
+    if payload.type_letter not in ALLOWED_TYPES:
+        raise HTTPException(400, "Type must be one of A, B, C, D, E, F, G, H")
+
+    # conflict check for (colony_id, house_no)
+    conflict = db.scalar(
+        select(House).where(
+            House.id != house_id,
+            House.colony_id == payload.colony_id,
+            House.house_no == qn,
+        )
+    )
+    if conflict:
+        raise HTTPException(400, "Another house with the same Quarter No exists in that colony")
+
+    h.colony_id = payload.colony_id
+    h.house_no = qn
+    h.house_type = payload.type_letter
+    h.street = payload.street
+    h.sector = payload.sector
+
+    db.add(h)
+    db.commit()
+    db.refresh(h)
+    return _to_out(h)
+
+@router.delete("/{house_id}")
+def delete_house(
+    house_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(RoleEnum.admin)),
+):
+    h = db.get(House, house_id)
+    if not h:
+        raise HTTPException(404, "House not found")
+
+    # safety: block delete if occupancy history exists
+    occ = db.scalar(select(Occupancy).where(Occupancy.house_id == house_id))
+    if occ:
+        raise HTTPException(400, "House has occupancy history; cannot delete")
+
+    db.delete(h)
+    db.commit()
+    return {"ok": True}
+
+@router.get("/{house_id}/history", response_model=List[OccupancyOut])
+def history(
+    house_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rows = db.scalars(
         select(Occupancy)
         .where(Occupancy.house_id == house_id)
         .order_by(Occupancy.start_date.desc())
     ).all()
+    return rows

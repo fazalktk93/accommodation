@@ -14,6 +14,7 @@ export default function Nav() {
                 <div className="font-semibold">House Allotment</div>
                 <div className="space-x-4">
                     <Link href="/dashboard">Dashboard</Link>
+                    <a href="/houses">Houses</a>
                     <Link href="/employees">Employees</Link>
                     <button onClick={logout} className="btn">
                         Logout
