@@ -115,13 +115,13 @@ def create_house(
     # Link / create accommodation file using the SAME file number
     if payload.file_number:
         fn = payload.file_number.strip()
-        file = db.scalar(select(AccommodationFile).where(AccommodationFile.file_no == fn))
-        if file:
+        house = db.scalar(select(House).where(House.file_no == fn))
+        if house:
             # prevent linking to a different house
-            if file.house_id and file.house_id != h.id:
+            if house.id and house.id != h.id:
                 raise HTTPException(409, "That accommodation file is already linked to another house")
-            file.house_id = h.id
-            db.add(file)
+            house.id = h.id
+            db.add(house)
             db.commit()
         else:
             # auto-create accommodation file with this number, linked to the house
