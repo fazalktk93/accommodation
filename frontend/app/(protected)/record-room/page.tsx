@@ -346,5 +346,3 @@ export default function RecordRoom() {
     </div>
   );
 }
-
-export default RecordRoom;
