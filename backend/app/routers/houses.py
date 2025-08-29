@@ -9,7 +9,6 @@ from ..deps import get_db, require_roles, get_current_user
 from ..models.domain import (
     House,
     Occupancy,
-    AccommodationFile,  # single source of truth for file numbers
     RoleEnum,
     User,
 )
