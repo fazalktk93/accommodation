@@ -1,9 +1,11 @@
+from backend.app.routers import recordroom
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .db import Base, engine
 from .config import settings
-from .routers import auth, users, meta, employees, houses, applications, allotments
+from .routers import auth, users, meta, employees, houses, applications, allotments, recordroom
 from .config import settings
+from app.routers import recordroom
 
 def create_app() -> FastAPI:
     app = FastAPI(title="House Allotment Management System (FastAPI)")
@@ -39,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(houses.router)
     app.include_router(applications.router)
     app.include_router(allotments.router)
+    app.include_router(recordroom.router)
 
     @app.get("/healthz")
     def healthz():
