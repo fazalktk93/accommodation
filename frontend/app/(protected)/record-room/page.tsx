@@ -28,7 +28,14 @@ type Page<T> = {
 };
 
 /* -------------------------- Config --------------------------- */
-const API = process.env.NEXT_PUBLIC_API ?? "http://127.0.0.1:8000";
+function apiBase() {
+  if (process.env.NEXT_PUBLIC_API) return process.env.NEXT_PUBLIC_API;
+  if (typeof window !== "undefined") {
+    // fallback: auto-use the current host with port 8000
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return "http://192.168.0.105:8000"; // last-resort fallback
+}
 
 function getToken(): string | null {
   const keys = [
