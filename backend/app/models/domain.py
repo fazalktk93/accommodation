@@ -2,8 +2,6 @@ from sqlalchemy import Column, Integer, String, ForeignKey, Date, DateTime, Enum
 from sqlalchemy.orm import relationship
 from ..db import Base
 import sqlalchemy as sa
-from sqlalchemy.orm import relationship
-from ..db import Base
 import enum
 
 class RoleEnum(str, enum.Enum):
@@ -48,15 +46,32 @@ class Colony(Base):
 
 class House(Base):
     __tablename__ = "houses"
-    id = Column(Integer, primary_key=True)
-    file_number = Column(String(50), nullable=True)
-    house_no = Column(String(50), nullable=False)
-    house_type = Column(String(50), nullable=True)
-    street = Column(String(120), nullable=True)
-    sector = Column(String(50), nullable=True)
-    status = Column(String(20), nullable=False, default="available")  # available/occupied/maintenance
-    colony = relationship("Colony")
-    __table_args__ = (UniqueConstraint("colony_id", "house_no", name="uq_colony_house"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Keep colony_id in the model (we can hide it in the UI)
+    colony_id = Column(Integer, ForeignKey("colonies.id"), nullable=False, index=True)
+    colony = relationship("Colony", back_populates="houses")
+
+    # Business identifiers
+    house_no = Column(String(100), nullable=False, index=True)     # "Quarter No"
+    house_type = Column(String(50), nullable=True)                 # A–H
+    file_number = Column(String(50), nullable=True)                # NEW
+
+    # New address fields
+    street = Column(String(120), nullable=True)                    # NEW
+    sector = Column(String(50), nullable=True)                     # NEW
+
+    # Status (kept as before)
+    status = Column(String(20), nullable=False, default="available")
+
+    # keep your relationships if any (examples):
+    # occupancies = relationship("Occupancy", back_populates="house")
+
+    __table_args__ = (
+        # Ensure one quarter number per colony
+        UniqueConstraint("colony_id", "house_no", name="uq_house_colony_no"),
+    )
 
 class Employee(Base):
     __tablename__ = "employees"
