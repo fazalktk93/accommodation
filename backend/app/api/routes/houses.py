@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
 from app.api.deps import get_db
-from app.schemas import house as schemas
+from app.schemas import house as house_schema
 from app.crud import house as crud
 
 router = APIRouter(prefix="/houses", tags=["houses"])
