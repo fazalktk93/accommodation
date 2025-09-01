@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import MetaData, Table, and_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import NoSuchTableError, OperationalError
 
 from ..deps import get_db, get_current_user, require_roles
 from ..models.domain import House, Occupancy, RoleEnum, User
@@ -59,9 +60,32 @@ class HouseOut(BaseModel):
 
 # -------------------- accommodation_files helpers --------------------
 def _af_table(db: Session) -> Table:
+    """
+    Return the 'accommodation_files' table object.
+    If it doesn't exist, create it with a minimal schema:
+    id, file_no (unique), house_id (nullable FK), opened_at.
+    """
     engine = db.get_bind()
     meta = MetaData()
-    return Table("accommodation_files", meta, autoload_with=engine)
+
+    try:
+        # Try reflecting it first
+        return Table("accommodation_files", meta, autoload_with=engine)
+    except (NoSuchTableError, OperationalError):
+        pass  # fall through to create it
+
+    # Define the table schema and create it
+    af = Table(
+        "accommodation_files",
+        meta,
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("file_no", sa.String(120), nullable=False, unique=True, index=True),
+        sa.Column("house_id", sa.Integer, sa.ForeignKey("houses.id"), nullable=True, index=True),
+        sa.Column("opened_at", sa.DateTime, server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+    )
+    meta.create_all(engine)
+    return af
+
 
 def _assert_unique_file_number(db: Session, file_no: Optional[str], exclude_house_id: Optional[int] = None) -> None:
     """App-level guard: file number must be unique across houses."""

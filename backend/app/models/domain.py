@@ -66,6 +66,15 @@ class ApplicationStatus(str, enum.Enum):
     rejected = "rejected"
     allotted = "allotted"
 
+class AccommodationFile(Base):
+    __tablename__ = "accommodation_files"
+    id = Column(Integer, primary_key=True)
+    file_no = Column(String(120), unique=True, nullable=False, index=True)
+    house_id = Column(Integer, ForeignKey("houses.id"), nullable=True, index=True)
+    opened_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    house = relationship("House", backref="accommodation_file", uselist=False)
+
 class Application(Base):
     __tablename__ = "applications"
     id = Column(Integer, primary_key=True)
