@@ -30,12 +30,16 @@ class House(Base):
     id = Column(Integer, primary_key=True, index=True)
     colony_id = Column(Integer, ForeignKey("colonies.id"), nullable=False, index=True)
     colony = relationship("Colony", backref="houses")
-    quarter_no = Column(String(50), nullable=False, index=True)
+    quarter_no = Column(String(50), nullable=False, index=True)  # <- this is the canonical field
     street = Column(String(120))
     sector = Column(String(120))
-    type_letter = Column(String(1), nullable=False, index=True)  # A–H
+    type_letter = Column(String(1), nullable=False, index=True)
     file_number = Column(String(120), nullable=True, unique=True)
-    status = Column(String(20), nullable=False, default="available", index=True)  # available/occupied/...
+    status = Column(String(20), nullable=False, default="available", index=True)
+
+    __table_args__ = (
+        sa.UniqueConstraint("colony_id", "quarter_no", name="uq_colony_quarter"),
+    )
 
 class Bps(Base):
     __tablename__ = "bps"
