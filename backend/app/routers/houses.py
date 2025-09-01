@@ -1,7 +1,7 @@
 # backend/app/routers/houses.py
 from typing import Optional, List
 from datetime import datetime
-
+from sqlalchemy import select, and_
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select, MetaData, Table, or_
@@ -12,6 +12,9 @@ from ..schemas import OccupancyOut
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/houses", tags=["Houses"])
+
+def _norm_quarter(q: str) -> str:
+    return (q or "").strip().upper()
 
 ALLOWED_TYPES = {"A", "B", "C", "D", "E", "F", "G", "H"}
 
@@ -131,79 +134,55 @@ def _upsert_accommodation_file(db: Session, house_id: int, file_no: Optional[str
 
 # -------------------- CRUD --------------------
 @router.post("", response_model=HouseOut)
-def create_house(
-    payload: HouseIn,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator)),
-):
-    qn = (payload.quarter_no or "").strip()
-    if not qn:
-        raise HTTPException(400, "Quarter No is required")
-
-    t = (payload.type_letter or "").strip().upper()
-    if t not in ALLOWED_TYPES:
-        raise HTTPException(400, "Type must be one of A–H")
-
-    # unique quarter_no within colony
-    exists = db.scalar(select(House).where(House.colony_id == payload.colony_id, House.house_no == qn))
-    if exists:
-        raise HTTPException(400, "A house with this Quarter No already exists in the selected colony")
-
-    # normalize file number and enforce uniqueness across houses
-    raw_file = payload.file_number or payload.file_no
-    file_no = (raw_file or "").strip() or None
-    _assert_unique_file_number(db, file_no)
-
-    h = House(
-        colony_id=payload.colony_id,
-        house_no=qn,
-        house_type=t,
-        status="available",
+def create_house(payload: HouseIn, db: Session = Depends(get_db), _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator))):
+    qn = _norm_quarter(payload.quarter_no)
+    # prevent duplicate (colony_id, quarter_no)
+    exists = db.scalar(
+        select(House).where(
+            and_(House.colony_id == payload.colony_id, House.quarter_no == qn)
+        )
     )
-    if hasattr(House, "street"):
-        h.street = payload.street
-    if hasattr(House, "sector"):
-        h.sector = payload.sector
-    _set_house_file(h, file_no)
+    if exists:
+        raise HTTPException(400, "This quarter number already exists in the selected colony.")
 
-    db.add(h)
-    db.commit()
-    db.refresh(h)
-
-    _upsert_accommodation_file(db, h.id, file_no)
-    return _house_to_out(h)
+    row = House(
+        colony_id=payload.colony_id,
+        quarter_no=qn,
+        street=payload.street,
+        sector=payload.sector,
+        type_letter=payload.type_letter,
+        file_number=payload.file_number,
+        status=payload.status or "available",
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return row
 
 
 @router.get("", response_model=List[HouseOut])
 def list_houses(
-    status: Optional[str] = Query(default=None),
-    type_letter: Optional[str] = Query(default=None),
-    sector: Optional[str] = Query(default=None),
-    file_number: Optional[str] = Query(default=None),
-    q: Optional[str] = Query(default=None),
+    q: Optional[str] = None,
+    colony_id: Optional[int] = None,
+    type_letter: Optional[str] = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     stmt = select(House)
+
+    if colony_id:
+        stmt = stmt.where(House.colony_id == colony_id)
+    if type_letter:
+        stmt = stmt.where(House.type_letter == type_letter.upper())
     if status:
         stmt = stmt.where(House.status == status)
-    if type_letter:
-        stmt = stmt.where(House.house_type == type_letter)
-    if sector and hasattr(House, "sector"):
-        stmt = stmt.where(House.sector == sector)
 
-    file_attr = getattr(House, HOUSE_FILE_ATTR) if HOUSE_FILE_ATTR else None
-    if file_number and file_attr is not None:
-        stmt = stmt.where(file_attr == file_number)
     if q:
-        like = f"%{q}%"
-        ors = [House.house_no.like(like)]
-        if file_attr is not None:
-            ors.append(file_attr.like(like))
-        stmt = stmt.where(or_(*ors))
+        like = f"%{q.strip().upper()}%"
+        stmt = stmt.where(House.quarter_no.ilike(like))  # <- here
 
-    houses = db.scalars(stmt.order_by(House.id.desc())).all()
-    return [_house_to_out(h) for h in houses]
+    stmt = stmt.order_by(House.id.desc())
+    return db.scalars(stmt).all()
+
 
 
 @router.get("/{house_id}", response_model=HouseOut)
@@ -215,58 +194,32 @@ def get_house(house_id: int, db: Session = Depends(get_db), _: User = Depends(ge
 
 
 @router.put("/{house_id}", response_model=HouseOut)
-def update_house(
-    house_id: int,
-    payload: HouseIn,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator)),
-):
-    h = db.get(House, house_id)
-    if not h:
+def update_house(house_id: int, payload: HouseIn, db: Session = Depends(get_db), _: User = Depends(require_roles(RoleEnum.admin, RoleEnum.operator))):
+    row = db.get(House, house_id)
+    if not row:
         raise HTTPException(404, "House not found")
 
-    qn = (payload.quarter_no or "").strip()
-    if not qn:
-        raise HTTPException(400, "Quarter No is required")
+    new_qn = _norm_quarter(payload.quarter_no)
+    # if quarter_no or colony_id changed, re-check uniqueness
+    if new_qn != row.quarter_no or payload.colony_id != row.colony_id:
+        dupe = db.scalar(
+            select(House).where(
+                and_(House.colony_id == payload.colony_id, House.quarter_no == new_qn, House.id != house_id)
+            )
+        )
+        if dupe:
+            raise HTTPException(400, "Another house with this quarter number exists in this colony.")
 
-    t = (payload.type_letter or "").strip().upper()
-    if t not in ALLOWED_TYPES:
-        raise HTTPException(400, "Type must be one of A–H")
+    row.colony_id = payload.colony_id
+    row.quarter_no = new_qn
+    row.street = payload.street
+    row.sector = payload.sector
+    row.type_letter = payload.type_letter
+    row.file_number = payload.file_number
+    row.status = payload.status or row.status
 
-    # uniqueness for quarter_no within colony
-    conflict = db.scalar(
-        select(House).where(House.id != house_id, House.colony_id == payload.colony_id, House.house_no == qn)
-    )
-    if conflict:
-        raise HTTPException(400, "Another house with the same Quarter No exists in that colony")
-
-    # normalize new file number and enforce uniqueness if changed/provided
-    raw_file = payload.file_number if payload.file_number is not None else payload.file_no
-    if raw_file is not None:
-        new_file_no = (raw_file or "").strip() or None
-    else:
-        new_file_no = _get_house_file(h)
-
-    # Only check uniqueness if we actually changed it
-    old_file = _get_house_file(h)
-    if new_file_no != old_file:
-        _assert_unique_file_number(db, new_file_no, exclude_house_id=house_id)
-
-    h.colony_id = payload.colony_id
-    h.house_no = qn
-    h.house_type = t
-    if hasattr(House, "street"):
-        h.street = payload.street
-    if hasattr(House, "sector"):
-        h.sector = payload.sector
-    _set_house_file(h, new_file_no)
-
-    db.add(h)
-    db.commit()
-    db.refresh(h)
-
-    _upsert_accommodation_file(db, h.id, new_file_no)
-    return _house_to_out(h)
+    db.add(row); db.commit(); db.refresh(row)
+    return row
 
 
 @router.delete("/{house_id}")
