@@ -4,8 +4,25 @@ import { listHouses, listAllotments, createAllotment, endAllotment } from '../ap
 export default function AllotmentsPage(){
   const [houses, setHouses] = useState([])
   const [items, setItems] = useState([])
-  const [form, setForm] = useState({ person_name:'', person_contact:'', house_id:'', notes:'' })
   const [filter, setFilter] = useState({ house_id:'', active:'true' })
+
+  const [form, setForm] = useState({
+    house_id: '',
+    allottee_name: '',
+    designation: '',
+    bps: '',
+    directorate: '',
+    cnic: '',
+    allotment_date: '',
+    date_of_birth: '',
+    pool: '',
+    qtr_status: '',
+    accommodation_type: '',
+    occupation_date: '',
+    allotment_medium: '',
+    vacation_date: '',
+    notes: ''
+  })
 
   const load = () => listAllotments({
     house_id: filter.house_id || undefined,
@@ -17,13 +34,41 @@ export default function AllotmentsPage(){
 
   const submit = async (e) => {
     e.preventDefault()
-    await createAllotment({ ...form, house_id: Number(form.house_id) })
-    setForm({ person_name:'', person_contact:'', house_id:'', notes:'' })
+    const payload = {
+      ...form,
+      house_id: Number(form.house_id) || undefined,
+      bps: form.bps ? Number(form.bps) : null,
+      allotment_date: form.allotment_date || null,
+      date_of_birth: form.date_of_birth || null,
+      occupation_date: form.occupation_date || null,
+      vacation_date: form.vacation_date || null
+    }
+    await createAllotment(payload)
+    setForm({
+      house_id: '',
+      allottee_name: '',
+      designation: '',
+      bps: '',
+      directorate: '',
+      cnic: '',
+      allotment_date: '',
+      date_of_birth: '',
+      pool: '',
+      qtr_status: '',
+      accommodation_type: '',
+      occupation_date: '',
+      allotment_medium: '',
+      vacation_date: '',
+      notes: ''
+    })
     load()
   }
 
   const end = async (id) => {
-    if(confirm('Mark as ended?')){ await endAllotment(id, 'Ended via UI'); load() }
+    if(confirm('Mark as vacated/ended?')){
+      await endAllotment(id, 'Ended via UI')
+      load()
+    }
   }
 
   return (
@@ -32,16 +77,30 @@ export default function AllotmentsPage(){
 
       <div className="card">
         <h2>New Allotment</h2>
-        <form onSubmit={submit} style={{display:'grid', gap:'.5rem', gridTemplateColumns:'1fr 1fr 1fr auto'}}>
-          <input placeholder="Person name" value={form.person_name} onChange={e=>setForm({...form, person_name:e.target.value})} required/>
-          <input placeholder="Contact" value={form.person_contact} onChange={e=>setForm({...form, person_contact:e.target.value})} />
+        <form onSubmit={submit} style={{display:'grid', gap:'.5rem', gridTemplateColumns:'repeat(4, 1fr)'}}>
           <select value={form.house_id} onChange={e=>setForm({...form, house_id:e.target.value})} required>
             <option value="">Select house</option>
-            {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {houses.map(h => <option key={h.id} value={h.id}>{h.file_no} — {h.qtr_no} — {h.sector}</option>)}
           </select>
-          <button className="btn">Create</button>
+          <input placeholder="Allottee Name" value={form.allottee_name} onChange={e=>setForm({...form, allottee_name:e.target.value})} required/>
+          <input placeholder="Designation" value={form.designation} onChange={e=>setForm({...form, designation:e.target.value})}/>
+          <input placeholder="BPS" type="number" value={form.bps} onChange={e=>setForm({...form, bps:e.target.value})}/>
+
+          <input placeholder="Directorate" value={form.directorate} onChange={e=>setForm({...form, directorate:e.target.value})}/>
+          <input placeholder="CNIC (13 digits or dashed)" value={form.cnic} onChange={e=>setForm({...form, cnic:e.target.value})}/>
+          <label>Allotment Date<input type="date" value={form.allotment_date} onChange={e=>setForm({...form, allotment_date:e.target.value})} required/></label>
+          <label>DOB<input type="date" value={form.date_of_birth} onChange={e=>setForm({...form, date_of_birth:e.target.value})} required/></label>
+
+          <input placeholder="Pool" value={form.pool} onChange={e=>setForm({...form, pool:e.target.value})}/>
+          <input placeholder="Qtr Status" value={form.qtr_status} onChange={e=>setForm({...form, qtr_status:e.target.value})}/>
+          <input placeholder="Accommodation Type" value={form.accommodation_type} onChange={e=>setForm({...form, accommodation_type:e.target.value})}/>
+          <label>Occupation Date<input type="date" value={form.occupation_date} onChange={e=>setForm({...form, occupation_date:e.target.value})}/></label>
+
+          <input placeholder="Allotment Medium" value={form.allotment_medium} onChange={e=>setForm({...form, allotment_medium:e.target.value})}/>
+          <label>Vacation Date<input type="date" value={form.vacation_date} onChange={e=>setForm({...form, vacation_date:e.target.value})}/></label>
+          <textarea placeholder="Notes" value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})} style={{gridColumn:'span 2'}}/>
+          <button className="btn" style={{gridColumn:'span 4'}}>Create</button>
         </form>
-        <textarea placeholder="Notes (optional)" value={form.notes} onChange={e=>setForm({...form, notes:e.target.value})}/>
       </div>
 
       <div className="card">
@@ -49,7 +108,7 @@ export default function AllotmentsPage(){
         <div style={{display:'flex', gap:'.5rem'}}>
           <select value={filter.house_id} onChange={e=>setFilter({...filter, house_id:e.target.value})}>
             <option value="">All houses</option>
-            {houses.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {houses.map(h => <option key={h.id} value={h.id}>{h.file_no} — {h.qtr_no} — {h.sector}</option>)}
           </select>
           <select value={filter.active} onChange={e=>setFilter({...filter, active:e.target.value})}>
             <option value="true">Active</option>
@@ -60,16 +119,31 @@ export default function AllotmentsPage(){
       </div>
 
       <table className="table">
-        <thead><tr><th>#</th><th>Person</th><th>House</th><th>Start</th><th>End</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th>#</th><th>Allottee</th><th>Dir/BPS</th><th>CNIC</th>
+            <th>Allotment</th><th>DOB</th><th>Superannuation</th>
+            <th>Pool</th><th>Qtr Status</th><th>Acc. Type</th>
+            <th>Occupation</th><th>Vacation</th><th>Status</th><th></th>
+          </tr>
+        </thead>
         <tbody>
           {items.map(it => (
             <tr key={it.id}>
               <td>{it.id}</td>
-              <td>{it.person_name} {it.person_contact ? <span className="badge">{it.person_contact}</span> : null}</td>
-              <td>{houses.find(h=>h.id===it.house_id)?.name || it.house_id}</td>
-              <td>{new Date(it.start_date).toLocaleString()}</td>
-              <td>{it.end_date ? new Date(it.end_date).toLocaleString() : <span className="badge">Active</span>}</td>
-              <td>{!it.end_date && <button onClick={()=>end(it.id)}>End</button>}</td>
+              <td>{it.allottee_name}</td>
+              <td>{it.directorate || '-'} / {it.bps || '-'}</td>
+              <td>{it.cnic || '-'}</td>
+              <td>{it.allotment_date}</td>
+              <td>{it.date_of_birth}</td>
+              <td><strong>{it.superannuation_date}</strong></td>
+              <td>{it.pool || '-'}</td>
+              <td>{it.qtr_status || '-'}</td>
+              <td>{it.accommodation_type || '-'}</td>
+              <td>{it.occupation_date || '-'}</td>
+              <td>{it.vacation_date || '-'}</td>
+              <td>{it.active ? 'Active' : 'Ended'}</td>
+              <td>{it.active && <button onClick={()=>end(it.id)}>End</button>}</td>
             </tr>
           ))}
         </tbody>
