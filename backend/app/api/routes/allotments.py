@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..deps import get_db
-from schemas import allotment as s
+from app.schemas import allotment as s
 from ...crud import allotment as crud
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])

@@ -2,7 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ..deps import get_db
-from schemas import file_movement as s
+from app.schemas import file_movement as s
 from ...crud import file_movement as crud
 
 router = APIRouter(prefix="/files", tags=["file-movements"])

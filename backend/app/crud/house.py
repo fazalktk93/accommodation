@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from fastapi import HTTPException, status
 from app import models
-from schemas import house as s
+from app.schemas import house as s
 from app.crud.utils import paginate
 
 def create(db: Session, obj_in: s.HouseCreate):

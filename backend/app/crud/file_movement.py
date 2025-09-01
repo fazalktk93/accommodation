@@ -3,7 +3,7 @@ from sqlalchemy import select, and_
 from fastapi import HTTPException
 from typing import Optional
 from app import models
-from schemas import file_movement as s
+from app.schemas import file_movement as s
 from app.crud import house as house_crud
 from app.crud.utils import paginate
 
