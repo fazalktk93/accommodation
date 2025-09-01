@@ -1,9 +1,8 @@
-from pydantic import BaseModel, root_validator, validator
+from pydantic import BaseModel, validator, root_validator
 from datetime import date
 from typing import Optional
 
 class AllotmentBase(BaseModel):
-    # allow either house_id or file_no from client (we'll resolve to house_id)
     house_id: Optional[int] = None
     file_no: Optional[str] = None
 
@@ -21,7 +20,6 @@ class AllotmentBase(BaseModel):
     occupation_date: Optional[date] = None
     allotment_medium: Optional[str] = None
     vacation_date: Optional[date] = None
-
     notes: Optional[str] = None
 
     @validator("cnic")
@@ -33,13 +31,12 @@ class AllotmentBase(BaseModel):
         return v
 
     @root_validator
-    def one_of_house_or_file(cls, values):
+    def need_house_or_file(cls, values):
         if not values.get("house_id") and not values.get("file_no"):
             raise ValueError("Provide either house_id or file_no")
         return values
 
-class AllotmentCreate(AllotmentBase):
-    pass
+class AllotmentCreate(AllotmentBase): pass
 
 class AllotmentUpdate(BaseModel):
     allottee_name: Optional[str] = None

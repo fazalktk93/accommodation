@@ -6,8 +6,6 @@ class FileMovement(Base):
     __tablename__ = "file_movements"
 
     id = Column(Integer, primary_key=True, index=True)
-
-    # Link to house, but keep a snapshot of File No for easy filtering
     house_id = Column(Integer, ForeignKey("houses.id", ondelete="CASCADE"), nullable=False, index=True)
     file_no  = Column(String(120), nullable=False, index=True)
 

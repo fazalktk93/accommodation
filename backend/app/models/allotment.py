@@ -6,7 +6,6 @@ class Allotment(Base):
     __tablename__ = "allotments"
 
     id = Column(Integer, primary_key=True, index=True)
-
     house_id = Column(Integer, ForeignKey("houses.id", ondelete="CASCADE"), nullable=False, index=True)
     house = relationship("House", back_populates="allotments")
 
@@ -15,6 +14,7 @@ class Allotment(Base):
     bps          = Column(Integer, nullable=True, index=True)
     directorate  = Column(String(160), nullable=True, index=True)
     cnic         = Column(String(25), nullable=True, index=True)
+
     allotment_date   = Column(Date, nullable=False, index=True)
     date_of_birth    = Column(Date, nullable=False, index=True)
     pool             = Column(String(80), nullable=True, index=True)
@@ -24,7 +24,7 @@ class Allotment(Base):
     allotment_medium = Column(String(120), nullable=True)
     vacation_date    = Column(Date, nullable=True, index=True)
 
-    superannuation_date = Column(Date, nullable=False, index=True)  # DOB+60
+    superannuation_date = Column(Date, nullable=False, index=True)  # DOB + 60 years
     active = Column(Boolean, nullable=False, server_default="1", index=True)
 
     notes = Column(Text, nullable=True)

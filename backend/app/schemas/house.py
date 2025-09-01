@@ -6,7 +6,8 @@ class HouseBase(BaseModel):
     qtr_no: str
     sector: str
 
-class HouseCreate(HouseBase): pass
+class HouseCreate(HouseBase):
+    pass
 
 class HouseUpdate(BaseModel):
     file_no: Optional[str] = None

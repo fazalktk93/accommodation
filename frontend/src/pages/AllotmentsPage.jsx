@@ -8,21 +8,11 @@ export default function AllotmentsPage(){
   const [error, setError] = useState('')
 
   const [form, setForm] = useState({
-    file_no: '',  // we send file_no instead of house_id
-    allottee_name: '',
-    designation: '',
-    bps: '',
-    directorate: '',
-    cnic: '',
-    allotment_date: '',
-    date_of_birth: '',
-    pool: '',
-    qtr_status: '',
-    accommodation_type: '',
-    occupation_date: '',
-    allotment_medium: '',
-    vacation_date: '',
-    notes: ''
+    file_no: '',
+    allottee_name: '', designation: '', bps: '', directorate: '', cnic: '',
+    allotment_date: '', date_of_birth: '',
+    pool: '', qtr_status: '', accommodation_type: '',
+    occupation_date: '', allotment_medium: '', vacation_date: '', notes: ''
   })
 
   const load = () => listAllotments({
@@ -46,21 +36,16 @@ export default function AllotmentsPage(){
         vacation_date: form.vacation_date || null
       }
       await createAllotment(payload)
-      setForm({
-        file_no: '', allottee_name:'', designation:'', bps:'', directorate:'', cnic:'',
+      setForm({ file_no:'', allottee_name:'', designation:'', bps:'', directorate:'', cnic:'',
         allotment_date:'', date_of_birth:'', pool:'', qtr_status:'', accommodation_type:'',
-        occupation_date:'', allotment_medium:'', vacation_date:'', notes:''
-      })
+        occupation_date:'', allotment_medium:'', vacation_date:'', notes:'' })
       load()
-    } catch (err) {
-      setError(err?.response?.data?.detail || err.message)
-    }
+    } catch (err) { setError(err?.response?.data?.detail || err.message) }
   }
 
   const end = async (id) => {
     if(confirm('Mark as vacated/ended?')){
-      await endAllotment(id, 'Ended via UI')
-      load()
+      await endAllotment(id, 'Ended via UI'); load()
     }
   }
 

@@ -16,17 +16,11 @@ export default function HousesPage(){
     e.preventDefault()
     setError('')
     try {
-      if (editing) {
-        await updateHouse(editing.id, form)
-        setEditing(null)
-      } else {
-        await createHouse(form)
-      }
+      if (editing) { await updateHouse(editing.id, form); setEditing(null) }
+      else { await createHouse(form) }
       setForm({ file_no:'', qtr_no:'', sector:'' })
       load()
-    } catch (err) {
-      setError(err?.response?.data?.detail || err.message)
-    }
+    } catch (err) { setError(err?.response?.data?.detail || err.message) }
   }
 
   const onEdit = (it) => { setEditing(it); setForm({ file_no: it.file_no, qtr_no: it.qtr_no, sector: it.sector }) }

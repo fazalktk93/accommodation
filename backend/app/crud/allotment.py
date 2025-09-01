@@ -1,9 +1,10 @@
 from datetime import date
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
 from typing import Optional
-from app import models, schemas
+from app import models
+from schemas import allotment as s
 from app.crud import house as house_crud
 from app.crud.utils import paginate
 
@@ -13,12 +14,13 @@ def _add_years(d: date, years: int) -> date:
     except ValueError:
         return d.replace(month=2, day=28, year=d.year + years)
 
-def create(db: Session, obj_in: schemas.allotment.AllotmentCreate):
+def create(db: Session, obj_in: s.AllotmentCreate):
     # resolve house by file_no if provided
     house_id = obj_in.house_id
     if not house_id and obj_in.file_no:
         house_id = house_crud.get_by_file_no(db, obj_in.file_no).id
 
+    # one active per house
     active = db.execute(
         select(models.allotment.Allotment).where(
             and_(models.allotment.Allotment.house_id == house_id,
@@ -26,12 +28,11 @@ def create(db: Session, obj_in: schemas.allotment.AllotmentCreate):
         )
     ).scalars().first()
     if active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This house already has an active allotment.")
+        raise HTTPException(status_code=400, detail="This house already has an active allotment.")
 
     data = obj_in.dict(exclude={"file_no"})
     data["house_id"] = house_id
-    dob: date = data["date_of_birth"]
-    data["superannuation_date"] = _add_years(dob, 60)
+    data["superannuation_date"] = _add_years(data["date_of_birth"], 60)
     if data.get("vacation_date"):
         data["active"] = False
         data["end_date"] = data["vacation_date"]
@@ -42,7 +43,7 @@ def create(db: Session, obj_in: schemas.allotment.AllotmentCreate):
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
 
-def update(db: Session, allotment_id: int, obj_in: schemas.allotment.AllotmentUpdate):
+def update(db: Session, allotment_id: int, obj_in: s.AllotmentUpdate):
     obj = db.get(models.allotment.Allotment, allotment_id)
     if not obj: raise HTTPException(404, "Allotment not found")
 
@@ -61,8 +62,9 @@ def end(db: Session, allotment_id: int, notes: Optional[str] = None, vacation_da
     obj = db.get(models.allotment.Allotment, allotment_id)
     if not obj: raise HTTPException(404, "Allotment not found")
     if not obj.active: raise HTTPException(400, "Allotment already ended")
+    from datetime import date as _date
     obj.active = False
-    obj.vacation_date = vacation_date or date.today()
+    obj.vacation_date = vacation_date or _date.today()
     obj.end_date = obj.vacation_date
     if notes: obj.notes = (obj.notes + "\n" if obj.notes else "") + notes
     db.add(obj); db.commit(); db.refresh(obj)

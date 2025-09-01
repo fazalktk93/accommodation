@@ -1,12 +1,13 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from typing import Optional
-from app import models, schemas
+from app import models
+from schemas import file_movement as s
 from app.crud import house as house_crud
 from app.crud.utils import paginate
 
-def issue(db: Session, obj_in: schemas.file_movement.FileIssueCreate):
+def issue(db: Session, obj_in: s.FileIssueCreate):
     # resolve house by file_no if provided
     house_id = obj_in.house_id
     if not house_id and obj_in.file_no:
@@ -20,7 +21,7 @@ def issue(db: Session, obj_in: schemas.file_movement.FileIssueCreate):
         )
     ).scalars().first()
     if active:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This file is already issued and not returned.")
+        raise HTTPException(status_code=400, detail="This file is already issued and not returned.")
 
     house = house_crud.get(db, house_id)
     data = obj_in.dict(exclude={"file_no"})

@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { listMovements, issueFile, returnFile, listHouses } from '../api'
 import { useLocation } from 'react-router-dom'
 
-function useQuery(){
-  const { search } = useLocation()
-  return new URLSearchParams(search)
-}
+function useQuery(){ const { search } = useLocation(); return new URLSearchParams(search) }
 
 export default function FilesPage(){
   const query = useQuery()
@@ -32,16 +29,11 @@ export default function FilesPage(){
       await issueFile({ ...form, due_date: form.due_date || null })
       setForm({ file_no: form.file_no, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
       load()
-    } catch (err) {
-      setError(err?.response?.data?.detail || err.message)
-    }
+    } catch (err) { setError(err?.response?.data?.detail || err.message) }
   }
 
   const ret = async (id) => {
-    if(confirm('Mark file as returned?')){
-      await returnFile(id, { remarks: 'Returned via UI' })
-      load()
-    }
+    if(confirm('Mark file as returned?')){ await returnFile(id, { remarks: 'Returned via UI' }); load() }
   }
 
   return (
@@ -59,7 +51,7 @@ export default function FilesPage(){
           <input placeholder="Subject" value={form.subject} onChange={e=>setForm({...form, subject:e.target.value})} />
           <input placeholder="Issued to" value={form.issued_to} onChange={e=>setForm({...form, issued_to:e.target.value})} required/>
           <input placeholder="Department" value={form.department} onChange={e=>setForm({...form, department:e.target.value})} />
-          <input type="datetime-local" placeholder="Due date" value={form.due_date} onChange={e=>setForm({...form, due_date:e.target.value})}/>
+          <input type="datetime-local" value={form.due_date} onChange={e=>setForm({...form, due_date:e.target.value})}/>
           <button className="btn">Issue</button>
         </form>
         <textarea placeholder="Remarks (optional)" value={form.remarks} onChange={e=>setForm({...form, remarks:e.target.value})}/>
