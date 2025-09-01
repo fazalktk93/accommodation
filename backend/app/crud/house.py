@@ -19,6 +19,11 @@ def get(db: Session, house_id: int):
     if not obj: raise HTTPException(404, "Accommodation not found")
     return obj
 
+def get_by_file_no(db: Session, file_no: str):
+    obj = db.execute(select(models.house.House).where(models.house.House.file_no == file_no)).scalar_one_or_none()
+    if not obj: raise HTTPException(404, "Accommodation with this File No not found")
+    return obj
+
 def list(db: Session, skip: int = 0, limit: int = 50):
     q = db.query(models.house.House).order_by(models.house.House.id.desc())
     return paginate(q, skip, limit).all()
@@ -27,13 +32,10 @@ def update(db: Session, house_id: int, obj_in: schemas.house.HouseUpdate):
     obj = get(db, house_id)
     data = obj_in.dict(exclude_unset=True)
     if "file_no" in data and data["file_no"] != obj.file_no:
-        clash = db.execute(
-            select(models.house.House).where(models.house.House.file_no == data["file_no"])
-        ).scalar_one_or_none()
+        clash = db.execute(select(models.house.House).where(models.house.House.file_no == data["file_no"])).scalar_one_or_none()
         if clash:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File No already exists.")
-    for k, v in data.items():
-        setattr(obj, k, v)
+    for k, v in data.items(): setattr(obj, k, v)
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
 

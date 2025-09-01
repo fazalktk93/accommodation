@@ -1,22 +1,33 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, root_validator
 from datetime import datetime
+from typing import Optional
 
 class FileMovementBase(BaseModel):
-    file_code: str
-    subject: str | None = None
+    # allow either house_id or file_no for issuing
+    house_id: Optional[int] = None
+    file_no: Optional[str] = None
+    subject: Optional[str] = None
     issued_to: str
-    department: str | None = None
-    due_date: datetime | None = None
-    remarks: str | None = None
+    department: Optional[str] = None
+    due_date: Optional[datetime] = None
+    remarks: Optional[str] = None
 
-class FileIssueCreate(FileMovementBase): pass
+    @root_validator
+    def one_of_house_or_file(cls, values):
+        if not values.get("house_id") and not values.get("file_no"):
+            raise ValueError("Provide either house_id or file_no")
+        return values
+
+class FileIssueCreate(FileMovementBase):
+    pass
 
 class FileReturnUpdate(BaseModel):
-    remarks: str | None = None
+    remarks: Optional[str] = None
 
 class FileMovement(FileMovementBase):
     id: int
     issue_date: datetime
-    return_date: datetime | None
+    return_date: Optional[datetime] = None
+
     class Config:
         orm_mode = True

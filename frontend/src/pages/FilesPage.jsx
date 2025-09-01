@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listMovements, issueFile, returnFile } from '../api'
+import { listMovements, issueFile, returnFile, listHouses } from '../api'
 import { useLocation } from 'react-router-dom'
 
 function useQuery(){
@@ -9,38 +9,53 @@ function useQuery(){
 
 export default function FilesPage(){
   const query = useQuery()
-  const initialCode = query.get('file_code') || ''
+  const initialCode = query.get('file_no') || ''
 
   const [items, setItems] = useState([])
-  const [filter, setFilter] = useState({ outstanding: 'true', file_code: initialCode })
-  const [form, setForm] = useState({ file_code: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
+  const [houses, setHouses] = useState([])
+  const [filter, setFilter] = useState({ outstanding: 'true', file_no: initialCode })
+  const [form, setForm] = useState({ file_no: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
+  const [error, setError] = useState('')
 
   const load = () => listMovements({
     outstanding: filter.outstanding === '' ? undefined : filter.outstanding,
-    file_code: filter.file_code || undefined
-  }).then(r => setItems(r.data))
+    file_no: filter.file_no || undefined
+  }).then(r => setItems(r.data)).catch(e => setError(e?.response?.data?.detail || e.message))
 
+  useEffect(() => { listHouses().then(r=>setHouses(r.data)); }, [])
   useEffect(() => { load() }, [filter])
 
   const submit = async (e) => {
     e.preventDefault()
-    await issueFile({ ...form, due_date: form.due_date || null })
-    setForm({ file_code:'', subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
-    load()
+    setError('')
+    try {
+      await issueFile({ ...form, due_date: form.due_date || null })
+      setForm({ file_no: form.file_no, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
+      load()
+    } catch (err) {
+      setError(err?.response?.data?.detail || err.message)
+    }
   }
 
   const ret = async (id) => {
-    if(confirm('Mark file as returned?')){ await returnFile(id, { remarks: 'Returned via UI' }); load() }
+    if(confirm('Mark file as returned?')){
+      await returnFile(id, { remarks: 'Returned via UI' })
+      load()
+    }
   }
 
   return (
     <div className="card">
       <h1>File Movement</h1>
+      {error && <div style={{background:'#fee2e2',padding:8,border:'1px solid #fecaca',borderRadius:6,marginBottom:10}}>{error}</div>}
 
       <div className="card">
         <h2>Issue a File</h2>
         <form onSubmit={submit} style={{display:'grid', gap:'.5rem', gridTemplateColumns:'repeat(6, 1fr)'}}>
-          <input placeholder="File code" value={form.file_code} onChange={e=>setForm({...form, file_code:e.target.value})} required/>
+          <select value={form.file_no} onChange={e=>setForm({...form, file_no:e.target.value})} required>
+            <option value="">File No</option>
+            {houses.map(h => <option key={h.id} value={h.file_no}>{h.file_no} — {h.qtr_no} — {h.sector}</option>)}
+          </select>
           <input placeholder="Subject" value={form.subject} onChange={e=>setForm({...form, subject:e.target.value})} />
           <input placeholder="Issued to" value={form.issued_to} onChange={e=>setForm({...form, issued_to:e.target.value})} required/>
           <input placeholder="Department" value={form.department} onChange={e=>setForm({...form, department:e.target.value})} />
@@ -58,17 +73,21 @@ export default function FilesPage(){
             <option value="false">Returned</option>
             <option value="">All</option>
           </select>
-          <input placeholder="File code" value={filter.file_code} onChange={e=>setFilter({...filter, file_code: e.target.value})}/>
+          <select value={filter.file_no} onChange={e=>setFilter({...filter, file_no: e.target.value})}>
+            <option value="">All files</option>
+            {houses.map(h => <option key={h.id} value={h.file_no}>{h.file_no} — {h.qtr_no} — {h.sector}</option>)}
+          </select>
         </div>
       </div>
 
       <table className="table">
-        <thead><tr><th>#</th><th>File</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead>
+        <thead><tr><th>#</th><th>File No</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
+          {items.length === 0 && <tr><td colSpan={7} style={{color:'#6b7280'}}>No file movements</td></tr>}
           {items.map(it => (
             <tr key={it.id}>
               <td>{it.id}</td>
-              <td><strong>{it.file_code}</strong><div style={{fontSize:'.85rem', color:'#555'}}>{it.subject}</div></td>
+              <td>{it.file_no}</td>
               <td>{it.issued_to}{it.department ? ` (${it.department})` : ''}</td>
               <td>{new Date(it.issue_date).toLocaleString()}</td>
               <td>{it.due_date ? new Date(it.due_date).toLocaleString() : '-'}</td>
