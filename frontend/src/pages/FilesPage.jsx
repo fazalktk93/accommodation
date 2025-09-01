@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react'
 import { listMovements, issueFile, returnFile } from '../api'
+import { useLocation } from 'react-router-dom'
+
+function useQuery(){
+  const { search } = useLocation()
+  return new URLSearchParams(search)
+}
 
 export default function FilesPage(){
+  const query = useQuery()
+  const initialCode = query.get('file_code') || ''
+
   const [items, setItems] = useState([])
-  const [filter, setFilter] = useState({ outstanding: 'true', file_code:'' })
-  const [form, setForm] = useState({ file_code:'', subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
+  const [filter, setFilter] = useState({ outstanding: 'true', file_code: initialCode })
+  const [form, setForm] = useState({ file_code: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
 
   const load = () => listMovements({
     outstanding: filter.outstanding === '' ? undefined : filter.outstanding,

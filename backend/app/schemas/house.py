@@ -1,14 +1,18 @@
 from pydantic import BaseModel
+from typing import Optional
 
 class HouseBase(BaseModel):
-    name: str
-    address: str | None = None
+    file_no: str
+    qtr_no: str
+    sector: str
 
-class HouseCreate(HouseBase): pass
+class HouseCreate(HouseBase):
+    pass
 
 class HouseUpdate(BaseModel):
-    name: str | None = None
-    address: str | None = None
+    file_no: Optional[str] = None
+    qtr_no: Optional[str] = None
+    sector: Optional[str] = None
 
 class House(HouseBase):
     id: int

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { listHouses, createHouse, deleteHouse, updateHouse } from '../api'
+import { useNavigate } from 'react-router-dom'
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
-  const [form, setForm] = useState({ name:'', address:'' })
+  const [form, setForm] = useState({ file_no:'', qtr_no:'', sector:'' })
   const [editing, setEditing] = useState(null)
+  const navigate = useNavigate()
 
   const load = () => listHouses().then(r => setItems(r.data))
   useEffect(() => { load() }, [])
@@ -17,29 +19,39 @@ export default function HousesPage(){
     } else {
       await createHouse(form)
     }
-    setForm({ name:'', address:'' }); load()
+    setForm({ file_no:'', qtr_no:'', sector:'' }); load()
   }
 
-  const onEdit = (it) => { setEditing(it); setForm({ name: it.name, address: it.address || '' }) }
+  const onEdit = (it) => { setEditing(it); setForm({ file_no: it.file_no, qtr_no: it.qtr_no, sector: it.sector }) }
   const onDelete = async (id) => { if(confirm('Delete?')){ await deleteHouse(id); load() } }
+
+  const gotoFileMovement = (fileNo) => {
+    navigate(`/files?file_code=${encodeURIComponent(fileNo)}`)
+  }
 
   return (
     <div className="card">
-      <h1>Houses</h1>
-      <form onSubmit={submit} style={{display:'grid', gap:'.5rem', gridTemplateColumns:'1fr 2fr auto'}}>
-        <input placeholder="Name" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} required />
-        <input placeholder="Address" value={form.address} onChange={e=>setForm({...form, address:e.target.value})} />
+      <h1>Accommodation</h1>
+      <form onSubmit={submit} style={{display:'grid', gap:'.5rem', gridTemplateColumns:'1fr 2fr 1fr auto'}}>
+        <input placeholder="File No" value={form.file_no} onChange={e=>setForm({...form, file_no:e.target.value})} required />
+        <input placeholder="Qtr No"  value={form.qtr_no} onChange={e=>setForm({...form, qtr_no:e.target.value})} required />
+        <input placeholder="Sector"  value={form.sector} onChange={e=>setForm({...form, sector:e.target.value})} required />
         <button className="btn" type="submit">{editing ? 'Update' : 'Add'}</button>
       </form>
 
       <table className="table">
-        <thead><tr><th>#</th><th>Name</th><th>Address</th><th>Actions</th></tr></thead>
+        <thead><tr><th>#</th><th>File No</th><th>Qtr No</th><th>Sector</th><th>Actions</th></tr></thead>
         <tbody>
           {items.map(it => (
             <tr key={it.id}>
               <td>{it.id}</td>
-              <td>{it.name}</td>
-              <td>{it.address || '-'}</td>
+              <td>
+                <a href="#" onClick={(e)=>{e.preventDefault(); gotoFileMovement(it.file_no)}}>
+                  {it.file_no}
+                </a>
+              </td>
+              <td>{it.qtr_no}</td>
+              <td>{it.sector}</td>
               <td>
                 <button onClick={()=>onEdit(it)}>Edit</button>{' '}
                 <button onClick={()=>onDelete(it.id)}>Delete</button>

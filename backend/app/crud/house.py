@@ -5,16 +5,18 @@ from app import models, schemas
 from app.crud.utils import paginate
 
 def create(db: Session, obj_in: schemas.house.HouseCreate):
-    exists = db.execute(select(models.house.House).where(models.house.House.name == obj_in.name)).scalar_one_or_none()
+    exists = db.execute(
+        select(models.house.House).where(models.house.House.file_no == obj_in.file_no)
+    ).scalar_one_or_none()
     if exists:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="House with this name already exists.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File No already exists.")
     obj = models.house.House(**obj_in.dict())
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
 
 def get(db: Session, house_id: int):
     obj = db.get(models.house.House, house_id)
-    if not obj: raise HTTPException(404, "House not found")
+    if not obj: raise HTTPException(404, "Accommodation not found")
     return obj
 
 def list(db: Session, skip: int = 0, limit: int = 50):
@@ -23,7 +25,14 @@ def list(db: Session, skip: int = 0, limit: int = 50):
 
 def update(db: Session, house_id: int, obj_in: schemas.house.HouseUpdate):
     obj = get(db, house_id)
-    for k, v in obj_in.dict(exclude_unset=True).items():
+    data = obj_in.dict(exclude_unset=True)
+    if "file_no" in data and data["file_no"] != obj.file_no:
+        clash = db.execute(
+            select(models.house.House).where(models.house.House.file_no == data["file_no"])
+        ).scalar_one_or_none()
+        if clash:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File No already exists.")
+    for k, v in data.items():
         setattr(obj, k, v)
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
