@@ -49,6 +49,13 @@ class Employee(Base):
     nic = Column(String(20), unique=True, nullable=False, index=True)
     department = Column(String(120))
 
+class Department(Base):
+    __tablename__ = "departments"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), unique=True, nullable=False, index=True)
+    abbreviation = Column(String(20), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
 class ApplicationStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
