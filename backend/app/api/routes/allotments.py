@@ -69,6 +69,7 @@ def history_by_file(file_no: str, db: Session = Depends(get_db)):
             Allotment.occupation_date.desc(),
             Allotment.id.desc()
             )
+    )
     rows = db.execute(stmt).scalars().all()
     out: list[s.AllotmentOut] = []
     for a in rows:
