@@ -9,10 +9,16 @@ export default function AllotmentsPage(){
   // search filters (search-first stays)
   const [filter, setFilter] = useState({ person_name:'', file_no:'', qtr_no:'', active:'true' })
 
-  // form
+  // add form
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // END modal
+  const [showEnd, setShowEnd] = useState(false)
+  const [endTarget, setEndTarget] = useState(null) // row being ended
+  const [endForm, setEndForm] = useState({ vacation_date: '', notes: '' })
+  const today = () => new Date().toISOString().slice(0,10)
 
   // form state covers every field you asked for
   const [form, setForm] = useState({
@@ -49,7 +55,6 @@ export default function AllotmentsPage(){
     e.preventDefault()
     setSaving(true); setError('')
     try{
-      // normalize payload types
       const payload = {
         house_id: Number(form.house_id),
         person_name: form.person_name.trim(),
@@ -76,7 +81,6 @@ export default function AllotmentsPage(){
       }
       await createAllotment(payload)
       setShowForm(false)
-      // reset a few fields, keep house_id handy
       setForm(f => ({ ...f, person_name:'', designation:'', bps:'', directorate:'', cnic:'',
         allotment_date:'', date_of_birth:'', date_of_retirement:'', occupation_date:'', vacation_date:'',
         retention:'false', retention_last_date:'', pool:'', qtr_status:'', allotment_medium:'other', notes:'' }))
@@ -88,13 +92,27 @@ export default function AllotmentsPage(){
     }
   }
 
-  const end = async (id) => {
-    if(!confirm('Mark this allotment as ended (vacated)?')) return
-    try{
-      await endAllotment(id, 'Ended via UI', null)
-      search()
-    }catch(err){ setError(err.message) }
+  // ---------- END (vacation) modal ----------
+  const openEnd = (row) => {
+    setEndTarget(row)
+    setEndForm({
+      vacation_date: row?.vacation_date || today(),
+      notes: ''
+    })
+    setShowEnd(true)
   }
+  const closeEnd = () => { setShowEnd(false); setEndTarget(null) }
+  const submitEnd = async (e) => {
+    e.preventDefault()
+    try{
+      await endAllotment(endTarget.id, endForm.notes || null, endForm.vacation_date || null)
+      closeEnd()
+      search()
+    }catch(err){
+      setError(err.message)
+    }
+  }
+  // -----------------------------------------
 
   return (
     <div>
@@ -245,11 +263,48 @@ export default function AllotmentsPage(){
               <td>{it.allotment_medium || '-'}</td>
               <td>{it.period_of_stay ?? '-'}</td>
               <td>{it.active ? 'Active' : 'Ended'}</td>
-              <td>{it.active && <button onClick={()=>end(it.id)}>End</button>}</td>
+              <td>{it.active && <button onClick={()=>openEnd(it)}>End</button>}</td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {/* -------- End Allotment Modal -------- */}
+      {showEnd && (
+        <div className="modal-backdrop" onClick={closeEnd}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <h3>End Allotment</h3>
+            <p style={{marginTop:0}}>
+              File <b>{endTarget?.house_file_no}</b>, Qtr <b>{endTarget?.house_qtr_no}</b> — {endTarget?.person_name}
+            </p>
+            <form onSubmit={submitEnd}>
+              <div className="grid">
+                <label>Vacation Date
+                  <input
+                    type="date"
+                    value={endForm.vacation_date}
+                    onChange={e=>setEndForm(f=>({...f, vacation_date: e.target.value}))}
+                    min={endTarget?.occupation_date || undefined}
+                    required
+                  />
+                </label>
+                <label>Notes
+                  <input
+                    value={endForm.notes}
+                    onChange={e=>setEndForm(f=>({...f, notes: e.target.value}))}
+                    placeholder="optional"
+                  />
+                </label>
+              </div>
+              <div style={{marginTop:'.75rem'}}>
+                <button type="button" onClick={closeEnd}>Cancel</button>{' '}
+                <button type="submit">Confirm End</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* ------------------------------------ */}
     </div>
   )
 }
