@@ -41,7 +41,11 @@ def list_allotments(
         conds.append(House.qtr_no == qtr_no)
     if conds:
         stmt = stmt.where(and_(*conds))
-    stmt = stmt.order_by(desc(Allotment.occupation_date.nullslast()), desc(Allotment.id)).offset(skip).limit(limit)
+    stmt = stmt.order_by(
+    Allotment.occupation_date.is_(None),
+    Allotment.occupation_date.desc(),
+    Allotment.id.desc()
+        ).offset(skip).limit(limit)
     rows = db.execute(stmt).scalars().all()
     out: list[s.AllotmentOut] = []
     for a in rows:
@@ -60,8 +64,11 @@ def history_by_file(file_no: str, db: Session = Depends(get_db)):
         select(Allotment)
         .join(House)
         .where(House.file_no == file_no)
-        .order_by(desc(Allotment.occupation_date.nullslast()), desc(Allotment.id))
-    )
+        .order_by(
+            Allotment.occupation_date.is_(None),
+            Allotment.occupation_date.desc(),
+            Allotment.id.desc()
+            )
     rows = db.execute(stmt).scalars().all()
     out: list[s.AllotmentOut] = []
     for a in rows:
