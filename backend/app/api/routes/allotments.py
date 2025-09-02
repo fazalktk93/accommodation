@@ -7,6 +7,7 @@ from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.models import Allotment, House
 from app.crud import allotment as crud
+from sqlalchemy import select, and_, desc
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
@@ -80,3 +81,29 @@ def end_allotment(
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
     })
+@router.get("/history/by-file/{file_no}", response_model=List[s.AllotmentOut])
+def history_by_file(file_no: str, db: Session = Depends(get_db)):
+    """
+    Full allotment history for a given house file number,
+    newest occupation first.
+    """
+    stmt = (
+        select(Allotment)
+        .join(House)
+        .where(House.file_no == file_no)
+        .order_by(desc(Allotment.occupation_date), desc(Allotment.id))
+    )
+    rows = db.execute(stmt).scalars().all()
+
+    out: list[s.AllotmentOut] = []
+    for a in rows:
+        end = a.vacation_date or date.today()
+        days = (end - a.occupation_date).days if a.occupation_date else None
+        out.append(
+            s.AllotmentOut.from_orm(a).copy(update={
+                "period_of_stay": days,
+                "house_file_no": a.house.file_no if a.house else None,
+                "house_qtr_no": a.house.qtr_no if a.house else None,
+            })
+        )
+    return out
