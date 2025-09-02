@@ -52,3 +52,4 @@ class AllotmentOut(AllotmentBase):
     house_qtr_no: int | None = None
 
     class Config:
+        orm_mode = True
