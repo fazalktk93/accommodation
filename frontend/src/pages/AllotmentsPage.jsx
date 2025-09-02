@@ -39,20 +39,33 @@ export default function AllotmentsPage(){
       <table className="table">
         <thead>
           <tr>
-            <th>ID</th><th>Allottee</th><th>CNIC</th><th>File No</th><th>Qtr No</th>
-            <th>Occupation</th><th>Vacation</th><th>Period (days)</th><th>Status</th>
+            <th>File No</th><th>Qtr No</th><th>Allottee</th><th>Designation</th><th>BPS</th><th>Directorate</th>
+            <th>CNIC</th><th>Allotment Date</th><th>DOB</th><th>DOR</th>
+            <th>Retention</th><th>Retention Last</th>
+            <th>Occupation</th><th>Vacation</th><th>Pool</th><th>Qtr Status</th><th>Medium</th>
+            <th>Period (days)</th><th>Status</th>
           </tr>
         </thead>
         <tbody>
           {items.map(it => (
             <tr key={it.id}>
-              <td>{it.id}</td>
-              <td>{it.person_name}</td>
-              <td>{it.cnic || '-'}</td>
               <td>{it.house_file_no || '-'}</td>
               <td>{it.house_qtr_no || '-'}</td>
-              <td>{it.start_date}</td>
-              <td>{it.end_date || '-'}</td>
+              <td>{it.person_name}</td>
+              <td>{it.designation || '-'}</td>
+              <td>{it.bps ?? '-'}</td>
+              <td>{it.directorate || '-'}</td>
+              <td>{it.cnic || '-'}</td>
+              <td>{it.allotment_date || '-'}</td>
+              <td>{it.date_of_birth || '-'}</td>
+              <td>{it.date_of_retirement || '-'}</td>
+              <td>{it.retention ? 'Yes' : 'No'}</td>
+              <td>{it.retention_last_date || '-'}</td>
+              <td>{it.occupation_date || '-'}</td>
+              <td>{it.vacation_date || '-'}</td>
+              <td>{it.pool || '-'}</td>
+              <td>{it.qtr_status || '-'}</td>
+              <td>{it.allotment_medium || '-'}</td>
               <td>{it.period_of_stay ?? '-'}</td>
               <td>{it.active ? 'Active' : 'Ended'}</td>
             </tr>

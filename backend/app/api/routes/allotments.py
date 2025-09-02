@@ -10,6 +10,11 @@ from app.crud import allotment as crud
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
+def _period(occ: date | None, vac: date | None) -> int | None:
+    if not occ: return None
+    end = vac or date.today()
+    return (end - occ).days
+
 @router.get("/", response_model=List[s.AllotmentOut])
 def list_allotments(
     skip: int = 0,
@@ -23,43 +28,36 @@ def list_allotments(
 ):
     stmt = select(Allotment).join(House)
     conds = []
-    if house_id is not None:
-        conds.append(Allotment.house_id == house_id)
-    if active is not None:
-        conds.append(Allotment.active == active)
-    if person_name:
-        conds.append(Allotment.person_name.ilike(f"%{person_name}%"))
-    if file_no:
-        conds.append(House.file_no.ilike(f"%{file_no}%"))
-    if qtr_no is not None:
-        conds.append(House.qtr_no == qtr_no)
-    if conds:
-        stmt = stmt.where(and_(*conds))
+    if house_id is not None: conds.append(Allotment.house_id == house_id)
+    if active is not None: conds.append(Allotment.active == active)
+    if person_name: conds.append(Allotment.person_name.ilike(f"%{person_name}%"))
+    if file_no: conds.append(House.file_no.ilike(f"%{file_no}%"))
+    if qtr_no is not None: conds.append(House.qtr_no == qtr_no)
+    if conds: stmt = stmt.where(and_(*conds))
     stmt = stmt.offset(skip).limit(limit)
     rows = db.execute(stmt).scalars().all()
-    out = []
+
+    out: list[s.AllotmentOut] = []
     for a in rows:
-        # compute period of stay in days (use today if still active)
-        end = a.end_date or date.today()
-        delta = (end - a.start_date).days if a.start_date else None
-        out.append(s.AllotmentOut.from_orm(a).copy(update={
-            "period_of_stay": delta,
-            "house_file_no": a.house.file_no if a.house else None,
-            "house_qtr_no": a.house.qtr_no if a.house else None,
-        }))
+        out.append(
+            s.AllotmentOut.from_orm(a).copy(update={
+                "period_of_stay": _period(a.occupation_date, a.vacation_date),
+                "house_file_no": a.house.file_no if a.house else None,
+                "house_qtr_no": a.house.qtr_no if a.house else None,
+            })
+        )
     return out
 
 @router.post("/", response_model=s.AllotmentOut, status_code=201)
 def create_allotment(payload: s.AllotmentCreate, db: Session = Depends(get_db)):
     obj = crud.create(db, payload)
-    # when created, mark house occupied
+    # mark house occupied if occupied
     house = db.get(House, obj.house_id)
-    if house:
+    if house and obj.occupation_date and not obj.vacation_date:
         house.status = "occupied"
         db.add(house); db.commit()
     return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": (((payload.end_date or date.today()) - payload.start_date).days
-                        if payload.start_date else None),
+        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
     })
@@ -72,15 +70,13 @@ def end_allotment(
     db: Session = Depends(get_db),
 ):
     obj = crud.end(db, allotment_id, notes, vacation_date)
-    # when ended, mark house vacant
+    # when ended, set house vacant
     house = db.get(House, obj.house_id)
     if house:
         house.status = "vacant"
         db.add(house); db.commit()
-    end = obj.end_date or date.today()
-    delta = (end - obj.start_date).days if obj.start_date else None
     return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": delta,
+        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
     })
