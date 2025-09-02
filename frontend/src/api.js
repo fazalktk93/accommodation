@@ -29,3 +29,9 @@ export const listMovements = (params = {}) => api.get('/files/', { params })
 export const issueFile = (data) => api.post('/files/issue', data)   // {file_no or house_id, ...}
 export const returnFile = (id, data = {}) => api.post(`/files/${id}/return`, data)
 export const getFileStatus = (file_no) => api.get(`/files/status/${file_no}`)
+
+// …keep existing imports/code…
+
+export const getHouseByFile = (file_no) => api.get(`/houses/by-file/${encodeURIComponent(file_no)}`)
+export const listAllotmentHistoryByFile = (file_no) => api.get(`/allotments/history/by-file/${encodeURIComponent(file_no)}`)
+

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listHouses, createHouse, deleteHouse, updateHouse } from '../api'
 import { useNavigate } from 'react-router-dom'
+const gotoAllotmentHistory = (file_no) => navigate(`/houses/${encodeURIComponent(file_no)}/allotments`)
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
@@ -95,7 +96,11 @@ export default function HousesPage(){
           {items.map(it => (
             <tr key={it.id}>
               <td>{it.id}</td>
-              <td><a href="#" onClick={(e)=>{e.preventDefault(); gotoFileMovement(it.file_no)}}>{it.file_no}</a></td>
+              <td>
+                <a href="#" onClick={(e)=>{e.preventDefault(); gotoAllotmentHistory(it.file_no)}}>
+                  {it.file_no}
+                </a>
+              </td>
               <td>{it.qtr_no}</td>
               <td>{it.street}</td>
               <td>{it.sector}</td>
