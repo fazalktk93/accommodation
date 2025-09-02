@@ -1,4 +1,3 @@
-# Ensure all models are imported so SQLAlchemy sees them when configuring mappers.
 from .base import Base
 from .house import House
 from .allotment import Allotment
