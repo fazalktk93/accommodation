@@ -24,5 +24,9 @@ class AllotmentCreate(AllotmentBase):
 
 class AllotmentOut(AllotmentBase):
     id: int
+    period_of_stay: int | None = None  # days
+    house_file_no: str | None = None
+    house_qtr_no: int | None = None
+
     class Config:
         orm_mode = True
