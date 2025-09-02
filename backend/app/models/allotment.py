@@ -1,32 +1,21 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, func, Text, Boolean
-from sqlalchemy.orm import relationship
-from app.db.base_class import Base
+from __future__ import annotations
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Integer, Boolean, Date, ForeignKey
+from .base import Base
 
 class Allotment(Base):
     __tablename__ = "allotments"
 
-    id = Column(Integer, primary_key=True, index=True)
-    house_id = Column(Integer, ForeignKey("houses.id", ondelete="CASCADE"), nullable=False, index=True)
-    house = relationship("House", back_populates="allotments")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    house_id: Mapped[int] = mapped_column(
+        ForeignKey("houses.id", ondelete="CASCADE"), index=True, nullable=False
+    )
 
-    allottee_name = Column(String(160), nullable=False, index=True)
-    designation  = Column(String(160), nullable=True)
-    bps          = Column(Integer, nullable=True, index=True)
-    directorate  = Column(String(160), nullable=True, index=True)
-    cnic         = Column(String(25), nullable=True, index=True)
+    # example fields — adjust to your schema
+    person_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    cnic: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    start_date: Mapped[Date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    allotment_date   = Column(Date, nullable=False, index=True)
-    date_of_birth    = Column(Date, nullable=False, index=True)
-    pool             = Column(String(80), nullable=True, index=True)
-    qtr_status       = Column(String(80), nullable=True, index=True)
-    accommodation_type = Column(String(120), nullable=True, index=True)
-    occupation_date  = Column(Date, nullable=True, index=True)
-    allotment_medium = Column(String(120), nullable=True)
-    vacation_date    = Column(Date, nullable=True, index=True)
-
-    superannuation_date = Column(Date, nullable=False, index=True)  # DOB + 60 years
-    active = Column(Boolean, nullable=False, server_default="1", index=True)
-
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    end_date   = Column(Date, nullable=True, index=True)
+    house: Mapped["House"] = relationship(back_populates="allotments")

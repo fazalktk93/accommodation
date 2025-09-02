@@ -1,14 +1,20 @@
-from sqlalchemy import Column, Integer, String, DateTime, func
-from sqlalchemy.orm import relationship
-from app.db.base_class import Base
+from __future__ import annotations
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Integer
+from .base import Base
 
 class House(Base):
     __tablename__ = "houses"
 
-    id = Column(Integer, primary_key=True, index=True)
-    file_no = Column(String(120), unique=True, nullable=False, index=True)
-    qtr_no  = Column(String(120), nullable=False)
-    sector  = Column(String(120), nullable=False)
-    created_at = Column(DateTime, server_default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    file_no: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    qtr_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    sector: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    allotments = relationship("Allotment", back_populates="house", cascade="all, delete-orphan")
+    # relationships
+    allotments: Mapped[list["Allotment"]] = relationship(
+        back_populates="house", cascade="all, delete-orphan"
+    )
+    movements: Mapped[list["FileMovement"]] = relationship(
+        back_populates="house", cascade="all, delete-orphan"
+    )
