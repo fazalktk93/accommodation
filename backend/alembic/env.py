@@ -1,3 +1,4 @@
+# backend/alembic/env.py
 import os, sys
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
@@ -7,14 +8,11 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from app.models import Base  # imports all models
+from app.models import Base
 
 config = context.config
 
-# OVERRIDE URL from environment
-db_url = os.getenv("SQLALCHEMY_DATABASE_URL")
-if not db_url:
-    raise RuntimeError("SQLALCHEMY_DATABASE_URL is not set; point it to your Postgres DB.")
+db_url = os.getenv("SQLALCHEMY_DATABASE_URL", "sqlite:///./accommodation.db")
 config.set_main_option("sqlalchemy.url", db_url)
 
 if config.config_file_name is not None:
@@ -24,8 +22,11 @@ target_metadata = Base.metadata
 
 def run_migrations_offline():
     url = config.get_main_option("sqlalchemy.url")
-    context.configure(url=url, target_metadata=target_metadata, literal_binds=True,
-                      dialect_opts={"paramstyle": "named"}, compare_type=True, compare_server_default=True)
+    context.configure(
+        url=url, target_metadata=target_metadata,
+        literal_binds=True, dialect_opts={"paramstyle": "named"},
+        compare_type=True, compare_server_default=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
@@ -35,12 +36,10 @@ def run_migrations_online():
         prefix="sqlalchemy.", poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        # LOG which DB we’re using
-        dialect = connection.dialect.name
-        url = str(connection.engine.url)
-        print(f"[alembic] using dialect={dialect} url={url}")
-        context.configure(connection=connection, target_metadata=target_metadata,
-                          compare_type=True, compare_server_default=True)
+        context.configure(
+            connection=connection, target_metadata=target_metadata,
+            compare_type=True, compare_server_default=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
 
