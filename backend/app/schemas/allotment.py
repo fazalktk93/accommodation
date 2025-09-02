@@ -1,64 +1,28 @@
-from pydantic import BaseModel, validator, root_validator
 from datetime import date
-from typing import Optional
+from pydantic import BaseModel, Field
+import re
+
+CNIC_RE = re.compile(r"^\d{5}-\d{7}-\d{1}$|^\d{13}$")
 
 class AllotmentBase(BaseModel):
-    house_id: Optional[int] = None
-    file_no: Optional[str] = None
+    house_id: int
+    person_name: str = Field(..., max_length=120)
+    cnic: str | None = None
+    start_date: date
+    end_date: date | None = None
+    active: bool | None = True
+    notes: str | None = None
 
-    allottee_name: str
-    designation: Optional[str] = None
-    bps: Optional[int] = None
-    directorate: Optional[str] = None
-    cnic: Optional[str] = None
-
-    allotment_date: date
-    date_of_birth: date
-    pool: Optional[str] = None
-    qtr_status: Optional[str] = None
-    accommodation_type: Optional[str] = None
-    occupation_date: Optional[date] = None
-    allotment_medium: Optional[str] = None
-    vacation_date: Optional[date] = None
-    notes: Optional[str] = None
-
-    @validator("cnic")
+    @classmethod
     def validate_cnic(cls, v):
-        if not v: return v
-        digits = [d for d in v if d.isdigit()]
-        if len(digits) != 13:
-            raise ValueError("CNIC must have 13 digits.")
+        if v and not CNIC_RE.match(v):
+            raise ValueError("Invalid CNIC (use xxxxx-xxxxxxx-x or 13 digits)")
         return v
 
-    @root_validator
-    def need_house_or_file(cls, values):
-        if not values.get("house_id") and not values.get("file_no"):
-            raise ValueError("Provide either house_id or file_no")
-        return values
+class AllotmentCreate(AllotmentBase):
+    pass
 
-class AllotmentCreate(AllotmentBase): pass
-
-class AllotmentUpdate(BaseModel):
-    allottee_name: Optional[str] = None
-    designation: Optional[str] = None
-    bps: Optional[int] = None
-    directorate: Optional[str] = None
-    cnic: Optional[str] = None
-    allotment_date: Optional[date] = None
-    date_of_birth: Optional[date] = None
-    pool: Optional[str] = None
-    qtr_status: Optional[str] = None
-    accommodation_type: Optional[str] = None
-    occupation_date: Optional[date] = None
-    allotment_medium: Optional[str] = None
-    vacation_date: Optional[date] = None
-    notes: Optional[str] = None
-
-class Allotment(AllotmentBase):
+class AllotmentOut(AllotmentBase):
     id: int
-    superannuation_date: date
-    active: bool
-    end_date: Optional[date] = None
-
     class Config:
         orm_mode = True

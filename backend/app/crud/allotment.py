@@ -1,84 +1,66 @@
-from datetime import date
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from __future__ import annotations
 from typing import Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import and_
+from fastapi import HTTPException, status
 from app import models
 from app.schemas import allotment as s
-from app.crud import house as house_crud
 from app.crud.utils import paginate
 
-def _add_years(d: date, years: int) -> date:
-    try:
-        return d.replace(year=d.year + years)
-    except ValueError:
-        return d.replace(month=2, day=28, year=d.year + years)
-
 def create(db: Session, obj_in: s.AllotmentCreate):
-    # resolve house by file_no if provided
-    house_id = obj_in.house_id
-    if not house_id and obj_in.file_no:
-        house_id = house_crud.get_by_file_no(db, obj_in.file_no).id
+    # ensure house exists
+    house = db.get(models.House, obj_in.house_id)
+    if not house:
+        raise HTTPException(status_code=404, detail="House not found")
 
-    # one active per house
-    active = db.execute(
-        select(models.allotment.Allotment).where(
-            and_(models.allotment.Allotment.house_id == house_id,
-                 models.allotment.Allotment.active == True)  # noqa
-        )
-    ).scalars().first()
-    if active:
-        raise HTTPException(status_code=400, detail="This house already has an active allotment.")
+    # enforce one active allotment per house
+    active_exists = db.query(models.Allotment).filter(
+        and_(models.Allotment.house_id == obj_in.house_id,
+             models.Allotment.active.is_(True))
+    ).first()
+    if active_exists:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="House already has an active allotment")
 
-    data = obj_in.dict(exclude={"file_no"})
-    data["house_id"] = house_id
-    data["superannuation_date"] = _add_years(data["date_of_birth"], 60)
-    if data.get("vacation_date"):
-        data["active"] = False
-        data["end_date"] = data["vacation_date"]
-    else:
-        data["active"] = True
-
-    obj = models.allotment.Allotment(**data)
+    obj = models.Allotment(
+        house_id=obj_in.house_id,
+        person_name=obj_in.person_name,
+        cnic=obj_in.cnic,
+        start_date=obj_in.start_date,
+        end_date=obj_in.end_date,
+        active=obj_in.active if obj_in.active is not None else True,
+        notes=obj_in.notes,
+    )
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
 
-def update(db: Session, allotment_id: int, obj_in: s.AllotmentUpdate):
-    obj = db.get(models.allotment.Allotment, allotment_id)
-    if not obj: raise HTTPException(404, "Allotment not found")
-
-    changed = obj_in.dict(exclude_unset=True)
-    if "date_of_birth" in changed and changed["date_of_birth"]:
-        changed["superannuation_date"] = _add_years(changed["date_of_birth"], 60)
-    if "vacation_date" in changed and changed["vacation_date"]:
-        changed["active"] = False
-        changed["end_date"] = changed["vacation_date"]
-
-    for k, v in changed.items(): setattr(obj, k, v)
-    db.add(obj); db.commit(); db.refresh(obj)
-    return obj
-
-def end(db: Session, allotment_id: int, notes: Optional[str] = None, vacation_date: Optional[date] = None):
-    obj = db.get(models.allotment.Allotment, allotment_id)
-    if not obj: raise HTTPException(404, "Allotment not found")
-    if not obj.active: raise HTTPException(400, "Allotment already ended")
-    from datetime import date as _date
-    obj.active = False
-    obj.vacation_date = vacation_date or _date.today()
-    obj.end_date = obj.vacation_date
-    if notes: obj.notes = (obj.notes + "\n" if obj.notes else "") + notes
-    db.add(obj); db.commit(); db.refresh(obj)
-    return obj
-
-def list(db: Session, skip: int = 0, limit: int = 50, house_id: Optional[int] = None, active: Optional[bool] = None):
-    q = db.query(models.allotment.Allotment)
-    if house_id is not None: q = q.filter(models.allotment.Allotment.house_id == house_id)
-    if active is True: q = q.filter(models.allotment.Allotment.active == True)  # noqa
-    if active is False: q = q.filter(models.allotment.Allotment.active == False)  # noqa
-    q = q.order_by(models.allotment.Allotment.id.desc())
+def list(db: Session, skip: int = 0, limit: int = 50,
+         house_id: Optional[int] = None, active: Optional[bool] = None):
+    q = db.query(models.Allotment)
+    if house_id is not None:
+        q = q.filter(models.Allotment.house_id == house_id)
+    if active is True:
+        q = q.filter(models.Allotment.active.is_(True))
+    elif active is False:
+        q = q.filter(models.Allotment.active.is_(False))
+    q = q.order_by(models.Allotment.id.desc())
     return paginate(q, skip, limit).all()
 
 def get(db: Session, allotment_id: int):
-    obj = db.get(models.allotment.Allotment, allotment_id)
-    if not obj: raise HTTPException(404, "Allotment not found")
+    obj = db.get(models.Allotment, allotment_id)
+    if not obj:
+        raise HTTPException(status_code=404, detail="Allotment not found")
+    return obj
+
+def end(db: Session, allotment_id: int,
+        notes: Optional[str] = None, vacation_date: Optional[s.date] = None):
+    obj = get(db, allotment_id)
+    if not obj.active:
+        return obj
+    obj.active = False
+    if vacation_date:
+        obj.end_date = vacation_date
+    if notes:
+        obj.notes = (obj.notes + "\n" if obj.notes else "") + notes
+    db.add(obj); db.commit(); db.refresh(obj)
     return obj

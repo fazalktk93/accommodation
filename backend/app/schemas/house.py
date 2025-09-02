@@ -1,20 +1,19 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
 
 class HouseBase(BaseModel):
-    file_no: str
-    qtr_no: str
+    file_no: str = Field(..., max_length=64)
+    qtr_no: int
     sector: str
 
 class HouseCreate(HouseBase):
     pass
 
 class HouseUpdate(BaseModel):
-    file_no: Optional[str] = None
-    qtr_no: Optional[str] = None
-    sector: Optional[str] = None
+    file_no: str | None = None
+    qtr_no: int | None = None
+    sector: str | None = None
 
-class House(HouseBase):
+class HouseOut(HouseBase):
     id: int
     class Config:
         orm_mode = True

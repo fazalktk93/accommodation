@@ -7,8 +7,6 @@ from app.schemas import file_movement as s
 from app.crud import house as house_crud
 from app.crud.utils import paginate
 from datetime import datetime, timezone
-from app.models.house import House
-from app.models.file_movement import FileMovement
 
 def issue(db: Session, obj_in: s.FileIssueCreate):
     house_id = obj_in.house_id
@@ -18,10 +16,10 @@ def issue(db: Session, obj_in: s.FileIssueCreate):
         raise HTTPException(status_code=400, detail="house_id or valid file_no is required")
 
     existing = db.execute(
-        select(FileMovement).where(
+        select(models.FileMovement).where(
             and_(
-                FileMovement.house_id == house_id,
-                FileMovement.return_date.is_(None),
+                models.FileMovement.house_id == house_id,
+                models.FileMovement.return_date.is_(None),
             )
         )
     ).scalar_one_or_none()
@@ -66,6 +64,5 @@ def list(db: Session, skip: int = 0, limit: int = 50, outstanding: Optional[bool
 
 def get(db: Session, movement_id: int):
     obj = db.get(models.FileMovement, movement_id)
-    if not obj:
-        raise HTTPException(404, "Record not found")
+    if not obj: raise HTTPException(404, "Record not found")
     return obj
