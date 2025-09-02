@@ -1,30 +1,26 @@
 import os
-from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
 
-# --- load .env (without adding new deps) ---
-# If you already use python-dotenv, you can import and load it here.
-# Otherwise, we parse a very simple KEY=VALUE .env manually:
-ENV_PATH = Path(__file__).resolve().parents[2] / ".env"  # .../backend/.env
-if ENV_PATH.exists():
-    for line in ENV_PATH.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
+DB_URL = os.getenv("SQLALCHEMY_DATABASE_URL", settings.SQLALCHEMY_DATABASE_URL)
 
-DB_URL = os.getenv("SQLALCHEMY_DATABASE_URL", "sqlite:///./accommodation.db")
-
-# Fail fast if you *want* Postgres but fell back to sqlite
-if os.getenv("FORCE_POSTGRES", "0") == "1" and DB_URL.startswith("sqlite"):
+if settings.FORCE_POSTGRES and (DB_URL.startswith("sqlite") or "+psycopg2" not in DB_URL):
     raise RuntimeError(
-        "API is about to use SQLite (DB_URL = sqlite...). Set SQLALCHEMY_DATABASE_URL in backend/.env to your Postgres URL."
+        "FORCE_POSTGRES=1, but SQLALCHEMY_DATABASE_URL is not a psycopg2 Postgres URL."
     )
 
-print(f">>> Using DB: {DB_URL}")  # <-- you will see this on startup
+# Tweak the pool for web workloads; keep it modest for dev
+engine = create_engine(
+    DB_URL,
+    pool_size=10,          # number of persistent connections
+    max_overflow=20,       # extra connections above pool_size
+    pool_pre_ping=True,    # recycle dead connections
+    pool_recycle=1800,     # seconds; avoids stale connections (30 min)
+    connect_args={
+        # Fail slow queries rather than piling up
+        "options": "-c statement_timeout=5000",  # 5s; tune as needed
+    },
+)
 
-connect_args = {"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
-engine = create_engine(DB_URL, pool_pre_ping=True, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
