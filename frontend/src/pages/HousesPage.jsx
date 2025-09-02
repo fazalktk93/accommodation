@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listHouses, createHouse, deleteHouse, updateHouse } from '../api'
 import { useNavigate } from 'react-router-dom'
-const gotoAllotmentHistory = (file_no) => navigate(`/houses/${encodeURIComponent(file_no)}/allotments`)
+
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
@@ -9,6 +9,7 @@ export default function HousesPage(){
   const [filters, setFilters] = useState({ status:'', type_code:'' })
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ file_no:'', qtr_no:'', street:'', sector:'', type_code:'A', status:'available' })
+  const gotoAllotmentHistory = (file_no) => navigate(`/houses/${encodeURIComponent(file_no)}/allotments`)
   const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
