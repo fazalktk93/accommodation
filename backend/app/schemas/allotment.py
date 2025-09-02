@@ -24,7 +24,7 @@ class AllotmentBase(BaseModel):
 
     pool: str | None = None
     qtr_status: str | None = None
-    allotment_medium: str | None = None  # family transfer / changes / mutual / other
+    allotment_medium: str | None = None
     active: bool | None = True
     notes: str | None = None
 
@@ -36,7 +36,8 @@ class AllotmentBase(BaseModel):
 
     @validator("allotment_medium")
     def normalize_medium(cls, v):
-        if v is None: return v
+        if v is None:
+            return v
         vv = v.strip().lower()
         return vv if vv in ALLOWED_MEDIUM else "other"
 
@@ -45,9 +46,7 @@ class AllotmentCreate(AllotmentBase):
 
 class AllotmentOut(AllotmentBase):
     id: int
-    # computed fields
-    period_of_stay: int | None = None  # days from occupation_date to vacation_date (or today)
-    # convenience house info
+    period_of_stay: int | None = None  # (vacation_date or today) - occupation_date
     house_file_no: str | None = None
     house_qtr_no: int | None = None
 
