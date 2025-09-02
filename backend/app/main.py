@@ -14,11 +14,11 @@ app = FastAPI(title="Accommodation API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS or ["http://localhost:5173"],
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+))
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(health.router, prefix="/api")
