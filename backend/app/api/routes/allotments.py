@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Optional, List
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select, desc
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.crud import allotment as crud
-from app.models import House, QtrStatus
+from app.models import House, Allotment, QtrStatus
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
@@ -20,7 +22,7 @@ def _period(occ: date | None, vac: date | None) -> int | None:
     return (end - occ).days
 
 
-@router.get("/", response_model=List[s.AllotmentOut])
+@router.get("/", response_model=List[s.AllotmentOut], name="list_allotments")
 def list_allotments(
     skip: int = 0,
     limit: int = 50,
@@ -41,38 +43,66 @@ def list_allotments(
         file_no=file_no,
         qtr_no=qtr_no,
     )
-    out: list[s.AllotmentOut] = []
-    for a in rows:
-        out.append(
-            s.AllotmentOut.from_orm(a).copy(update={
+    return [
+        s.AllotmentOut.from_orm(a).copy(
+            update={
                 "period_of_stay": _period(a.occupation_date, a.vacation_date),
                 "house_file_no": a.house.file_no if a.house else None,
                 "house_qtr_no": a.house.qtr_no if a.house else None,
-            })
+            }
         )
-    return out
+        for a in rows
+    ]
 
 
-@router.get("/{allotment_id}", response_model=s.AllotmentOut)
+# Put this BEFORE "/{allotment_id}" so it can never be shadowed.
+@router.get(
+    "/history/by-file/{file_no:str}",
+    response_model=List[s.AllotmentOut],
+    name="history_by_file",
+)
+def history_by_file(file_no: str, db: Session = Depends(get_db)):
+    rows = (
+        db.execute(
+            select(Allotment)
+            .join(House)
+            .where(House.file_no == file_no)
+            .order_by(
+                Allotment.occupation_date.is_(None),
+                desc(Allotment.occupation_date),
+                desc(Allotment.id),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        s.AllotmentOut.from_orm(a).copy(
+            update={
+                "period_of_stay": _period(a.occupation_date, a.vacation_date),
+                "house_file_no": a.house.file_no if a.house else None,
+                "house_qtr_no": a.house.qtr_no if a.house else None,
+            }
+        )
+        for a in rows
+    ]
+
+
+@router.get("/{allotment_id}", response_model=s.AllotmentOut, name="get_allotment")
 def get_allotment(allotment_id: int, db: Session = Depends(get_db)):
     obj = crud.get(db, allotment_id)
     house = db.get(House, obj.house_id)
-    return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
-        "house_file_no": house.file_no if house else None,
-        "house_qtr_no": house.qtr_no if house else None,
-    })
+    return s.AllotmentOut.from_orm(obj).copy(
+        update={
+            "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
+            "house_file_no": house.file_no if house else None,
+            "house_qtr_no": house.qtr_no if house else None,
+        }
+    )
 
 
-@router.post("/", response_model=s.AllotmentOut, status_code=201)
+@router.post("/", response_model=s.AllotmentOut, status_code=201, name="create_allotment")
 def create_allotment(payload: s.AllotmentCreateFlexible, db: Session = Depends(get_db)):
-    """
-    Accepts:
-      - house_id or house_file_no
-      - qtr_status (case-insensitive) or active: true/false
-      - dates as '', 'YYYY-MM-DD', 'DD-MM-YYYY', 'DD/MM/YYYY'
-      - bps as "17" or 17
-    """
     # Resolve house
     house_id = payload.house_id
     if not house_id and payload.house_file_no:
@@ -112,25 +142,29 @@ def create_allotment(payload: s.AllotmentCreateFlexible, db: Session = Depends(g
     )
     obj = crud.create(db, create_data)
     house = db.get(House, obj.house_id)
-    return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
-        "house_file_no": house.file_no if house else None,
-        "house_qtr_no": house.qtr_no if house else None,
-    })
+    return s.AllotmentOut.from_orm(obj).copy(
+        update={
+            "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
+            "house_file_no": house.file_no if house else None,
+            "house_qtr_no": house.qtr_no if house else None,
+        }
+    )
 
 
-@router.patch("/{allotment_id}", response_model=s.AllotmentOut)
+@router.patch("/{allotment_id}", response_model=s.AllotmentOut, name="update_allotment")
 def update_allotment(allotment_id: int, payload: s.AllotmentUpdate, db: Session = Depends(get_db)):
     obj = crud.update(db, allotment_id, payload)
     house = db.get(House, obj.house_id)
-    return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
-        "house_file_no": house.file_no if house else None,
-        "house_qtr_no": house.qtr_no if house else None,
-    })
+    return s.AllotmentOut.from_orm(obj).copy(
+        update={
+            "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
+            "house_file_no": house.file_no if house else None,
+            "house_qtr_no": house.qtr_no if house else None,
+        }
+    )
 
 
-@router.post("/{allotment_id}/end", response_model=s.AllotmentOut)
+@router.post("/{allotment_id}/end", response_model=s.AllotmentOut, name="end_allotment")
 def end_allotment(
     allotment_id: int,
     notes: Optional[str] = None,
@@ -139,8 +173,16 @@ def end_allotment(
 ):
     obj = crud.end(db, allotment_id, notes=notes, vacation_date=vacation_date)
     house = db.get(House, obj.house_id)
-    return s.AllotmentOut.from_orm(obj).copy(update={
-        "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
-        "house_file_no": house.file_no if house else None,
-        "house_qtr_no": house.qtr_no if house else None,
-    })
+    return s.AllotmentOut.from_orm(obj).copy(
+        update={
+            "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
+            "house_file_no": house.file_no if house else None,
+            "house_qtr_no": house.qtr_no if house else None,
+        }
+    )
+
+
+@router.delete("/{allotment_id}", status_code=204, name="delete_allotment")
+def delete_allotment(allotment_id: int, db: Session = Depends(get_db)):
+    crud.delete(db, allotment_id)
+    return None
