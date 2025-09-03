@@ -1,6 +1,5 @@
 from .base import Base
 from .house import House
-from .allotment import Allotment
-from .file_movement import FileMovement
+from .allotment import Allotment, QtrStatus, AllotteeStatus
 
-__all__ = ["Base", "House", "Allotment", "FileMovement"]
+__all__ = ["Base", "House", "Allotment", "QtrStatus", "AllotteeStatus"]
