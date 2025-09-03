@@ -2,8 +2,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   getHouseByFile,
-  listAllotmentHistoryByFile,
   createAllotment,
+  api, // <-- add this
 } from '../api'
 
 /** retirement age used to auto-calc DOR from DOB */
@@ -39,12 +39,29 @@ export default function HouseAllotmentsPage(){
   async function load(){
     setLoading(true); setError('')
     try{
-      const [h, hist] = await Promise.all([
-        getHouseByFile(fileNo),            // returns house object (not {data})
-        listAllotmentHistoryByFile(fileNo) // returns array (not {data})
-      ])
-      setHouse(h || null)
-      const list = Array.isArray(hist) ? hist : (hist?.results ?? [])
+      let h = null
+
+      // If the route param looks like a numeric ID, fetch by ID for exact match.
+      if (/^\d+$/.test(String(fileNo || '').trim())) {
+        const res = await api.get(`/houses/${fileNo}/`)   // <-- trailing slash
+        h = res.data
+      } else {
+        // Otherwise, find by file number (helper already does exact + q fallback)
+        h = await getHouseByFile(fileNo)
+      }
+
+      if (!h) {
+        setHouse(null)
+        setHistory([])
+        throw new Error('House not found for the given file no')
+      }
+
+      setHouse(h)
+
+      // Always fetch history by house_id to avoid ambiguous "by-file" lookups.
+      const histRes = await api.get('/allotments/', { params: { house_id: h.id } })
+      const data = histRes.data
+      const list = Array.isArray(data) ? data : (data?.results ?? [])
       setHistory(list)
     }catch(err){
       setError(err.message || 'Failed to load')
@@ -73,8 +90,7 @@ export default function HouseAllotmentsPage(){
     if(!house) return
     setSaving(true); setError('')
     try{
-      // Map to backend field names it actually uses:
-      // dob/dor, medium, retention_last (NOT *_date names)
+      // Map to backend field names it uses:
       const payload = {
         house_id: Number(house.id),
         person_name: (form.person_name || '').trim() || null,
@@ -83,18 +99,18 @@ export default function HouseAllotmentsPage(){
         directorate: form.directorate || null,
         cnic: form.cnic || null,
         allotment_date: form.allotment_date || null,
-        dob: form.date_of_birth || null,                 // <-- backend expects 'dob'
-        dor: form.date_of_retirement || null,            // <-- backend expects 'dor'
+        dob: form.date_of_birth || null,
+        dor: form.date_of_retirement || null,
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
-        retention_last: form.retention_last_date || null,// <-- backend expects 'retention_last'
+        retention_last: form.retention_last_date || null,
         pool: form.pool || null,
         qtr_status: form.qtr_status || null,
-        medium: form.allotment_medium || 'other',        // <-- backend expects 'medium'
+        medium: form.allotment_medium || 'other',
         notes: form.notes || null,
       }
 
-      // Auto-end any active allotment on this house
+      // Auto-end previous active allotment for this house
       await createAllotment(payload, { forceEndPrevious: true })
 
       // reset form, close it, and refresh history
