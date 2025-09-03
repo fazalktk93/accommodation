@@ -5,37 +5,9 @@ import {
   searchAllotments,
   createAllotment,
   updateAllotment,
-} from '../api' // ← keep this path exactly as your project expects
+} from '../api' // <-- keep this path as in your project
 
-// ---------------- Error Boundary (shows errors instead of white screen) ----
-class PageErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props)
-    this.state = { error: null }
-  }
-  static getDerivedStateFromError(error) {
-    return { error }
-  }
-  componentDidCatch(error, info) {
-    // eslint-disable-next-line no-console
-    console.error('AllotmentsPage error:', error, info)
-  }
-  render() {
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 16 }}>
-          <h3 style={{ color: '#b00020', marginTop: 0 }}>Something went wrong</h3>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error && this.state.error.message || this.state.error)}</pre>
-          <p>Open DevTools → Console for full stack trace.</p>
-          {this.props.children /* keeps layout height so hot-reload feels nicer */}
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
-// ---------------- helpers ---------------------------------------------------
+// ----- helpers --------------------------------------------------------------
 function toDateInput(val) {
   if (!val) return ''
   var d = typeof val === 'string' ? new Date(val) : val
@@ -50,14 +22,14 @@ function computeDOR(dob) {
   return toDateInput(d)
 }
 function numOrNull(v) {
-  if (v === null || v === undefined || v === '') return null
+  if (v === '' || v === null || typeof v === 'undefined') return null
   var n = Number(v)
   return isFinite(n) ? n : null
 }
 
-// ---------------- component -------------------------------------------------
-function AllotmentsPageInner() {
-  // listing/search
+// ----- component ------------------------------------------------------------
+export default function AllotmentsPage() {
+  // list/search
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [rows, setRows] = useState([])
@@ -66,12 +38,11 @@ function AllotmentsPageInner() {
 
   // houses for selects
   const [houses, setHouses] = useState([])
-  const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
+  const safeHouses = useMemo(function () {
+    return Array.isArray(houses) ? houses : []
+  }, [houses])
 
-  // add form
-  const [showForm, setShowForm] = useState(false)
-  const [addMode, setAddMode] = useState('full') // 'full' | 'simple'
-  const [saving, setSaving] = useState(false)
+  // add form (FULL)
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -86,12 +57,13 @@ function AllotmentsPageInner() {
     vacation_date: '',
     dob: '',
     dor: '',
-    retention: 'No',
     retention_last: '',
     notes: '',
     qtr_status: 'active',
     allottee_status: 'in_service',
   }
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(emptyForm)
 
   // edit modal
@@ -106,7 +78,8 @@ function AllotmentsPageInner() {
         const hs = await listHouses()
         if (mounted) setHouses(hs || [])
       } catch (e) {
-        console.warn('listHouses failed:', e)
+        // non-fatal
+        // console.warn('listHouses failed:', e)
       }
     })()
     return function () { mounted = false }
@@ -125,7 +98,6 @@ function AllotmentsPageInner() {
       const list = Array.isArray(resp && resp.results) ? resp.results : (Array.isArray(resp) ? resp : [])
       setRows(list)
     } catch (e) {
-      console.error('searchAllotments failed:', e)
       setError(e && e.message ? e.message : 'Failed to load allotments')
     } finally {
       setLoading(false)
@@ -149,16 +121,23 @@ function AllotmentsPageInner() {
         pool: form.pool || null,
         medium: form.medium || null,
         bps: numOrNull(form.bps),
+
         allotment_date: form.allotment_date || null,
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
+
         dob: form.dob || null,
+        // compute DOR from DOB if given
         dor: form.dob ? computeDOR(form.dob) : (form.dor || null),
-        retention_until: form.retention === 'Yes' ? (form.retention_last || null) : null,
+
+        // many backends accept either retention_last or retention_until; keep one
         retention_last: form.retention_last || null,
+
         qtr_status: form.qtr_status || 'active',
         allottee_status: form.allottee_status || 'in_service',
         notes: form.notes || null,
+
+        // preserve existing behavior if your backend uses this
         force_end_previous: true,
       }
       await createAllotment(payload)
@@ -166,7 +145,6 @@ function AllotmentsPageInner() {
       setForm(emptyForm)
       await search()
     } catch (e) {
-      console.error('createAllotment failed:', e)
       setError(e && e.message ? e.message : 'Failed to create allotment')
     } finally {
       setSaving(false)
@@ -185,12 +163,16 @@ function AllotmentsPageInner() {
       pool: row.pool || '',
       medium: row.medium || '',
       bps: row.bps,
+
       allotment_date: toDateInput(row.allotment_date),
       occupation_date: toDateInput(row.occupation_date),
       vacation_date: toDateInput(row.vacation_date),
+
       dob: toDateInput(row.dob),
       dor: toDateInput(row.dor || (row.dob ? computeDOR(row.dob) : '')),
+
       retention_last: toDateInput(row.retention_last || row.retention_until),
+
       qtr_status: row.qtr_status || 'active',
       allottee_status: row.allottee_status || 'in_service',
       notes: row.notes || '',
@@ -212,7 +194,6 @@ function AllotmentsPageInner() {
       setEditTarget(null)
       await search()
     } catch (e) {
-      console.error('updateAllotment failed:', e)
       setError(e && e.message ? e.message : 'Failed to update allotment')
     } finally {
       setUpdating(false)
@@ -220,14 +201,14 @@ function AllotmentsPageInner() {
   }
 
   return (
-    <div className="page">
+    <div className="page" style={{ padding: 12 }}>
       <div className="toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           placeholder="Search name, CNIC, file no, etc."
           value={q}
           onChange={function (e) { setQ(e.target.value) }}
           onKeyDown={function (e) { if (e.key === 'Enter') search() }}
-          style={{ minWidth: 260 }}
+          style={{ minWidth: 260, height: 32 }}
         />
         <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
           <input
@@ -243,28 +224,15 @@ function AllotmentsPageInner() {
       </div>
 
       {error ? (
-        <div className="error" style={{ marginTop: 8, color: '#b00020' }}>
-          {error}
-        </div>
+        <div style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
       ) : null}
 
-      {/* ADD form (FULL with optional Simple toggle) */}
+      {/* ADD form (FULL) */}
       {showForm ? (
-        <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong>New Allotment</strong>
-            <label style={{ fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={addMode === 'simple'}
-                onChange={function (e) { setAddMode(e.target.checked ? 'simple' : 'full') }}
-              />{' '}
-              Simple mode
-            </label>
-          </div>
+        <form onSubmit={onSave} className="card" style={{ margin: '12px 0', padding: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          <strong>New Allotment</strong>
 
-          <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
-            {/* Always show */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
             <label>House
               <select value={form.house_id} onChange={function (e) { onChange('house_id', e.target.value) }} required>
                 <option value="">-- Select house / Qtr --</option>
@@ -286,8 +254,16 @@ function AllotmentsPageInner() {
               <input value={form.designation} onChange={function (e) { onChange('designation', e.target.value) }} />
             </label>
 
-            <label>BPS
-              <input value={form.bps} onChange={function (e) { onChange('bps', e.target.value) }} inputMode="numeric" />
+            <label>Directorate
+              <input value={form.directorate} onChange={function (e) { onChange('directorate', e.target.value) }} />
+            </label>
+
+            <label>CNIC
+              <input value={form.cnic} onChange={function (e) { onChange('cnic', e.target.value) }} />
+            </label>
+
+            <label>Pool
+              <input value={form.pool} onChange={function (e) { onChange('pool', e.target.value) }} />
             </label>
 
             <label>Medium
@@ -300,72 +276,52 @@ function AllotmentsPageInner() {
               </select>
             </label>
 
+            <label>BPS
+              <input value={form.bps} onChange={function (e) { onChange('bps', e.target.value) }} inputMode="numeric" />
+            </label>
+
             <label>Allotment Date
               <input type="date" value={form.allotment_date} onChange={function (e) { onChange('allotment_date', e.target.value) }} />
             </label>
 
-            {/* Full-only */}
-            {addMode === 'full' ? (
-              <>
-                <label>Directorate
-                  <input value={form.directorate} onChange={function (e) { onChange('directorate', e.target.value) }} />
-                </label>
+            <label>Occupation Date
+              <input type="date" value={form.occupation_date} onChange={function (e) { onChange('occupation_date', e.target.value) }} />
+            </label>
 
-                <label>CNIC
-                  <input value={form.cnic} onChange={function (e) { onChange('cnic', e.target.value) }} />
-                </label>
+            <label>Vacation Date
+              <input type="date" value={form.vacation_date} onChange={function (e) { onChange('vacation_date', e.target.value) }} />
+            </label>
 
-                <label>Pool
-                  <input value={form.pool} onChange={function (e) { onChange('pool', e.target.value) }} />
-                </label>
+            <label>DOB
+              <input type="date" value={form.dob} onChange={function (e) { onChange('dob', e.target.value) }} />
+            </label>
 
-                <label>Occupation Date
-                  <input type="date" value={form.occupation_date} onChange={function (e) { onChange('occupation_date', e.target.value) }} />
-                </label>
+            <label>DOR (auto)
+              <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
+            </label>
 
-                <label>Vacation Date
-                  <input type="date" value={form.vacation_date} onChange={function (e) { onChange('vacation_date', e.target.value) }} />
-                </label>
+            <label>Retention Last
+              <input type="date" value={form.retention_last} onChange={function (e) { onChange('retention_last', e.target.value) }} />
+            </label>
 
-                <label>DOB
-                  <input type="date" value={form.dob} onChange={function (e) { onChange('dob', e.target.value) }} />
-                </label>
+            <label>Quarter Status
+              <select value={form.qtr_status} onChange={function (e) { onChange('qtr_status', e.target.value) }}>
+                <option value="active">active (occupied)</option>
+                <option value="ended">ended (vacant)</option>
+              </select>
+            </label>
 
-                <label>DOR (auto from DOB)
-                  <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
-                </label>
+            <label>Allottee Status
+              <select value={form.allottee_status} onChange={function (e) { onChange('allottee_status', e.target.value) }}>
+                <option value="in_service">in service</option>
+                <option value="retired">retired</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+            </label>
 
-                <label>Retention
-                  <select value={form.retention} onChange={function (e) { onChange('retention', e.target.value) }}>
-                    <option>No</option>
-                    <option>Yes</option>
-                  </select>
-                </label>
-
-                <label>Retention Last
-                  <input type="date" value={form.retention_last} onChange={function (e) { onChange('retention_last', e.target.value) }} />
-                </label>
-
-                <label>Notes
-                  <input value={form.notes} onChange={function (e) { onChange('notes', e.target.value) }} />
-                </label>
-
-                <label>Quarter Status
-                  <select value={form.qtr_status} onChange={function (e) { onChange('qtr_status', e.target.value) }}>
-                    <option value="active">active (occupied)</option>
-                    <option value="ended">ended (vacant)</option>
-                  </select>
-                </label>
-
-                <label>Allottee Status
-                  <select value={form.allottee_status} onChange={function (e) { onChange('allottee_status', e.target.value) }}>
-                    <option value="in_service">in service</option>
-                    <option value="retired">retired</option>
-                    <option value="cancelled">cancelled</option>
-                  </select>
-                </label>
-              </>
-            ) : null}
+            <label>Notes
+              <input value={form.notes} onChange={function (e) { onChange('notes', e.target.value) }} />
+            </label>
           </div>
 
           <div style={{ marginTop: 12 }}>
@@ -376,44 +332,44 @@ function AllotmentsPageInner() {
       ) : null}
 
       {/* table */}
-      <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
+      <div className="card" style={{ marginTop: 12, overflow: 'auto', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
         <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Allottee</th>
-              <th style={{ textAlign: 'left' }}>House</th>
-              <th>BPS</th>
-              <th>Medium</th>
-              <th>Allotment</th>
-              <th>Occupation</th>
-              <th>Status</th>
-              <th></th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid #eee', padding: 8 }}>Allottee</th>
+              <th style={{ textAlign: 'left', borderBottom: '1px solid #eee', padding: 8 }}>House</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}>BPS</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}>Medium</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}>Allotment</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}>Occupation</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}>Status</th>
+              <th style={{ borderBottom: '1px solid #eee', padding: 8 }}></th>
             </tr>
           </thead>
           <tbody>
             {(rows || []).length ? (rows || []).map(function (r) {
-              const house = r && r.house ? r.house : null
+              var house = r && r.house ? r.house : null
               return (
                 <tr key={r.id}>
-                  <td>
+                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>
                     <div><strong>{r.person_name || '-'}</strong></div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
-                  <td>
+                  <td style={{ borderBottom: '1px solid #eee', padding: 8 }}>
                     <div>{(house && house.file_no ? (house.file_no + ' — ') : '') + 'Qtr ' + (house && (house.qtr_no || house.number) || r.house_id)}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.directorate || ''}</div>
                   </td>
-                  <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
-                  <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
-                  <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
-                  <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', borderBottom: '1px solid #eee', padding: 8 }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
+                  <td style={{ textAlign: 'center', borderBottom: '1px solid #eee', padding: 8 }}>{r.medium || ''}</td>
+                  <td style={{ textAlign: 'center', borderBottom: '1px solid #eee', padding: 8 }}>{toDateInput(r.allotment_date)}</td>
+                  <td style={{ textAlign: 'center', borderBottom: '1px solid #eee', padding: 8 }}>{toDateInput(r.occupation_date)}</td>
+                  <td style={{ textAlign: 'center', borderBottom: '1px solid #eee', padding: 8 }}>
                     <span title={'Quarter: ' + (r.qtr_status || '-') + ' | Allottee: ' + (r.allottee_status || '-')}>
                       {r.qtr_status || '-'}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ textAlign: 'right', borderBottom: '1px solid #eee', padding: 8 }}>
                     <button onClick={function () { openEdit(r) }}>Edit</button>
                   </td>
                 </tr>
@@ -429,15 +385,18 @@ function AllotmentsPageInner() {
 
       {/* EDIT modal */}
       {editTarget ? (
-        <div className="modal-backdrop">
-          <div className="modal card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white' }}>
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.25)',
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 50
+        }}>
+          <div className="card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white', border: '1px solid #e5e7eb', borderRadius: 8, width: 'min(980px, 96vw)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong>Edit Allotment</strong>
               <button onClick={function () { setEditTarget(null) }}>✕</button>
             </div>
 
             <form onSubmit={onUpdate}>
-              <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
                 <label>House
                   <select
                     value={editTarget.house_id || ''}
@@ -543,7 +502,7 @@ function AllotmentsPageInner() {
                   />
                 </label>
 
-                <label>DOR (auto from DOB)
+                <label>DOR (auto)
                   <input readOnly value={editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || '')} />
                 </label>
 
@@ -590,33 +549,8 @@ function AllotmentsPageInner() {
               </div>
             </form>
           </div>
-          <style>{`
-            .modal-backdrop {
-              position: fixed; inset: 0; background: rgba(0,0,0,.25);
-              display: flex; align-items: flex-start; justify-content: center; z-index: 50;
-            }
-          `}</style>
         </div>
       ) : null}
-
-      <style>{`
-        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-        .table th, .table td { border-bottom: 1px solid {eee}; padding: 8px; }
-        .toolbar input[type="text"], .toolbar input:not([type]), .toolbar input[type="search"] { height: 32px; }
-        input, select { width: 100%; height: 34px; box-sizing: border-box; }
-        input[readonly] { background: #f8f8f8; }
-        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
-        button { height: 32px; padding: 0 12px; }
-        .page { padding: 12px; }
-      `}</style>
     </div>
-  )
-}
-
-export default function AllotmentsPage() {
-  return (
-    <PageErrorBoundary>
-      <AllotmentsPageInner />
-    </PageErrorBoundary>
   )
 }
