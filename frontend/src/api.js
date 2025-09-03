@@ -3,6 +3,7 @@ import axios from 'axios'
 
 // ---- SAFE env read (no "typeof import")
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
+const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []));
 let baseURL = defaultApiBase
 try {
   if (
@@ -91,20 +92,32 @@ export const deleteFile = id =>
 
 // ---------------- House ↔ File relations ----------------
 export const getHouseByFile = async (fileNo) => {
-  const res = await api.get('/houses/', { params: { file_no: fileNo } })
-  const data = res.data
-  const list = Array.isArray(data) ? data : (data?.results ?? [])
-  return list[0] || null
-}
+  // 1) try exact filter if backend supports it
+  try {
+    const r1 = await api.get('/houses/', { params: { file_no: fileNo } });
+    const list1 = asList(r1.data);
+    if (list1.length) return list1[0];
+  } catch (_) {}
+
+  // 2) fallback: generic search
+  try {
+    const r2 = await api.get('/houses/', { params: { q: fileNo } });
+    const list2 = asList(r2.data);
+    // try to pick the best match if multiple
+    const exact = list2.find(h => String(h.file_no) === String(fileNo));
+    return exact || list2[0] || null;
+  } catch (_) {
+    return null;
+  }
+};
 
 export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
-  try {
-    const r = await api.get('/allotments/', { params: { file_no: fileNo, ...params } })
-    return r.data
-  } catch {
-    const house = await getHouseByFile(fileNo)
-    if (!house) return []
-    const r2 = await api.get('/allotments/', { params: { house_id: house.id, ...params } })
-    return r2.data
-  }
-}
+  const house = await getHouseByFile(fileNo);
+  if (!house) return [];
+
+  // Ask by house_id (most backends support this)
+  const r = await api.get('/allotments/', {
+    params: { house_id: house.id, ...params },
+  });
+  return asList(r.data);
+};
