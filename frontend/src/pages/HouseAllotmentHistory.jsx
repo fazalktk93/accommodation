@@ -2,6 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 
+/** Toggle to show/hide the “Status” column (Allottee status). */
+const SHOW_STATUS_COLS = false;
+
 /** API base — no hardcoded IPs */
 const API = `${window.location.protocol}//${window.location.hostname}:8000/api`;
 
@@ -21,7 +24,7 @@ const emptyAllotment = {
   retention_until: "",
   retention_last: "",
   qtr_status: "active",           // not shown in table, but editable in form
-  allottee_status: "in_service",  // shown as “Status” in table
+  allottee_status: "in_service",  // hidden in table for now
   notes: "",
 };
 
@@ -153,7 +156,6 @@ export default function HouseAllotmentHistory() {
       await api.createAllotment({
         ...addData,
         house_id: house.id,
-        // backend tolerant to "", various date formats
       }, forceEndPrev);
       setShowAdd(false);
       setAddData(emptyAllotment);
@@ -191,6 +193,9 @@ export default function HouseAllotmentHistory() {
       alert(e.message);
     }
   }
+
+  // Column count adjusts when we hide Status
+  const COLS = SHOW_STATUS_COLS ? 12 : 11;
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
@@ -258,14 +263,14 @@ export default function HouseAllotmentHistory() {
                 <th style={{ textAlign: "left", padding: 8 }}>Period (days)</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Pool</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Medium</th>
-                {/* Qtr Status intentionally hidden per requirement */}
-                <th style={{ textAlign: "left", padding: 8 }}>Status</th> {/* Allottee status */}
+                {/* Qtr Status hidden intentionally */}
+                {SHOW_STATUS_COLS && <th style={{ textAlign: "left", padding: 8 }}>Status</th>}
                 <th style={{ textAlign: "left", padding: 8 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={12} style={{ padding: 12, color: "#777" }}>No records.</td></tr>
+                <tr><td colSpan={COLS} style={{ padding: 12, color: "#777" }}>No records.</td></tr>
               )}
               {rows.map((r) => (
                 <tr key={r.id} style={{ borderBottom: "1px solid #f2f2f2" }}>
@@ -279,10 +284,12 @@ export default function HouseAllotmentHistory() {
                   <td style={{ padding: 8 }}>{fmt(r.period_of_stay)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.pool)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.medium)}</td>
-                  {/* Qtr Status is hidden */}
-                  <td style={{ padding: 8 }}>
-                    <Badge>{fmt(r.allottee_status)}</Badge>
-                  </td>
+                  {/* Qtr Status hidden; Status column optional */}
+                  {SHOW_STATUS_COLS && (
+                    <td style={{ padding: 8 }}>
+                      <Badge>{fmt(r.allottee_status)}</Badge>
+                    </td>
+                  )}
                   <td style={{ padding: 8, whiteSpace: "nowrap" }}>
                     <button
                       onClick={() => {
@@ -319,7 +326,7 @@ export default function HouseAllotmentHistory() {
                 </tr>
               ))}
               {loading && (
-                <tr><td colSpan={12} style={{ padding: 12 }}>Loading…</td></tr>
+                <tr><td colSpan={COLS} style={{ padding: 12 }}>Loading…</td></tr>
               )}
             </tbody>
           </table>
