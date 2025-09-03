@@ -47,7 +47,7 @@ const emptyAllotment = {
 };
 
 export default function HouseAllotmentHistory() {
-  // ✅ accept both :houseId and :id from route
+  // Accept both route styles
   const { houseId, id } = useParams();
   const resolvedHouseId = houseId ?? id;
 
@@ -69,6 +69,12 @@ export default function HouseAllotmentHistory() {
       const r = await fetch(`${API}/houses/${id}`);
       if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
       return r.json();
+    },
+    // ✅ NEW: use the nested endpoint your backend already exposes
+    async listAllotmentsByHouseNested(house_id) {
+      const r = await fetch(`${API}/houses/${house_id}/allotments`);
+      if (!r.ok) throw new Error(`Failed to load allotments (nested): ${r.status}`);
+      return r.json(); // returns a plain list
     },
     async listAllotmentsByHouseId(house_id) {
       const u = new URL(`${API}/allotments/`);
@@ -140,10 +146,15 @@ export default function HouseAllotmentHistory() {
       const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
 
-      const list = h?.file_no
-        ? await api.listAllotmentsByFileNo(h.file_no)
-        : [];
-      setRows((list && list.length) ? list : await api.listAllotmentsByHouseId(h.id));
+      // ✅ First, use the nested endpoint (matches your HouseDetail page behavior)
+      const nested = await api.listAllotmentsByHouseNested(h.id);
+
+      // Fallbacks kept (in case someone removes the nested route)
+      const rowsFinal =
+        (Array.isArray(nested) && nested.length) ? nested :
+        (h?.file_no ? await api.listAllotmentsByFileNo(h.file_no) : await api.listAllotmentsByHouseId(h.id));
+
+      setRows(rowsFinal || []);
     } catch (e) {
       setErr(e.message || String(e));
       setRows([]);
@@ -152,7 +163,6 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  // ✅ depend on resolvedHouseId
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [resolvedHouseId]);
 
   async function submitAdd() {
@@ -271,7 +281,7 @@ export default function HouseAllotmentHistory() {
             </thead>
             <tbody>
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={COLS} style={{ padding: 12, color: "#777" }}>No records.</td></tr>
+                <tr><td colSpan={COLS} style={{ padding: 12, color: "#777" }}>No allotment history yet for this house.</td></tr>
               )}
               {rows.map((r) => (
                 <tr key={r.id} style={{ borderBottom: "1px solid #f2f2f2" }}>
