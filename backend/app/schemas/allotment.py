@@ -1,5 +1,8 @@
 from datetime import date
 from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel
+from datetime import date
+from app.models.allotment import AllotteeStatus, QtrStatus
 import re
 
 CNIC_RE = re.compile(r"^\d{5}-\d{7}-\d{1}$|^\d{13}$")
@@ -12,7 +15,12 @@ class AllotmentBase(BaseModel):
     bps: int | None = None
     directorate: str | None = None
     cnic: str | None = None
-
+    
+    occupation_date: date | None = None
+    vacation_date: date | None = None
+    qtr_status: QtrStatus
+    allottee_status: AllotteeStatus
+    
     allotment_date: date | None = None
     date_of_birth: date | None = None
     date_of_retirement: date | None = None
@@ -52,3 +60,10 @@ class AllotmentOut(AllotmentBase):
 
     class Config:
         orm_mode = True
+
+class AllotmentUpdate(BaseModel):
+    # make all optional for PATCH/PUT
+    occupation_date: date | None = None
+    vacation_date: date | None = None
+    qtr_status: QtrStatus | None = None
+    allottee_status: AllotteeStatus | None = None

@@ -1,7 +1,13 @@
 from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel
+from app.models.house import HouseStatus
 
 ALLOWED_TYPES = set(list("ABCDEFGH"))
 ALLOWED_STATUS = {"available","vacant","occupied","reserved","maintenance","other"}
+
+class HouseUpdate(BaseModel):
+    status: HouseStatus | None = None
+    status_manual: bool | None = None
 
 class HouseBase(BaseModel):
     file_no: str = Field(..., max_length=64)

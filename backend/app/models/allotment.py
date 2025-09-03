@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, Boolean, Date, ForeignKey, Text
+from enum import Enum
+from sqlmodel import SQLModel, Field, Relationship
 from .base import Base
 
 class Allotment(Base):
@@ -31,3 +33,23 @@ class Allotment(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     house = relationship("House", back_populates="allotments")
+class AllotteeStatus(str, Enum):
+    in_service = "in_service"
+    retired = "retired"
+    cancelled = "cancelled"
+
+class QtrStatus(str, Enum):
+    active = "active"   # occupied
+    ended = "ended"     # vacated
+
+class Allotment(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    house_id: int = Field(foreign_key="house.id")
+    # person fields…
+    occupation_date: date | None = None
+    vacation_date: date | None = None
+
+    qtr_status: QtrStatus = Field(default=QtrStatus.active)
+    allottee_status: AllotteeStatus = Field(default=AllotteeStatus.in_service)
+
+    house: "House" = Relationship(back_populates="allotments")

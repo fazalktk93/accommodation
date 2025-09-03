@@ -7,6 +7,12 @@ from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.models import Allotment, House
 from app.crud import allotment as crud
+from fastapi import APIRouter, HTTPException, Depends
+from sqlmodel import Session
+from app.models.allotment import Allotment
+from app.schemas.allotment import AllotmentCreate, AllotmentUpdate
+from app.db import get_session
+from app.services.houses import maybe_update_house_status
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
@@ -115,3 +121,42 @@ def end_allotment(
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
     })
+@router.post("/", response_model=Allotment)
+def create_allotment(data: AllotmentCreate, session: Session = Depends(get_session)):
+    obj = Allotment.from_orm(data)
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    maybe_update_house_status(session, obj.house_id)
+    session.commit()
+    return obj
+
+@router.get("/{allotment_id}", response_model=Allotment)
+def get_allotment(allotment_id: int, session: Session = Depends(get_session)):
+    obj = session.get(Allotment, allotment_id)
+    if not obj: raise HTTPException(404)
+    return obj
+
+@router.put("/{allotment_id}", response_model=Allotment)
+@router.patch("/{allotment_id}", response_model=Allotment)
+def update_allotment(allotment_id: int, data: AllotmentUpdate, session: Session = Depends(get_session)):
+    obj = session.get(Allotment, allotment_id)
+    if not obj: raise HTTPException(404)
+    for k, v in data.dict(exclude_unset=True).items():
+        setattr(obj, k, v)
+    session.add(obj)
+    session.commit()
+    session.refresh(obj)
+    maybe_update_house_status(session, obj.house_id)
+    session.commit()
+    return obj
+
+@router.delete("/{allotment_id}", status_code=204)
+def delete_allotment(allotment_id: int, session: Session = Depends(get_session)):
+    obj = session.get(Allotment, allotment_id)
+    if not obj: raise HTTPException(404)
+    hid = obj.house_id
+    session.delete(obj)
+    session.commit()
+    maybe_update_house_status(session, hid)
+    session.commit()
