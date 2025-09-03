@@ -9,11 +9,24 @@ from app.crud import file_movement as crud
 router = APIRouter(prefix="/files", tags=["files"])
 
 @router.get("/", response_model=List[FileMovementOut])
-def list_files(skip: int = 0, limit: int = 50,
-               file_no: Optional[str] = None, outstanding: Optional[bool] = None,
-               db: Session = Depends(get_db)):
-    rows = crud.list(db, skip=skip, limit=limit, file_no=file_no, outstanding=outstanding)
+def list_files(
+    skip: int = 0,
+    limit: int = 50,
+    file_no: Optional[str] = None,
+    outstanding: Optional[bool] = None,
+    missing: Optional[bool] = None,
+    db: Session = Depends(get_db),
+):
+    rows = crud.list(
+        db,
+        skip=skip,
+        limit=limit,
+        file_no=file_no,
+        outstanding=outstanding,
+        missing=missing,
+    )
     return [FileMovementOut.from_orm(r).copy(update={"outstanding": r.returned_date is None}) for r in rows]
+
 
 @router.post("/", response_model=FileMovementOut, status_code=201)
 def issue_file(payload: FileMovementCreate, db: Session = Depends(get_db)):

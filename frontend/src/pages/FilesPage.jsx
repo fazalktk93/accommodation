@@ -10,7 +10,7 @@ export default function FilesPage(){
 
   const [items, setItems] = useState([])
   const [houses, setHouses] = useState([])
-  const [filter, setFilter] = useState({ outstanding: 'true', file_no: initialCode })
+  const [filter, setFilter] = useState({ outstanding: 'true', missing: 'false', file_no: initialCode })
   const [form, setForm] = useState({ file_no: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
   const [error, setError] = useState('')
 

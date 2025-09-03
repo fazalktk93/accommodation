@@ -12,14 +12,35 @@ def get(db: Session, file_id: int) -> FileMovement:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File record not found")
     return obj
 
-def list(db: Session, skip=0, limit=50, file_no: Optional[str] = None,
-         outstanding: Optional[bool] = None) -> List[FileMovement]:
+def list(
+    db: Session,
+    skip: int = 0,
+    limit: int = 50,
+    file_no: Optional[str] = None,
+    outstanding: Optional[bool] = None,
+    missing: Optional[bool] = None,
+) -> List[FileMovement]:
+    """
+    - outstanding=True  => returned_date IS NULL
+    - outstanding=False => returned_date IS NOT NULL
+    - missing=True      => returned_date IS NULL AND due_date < today
+    Note: If both 'outstanding' and 'missing' are provided, 'missing' narrows it further.
+    """
     stmt = select(FileMovement)
     conds = []
+    today = dt_date.today()
+
     if file_no:
         conds.append(FileMovement.file_no.ilike(f"%{file_no}%"))
-    if outstanding is not None:
-        conds.append(FileMovement.returned_date.is_(None) if outstanding else FileMovement.returned_date.is_not(None))
+    if outstanding is True:
+        conds.append(FileMovement.returned_date.is_(None))
+    elif outstanding is False:
+        conds.append(FileMovement.returned_date.is_not(None))
+    if missing is True:
+        conds.append(FileMovement.returned_date.is_(None))
+        conds.append(FileMovement.due_date.is_not(None))
+        conds.append(FileMovement.due_date < today)
+
     if conds:
         stmt = stmt.where(and_(*conds))
     stmt = stmt.order_by(desc(FileMovement.issue_date), desc(FileMovement.id)).offset(skip).limit(limit)
