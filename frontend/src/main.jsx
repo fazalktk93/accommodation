@@ -4,31 +4,42 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './styles.css'
 
-class TopErrorBoundary extends React.Component {
-  constructor(p){ super(p); this.state = { error: null } }
-  static getDerivedStateFromError(e){ return { error: e } }
-  componentDidCatch(e, info){ console.error('App crashed:', e, info) }
-  render(){
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 16 }}>
-          <h3 style={{ color: '#b00020', marginTop: 0 }}>Something went wrong</h3>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>
-            {String(this.state.error && this.state.error.message || this.state.error)}
-          </pre>
-        </div>
-      )
-    }
-    return this.props.children
+function showFatal(msg) {
+  try {
+    const pane = document.getElementById('__err') || (function(){
+      const el = document.createElement('pre')
+      el.id = '__err'
+      el.style.cssText = 'position:fixed;left:8px;bottom:8px;max-width:96vw;max-height:45vh;overflow:auto;background:#111;color:#f66;padding:10px 12px;border-radius:8px;z-index:2147483647;font:12px/1.4 monospace;white-space:pre-wrap'
+      document.body.appendChild(el)
+      return el
+    })()
+    pane.textContent += '[fatal] ' + msg + '\n'
+  } catch(e) {
+    alert('FATAL: ' + msg)
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <TopErrorBoundary>
+try {
+  console.log('[main] starting bootstrap')
+  const rootEl = document.getElementById('root')
+  if (!rootEl) {
+    showFatal('No #root element found in index.html')
+    throw new Error('No #root element')
+  }
+  console.log('[main] root element ok, creating React root')
+
+  const root = ReactDOM.createRoot(rootEl)
+  root.render(
+    <React.StrictMode>
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </TopErrorBoundary>
-  </React.StrictMode>
-)
+    </React.StrictMode>
+  )
+
+  console.log('[main] render() called')
+} catch (e) {
+  console.error('[main] failed to mount:', e)
+  showFatal((e && (e.message || e.stack)) || String(e))
+  throw e
+}
