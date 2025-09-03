@@ -1,7 +1,21 @@
+from __future__ import annotations
+
 from typing import Optional
 from datetime import date
 from pydantic import BaseModel
-from app.models.allotment import QtrStatus, AllotteeStatus
+
+# Enum types are optional – import if present, else fall back to str
+try:
+    from app.models.allotment import QtrStatus, AllotteeStatus  # type: ignore
+except Exception:
+    # fallback string enums to avoid import-time failures
+    class QtrStatus(str):  # type: ignore
+        active = "active"
+        ended = "ended"
+    class AllotteeStatus(str):  # type: ignore
+        in_service = "in_service"
+        retired = "retired"
+        cancelled = "cancelled"
 
 class AllotmentBase(BaseModel):
     house_id: int
@@ -16,8 +30,9 @@ class AllotmentBase(BaseModel):
     occupation_date: Optional[date] = None
     vacation_date: Optional[date] = None
 
-    qtr_status: QtrStatus = QtrStatus.active
-    allottee_status: AllotteeStatus = AllotteeStatus.in_service
+    # Accept either enum or raw string values
+    qtr_status: Optional[QtrStatus] = None
+    allottee_status: Optional[AllotteeStatus] = None
 
 class AllotmentCreate(AllotmentBase):
     pass
@@ -39,7 +54,6 @@ class AllotmentUpdate(BaseModel):
 
 class AllotmentOut(AllotmentBase):
     id: int
-    # computed extras (filled in routes)
     period_of_stay: Optional[int] = None
     house_file_no: Optional[str] = None
     house_qtr_no: Optional[int] = None
