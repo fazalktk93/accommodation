@@ -14,14 +14,22 @@ export default function FilesPage(){
   const [form, setForm] = useState({ file_no: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
   const [error, setError] = useState('')
 
-  const load = () => listMovements({
-    outstanding: filter.outstanding === '' ? undefined : filter.outstanding,
-    file_no: filter.file_no || undefined
-  }).then(r => setItems(r.data)).catch(e => setError(e?.response?.data?.detail || e.message))
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '-'
+
+  // NOTE: listMovements() (from api.js) returns the data array directly
+  const load = () =>
+    listMovements({
+      outstanding: filter.outstanding === '' ? undefined : (filter.outstanding === 'true'),
+      file_no: filter.file_no || undefined
+    })
+      .then(arr => setItems(Array.isArray(arr) ? arr : []))
+      .catch(e => setError(e?.message || 'Failed to load'))
 
   useEffect(() => {
     load()
-    listHouses().then(r=>setHouses(r.data))
+    // listHouses() also returns data directly per updated api.js
+    listHouses().then(setHouses).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const search = (e) => { e.preventDefault(); load() }
@@ -29,17 +37,27 @@ export default function FilesPage(){
   const issue = async (e) => {
     e.preventDefault()
     try{
-      await issueFile(form)
+      setError('')
+      await issueFile({
+        ...form,
+        // ensure empty strings don't break date parsing
+        due_date: form.due_date || null
+      })
       setForm({ file_no:'', subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
       load()
-    }catch(err){ setError(err.message) }
+    }catch(err){
+      setError(err.message)
+    }
   }
 
   const ret = async (id) => {
     try{
-      await returnFile(id)
+      setError('')
+      await returnFile(id) // optional returned_date param, omitted => today
       load()
-    }catch(err){ setError(err.message) }
+    }catch(err){
+      setError(err.message)
+    }
   }
 
   return (
@@ -48,8 +66,15 @@ export default function FilesPage(){
       {error && <div className="error">{error}</div>}
 
       <form className="filters" onSubmit={search}>
-        <input placeholder="File No" value={filter.file_no} onChange={e=>setFilter({...filter, file_no:e.target.value})}/>
-        <select value={filter.outstanding} onChange={e=>setFilter({...filter, outstanding:e.target.value})}>
+        <input
+          placeholder="File No"
+          value={filter.file_no}
+          onChange={e=>setFilter({...filter, file_no:e.target.value})}
+        />
+        <select
+          value={filter.outstanding}
+          onChange={e=>setFilter({...filter, outstanding:e.target.value})}
+        >
           <option value="">All</option>
           <option value="true">Outstanding Only</option>
           <option value="false">Include Returned</option>
@@ -89,15 +114,15 @@ export default function FilesPage(){
           </tr>
         </thead>
         <tbody>
-          {items.map(it => (
+          {(items || []).map(it => (
             <tr key={it.id}>
               <td>{it.id}</td>
               <td>{it.file_no}</td>
               <td>{it.issued_to}{it.department ? ` (${it.department})` : ''}</td>
-              <td>{new Date(it.issue_date).toLocaleString()}</td>
-              <td>{it.due_date ? new Date(it.due_date).toLocaleString() : '-'}</td>
-              <td>{it.return_date ? 'Returned' : 'Issued'}</td>
-              <td>{!it.return_date && <button onClick={()=>ret(it.id)}>Mark In-Record</button>}</td>
+              <td>{fmtDate(it.issue_date)}</td>
+              <td>{fmtDate(it.due_date)}</td>
+              <td>{it.returned_date ? 'Returned' : 'Issued'}</td>
+              <td>{!it.returned_date && <button onClick={()=>ret(it.id)}>Mark In-Record</button>}</td>
             </tr>
           ))}
         </tbody>
