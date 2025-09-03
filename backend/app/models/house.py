@@ -1,4 +1,3 @@
-from backend.app.models.allotment import Allotment
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer
 from enum import Enum
@@ -30,4 +29,4 @@ class House(SQLModel, table=True):
     # ...
     status: HouseStatus = Field(default=HouseStatus.vacant)
     status_manual: bool = Field(default=False)  # if True, don't auto-derive from allotments
-    allotments: list["Allotment"] = Relationship(back_populates="house")
+    #allotments: list["Allotment"] = Relationship(back_populates="house")
