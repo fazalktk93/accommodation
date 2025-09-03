@@ -90,8 +90,21 @@ export const deleteFile = id =>
   api.delete(`/files/${id}/`).then(r => r.data)
 
 // ---------------- House ↔ File relations ----------------
-export const getHouseByFile = (fileId) =>
-  api.get(`/files/${fileId}/house/`).then(r => r.data)
+export const getHouseByFile = async (fileNo) => {
+  const res = await api.get('/houses/', { params: { file_no: fileNo } })
+  const data = res.data
+  const list = Array.isArray(data) ? data : (data?.results ?? [])
+  return list[0] || null
+}
 
-export const listAllotmentHistoryByFile = (fileId, params = {}) =>
-  api.get(`/files/${fileId}/allotments/`, { params }).then(r => r.data)
+export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
+  try {
+    const r = await api.get('/allotments/', { params: { file_no: fileNo, ...params } })
+    return r.data
+  } catch {
+    const house = await getHouseByFile(fileNo)
+    if (!house) return []
+    const r2 = await api.get('/allotments/', { params: { house_id: house.id, ...params } })
+    return r2.data
+  }
+}
