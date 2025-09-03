@@ -78,8 +78,8 @@ export default function HouseAllotmentsPage(){
         directorate: form.directorate || null,
         cnic: form.cnic || null,
         allotment_date: form.allotment_date || null,
-        date_of_birth: form.date_of_birth || null,          // backend may also accept dob
-        date_of_retirement: form.date_of_retirement || null, // backend may also accept dor
+        date_of_birth: form.date_of_birth || null,           // DOB
+        date_of_retirement: form.date_of_retirement || null, // DOR
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
         retention: form.retention === 'true',
@@ -147,8 +147,9 @@ export default function HouseAllotmentsPage(){
                 <th>Allottee</th><th>Designation</th><th>Directorate</th><th>CNIC</th>
                 <th>Allotment</th><th>Occupation</th><th>Vacation</th><th>Period (days)</th>
                 <th>Pool</th>
-                {/* Hiding Qtr Status & Status as requested */}
+                <th>Qtr Status</th>
                 <th>Medium</th>
+                {/* Status column intentionally removed */}
               </tr>
             </thead>
             <tbody>
@@ -163,7 +164,7 @@ export default function HouseAllotmentsPage(){
                   <td>{it.vacation_date || '-'}</td>
                   <td>{it.period_of_stay ?? '-'}</td>
                   <td>{it.pool || '-'}</td>
-                  {/* Qtr Status and Status removed to avoid confusion */}
+                  <td>{it.qtr_status || '-'}</td>
                   <td>{it.allotment_medium || '-'}</td>
                 </tr>
               ))}
