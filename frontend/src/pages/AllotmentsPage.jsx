@@ -135,6 +135,7 @@ export default function AllotmentsPage() {
       if (editingId) {
         await updateAllotment(editingId, payload)
       } else {
+        payload.force_end_previous = true
         await createAllotment(payload)
       }
 

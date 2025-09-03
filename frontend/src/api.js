@@ -61,7 +61,7 @@ export const searchAllotments = (query, params = {}) =>
   api.get('/allotments/', { params: { search: query, ...params } }).then(r => r.data)
 
 export const createAllotment = data =>
-  api.post('/allotments/', data).then(r => r.data)
+  api.post('/allotments/', { ...data, force_end_previous: true }).then(r => r.data)
 
 export const updateAllotment = (id, payload) =>
   api.patch(`/allotments/${id}/`, payload).then(r => r.data)
