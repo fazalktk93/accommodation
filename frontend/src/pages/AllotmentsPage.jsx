@@ -140,24 +140,18 @@ export default function AllotmentsPage() {
     }
   }
 
+  // open Edit with only the fields you actually edit
   function openEdit(row) {
     if (!row) return
     setEditTarget({
       id: row.id,
       house_id: row.house_id,
       person_name: row.person_name || '',
-      designation: row.designation || '',
-      directorate: row.directorate || '',
-      cnic: row.cnic || '',
-      pool: row.pool || '',
-      medium: row.medium || '',
       bps: (row.bps === 0 || row.bps) ? String(row.bps) : '',
+      medium: row.medium || '',
       allotment_date: toDateInput(row.allotment_date),
       occupation_date: toDateInput(row.occupation_date),
       vacation_date: toDateInput(row.vacation_date),
-      dob: toDateInput(row.dob),
-      dor: toDateInput(row.dor || (row.dob ? computeDOR(row.dob) : '')),
-      retention_last: toDateInput(row.retention_last),
       qtr_status: row.qtr_status || 'active',
       allottee_status: row.allottee_status || 'in_service',
       notes: row.notes || '',
@@ -172,7 +166,7 @@ export default function AllotmentsPage() {
       const payload = {
         ...editTarget,
         bps: numOrNull(editTarget.bps),
-        dor: editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || null),
+        // if DOB is not part of edit, keep dor as-is
       }
       await updateAllotment(editTarget.id, payload)
       setEditTarget(null)
@@ -383,10 +377,10 @@ export default function AllotmentsPage() {
         .page { padding: 12px; }
       `}</style>
 
-      {/* EDIT modal */}
+      {/* EDIT modal (clean, focused) */}
       {editTarget ? (
         <div className="modal-backdrop">
-          <div className="modal card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white' }}>
+          <div className="modal card" style={{ maxWidth: 700, margin: '5vh auto', padding: 16, background: 'white' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong>Edit Allotment</strong>
               <button onClick={() => setEditTarget(null)}>✕</button>
@@ -394,6 +388,7 @@ export default function AllotmentsPage() {
 
             <form onSubmit={onUpdate}>
               <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
+                
                 <label>House
                   <select
                     value={editTarget.house_id || ''}
@@ -411,42 +406,22 @@ export default function AllotmentsPage() {
 
                 <label>Allottee
                   <input
-                    value={editTarget.person_name || ''}
+                    value={editTarget.person_name}
                     onChange={e => setEditTarget(p => ({ ...p, person_name: e.target.value }))}
                   />
                 </label>
 
-                <label>Designation
+                <label>BPS
                   <input
-                    value={editTarget.designation || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, designation: e.target.value }))}
-                  />
-                </label>
-
-                <label>Directorate
-                  <input
-                    value={editTarget.directorate || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, directorate: e.target.value }))}
-                  />
-                </label>
-
-                <label>CNIC
-                  <input
-                    value={editTarget.cnic || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, cnic: e.target.value }))}
-                  />
-                </label>
-
-                <label>Pool
-                  <input
-                    value={editTarget.pool || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, pool: e.target.value }))}
+                    value={editTarget.bps}
+                    onChange={e => setEditTarget(p => ({ ...p, bps: e.target.value }))}
+                    inputMode="numeric"
                   />
                 </label>
 
                 <label>Medium
                   <select
-                    value={editTarget.medium || ''}
+                    value={editTarget.medium}
                     onChange={e => setEditTarget(p => ({ ...p, medium: e.target.value }))}
                   >
                     <option value="">Select medium</option>
@@ -455,14 +430,6 @@ export default function AllotmentsPage() {
                     <option value="changes">Changes</option>
                     <option value="fresh">Fresh</option>
                   </select>
-                </label>
-
-                <label>BPS
-                  <input
-                    value={(editTarget.bps === 0 || editTarget.bps) ? editTarget.bps : ''}
-                    onChange={e => setEditTarget(p => ({ ...p, bps: e.target.value }))}
-                    inputMode="numeric"
-                  />
                 </label>
 
                 <label>Allotment Date
@@ -489,29 +456,9 @@ export default function AllotmentsPage() {
                   />
                 </label>
 
-                <label>DOB
-                  <input
-                    type="date"
-                    value={editTarget.dob || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, dob: e.target.value, dor: computeDOR(e.target.value) }))}
-                  />
-                </label>
-
-                <label>DOR (auto from DOB)
-                  <input readOnly value={editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || '')} />
-                </label>
-
-                <label>Retention Last
-                  <input
-                    type="date"
-                    value={editTarget.retention_last || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, retention_last: e.target.value }))}
-                  />
-                </label>
-
                 <label>Quarter Status
                   <select
-                    value={editTarget.qtr_status || 'active'}
+                    value={editTarget.qtr_status}
                     onChange={e => setEditTarget(p => ({ ...p, qtr_status: e.target.value }))}
                   >
                     <option value="active">active (occupied)</option>
@@ -521,7 +468,7 @@ export default function AllotmentsPage() {
 
                 <label>Allottee Status
                   <select
-                    value={editTarget.allottee_status || 'in_service'}
+                    value={editTarget.allottee_status}
                     onChange={e => setEditTarget(p => ({ ...p, allottee_status: e.target.value }))}
                   >
                     <option value="in_service">in service</option>
@@ -532,7 +479,7 @@ export default function AllotmentsPage() {
 
                 <label>Notes
                   <input
-                    value={editTarget.notes || ''}
+                    value={editTarget.notes}
                     onChange={e => setEditTarget(p => ({ ...p, notes: e.target.value }))}
                   />
                 </label>
