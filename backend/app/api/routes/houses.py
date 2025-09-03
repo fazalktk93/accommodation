@@ -1,6 +1,6 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.schemas import house as s
 from app.crud import house as crud

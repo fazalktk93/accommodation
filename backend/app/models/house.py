@@ -8,6 +8,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 
+class HouseStatus:
+    VACANT = "vacant"
+    OCCUPIED = "occupied"
+    MAINTENANCE = "maintenance"
+
+
 class House(Base):
     __tablename__ = "house"
 
@@ -21,10 +27,10 @@ class House(Base):
     type_code: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
 
     # Header status
-    status: Mapped[str] = mapped_column(String, nullable=False, default="vacant")
+    status: Mapped[str] = mapped_column(String, nullable=False, default=HouseStatus.VACANT)
     status_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Correct SQLA 2.0 typed relationship
+    # Relationship to allotments (typed SA 2.0)
     allotments: Mapped[list["Allotment"]] = relationship(
         back_populates="house",
         cascade="all, delete-orphan",

@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Optional, List
 from fastapi import APIRouter, Depends
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.crud import allotment as crud
@@ -87,7 +87,7 @@ def update_allotment(allotment_id: int, payload: s.AllotmentUpdate, db: Session 
 
 @router.post("/{allotment_id}/end", response_model=s.AllotmentOut)
 def end_allotment(allotment_id: int, notes: Optional[str] = None,
-                  vacation_date: Optional[date] = None, db: Session = Depends(get_db)):
+                vacation_date: Optional[date] = None, db: Session = Depends(get_db)):
     obj = crud.end(db, allotment_id, notes=notes, vacation_date=vacation_date)
     house = db.get(House, obj.house_id)
     return s.AllotmentOut.from_orm(obj).copy(update={

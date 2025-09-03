@@ -1,7 +1,7 @@
 from typing import Optional, List
 from datetime import date as dt_date
 from sqlalchemy import select, and_, desc
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models import FileMovement
 from app.schemas.file_movement import FileMovementCreate, FileMovementUpdate

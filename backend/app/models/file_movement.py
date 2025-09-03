@@ -1,20 +1,26 @@
 from __future__ import annotations
+
 from typing import Optional
 from datetime import date
-from sqlmodel import SQLModel, Field
 
-class FileMovement(SQLModel, table=True):
+from sqlalchemy import String, Integer, Date
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .base import Base
+
+
+class FileMovement(Base):
     __tablename__ = "file_movement"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    file_no: str = Field(index=True)
-    subject: Optional[str] = None
-    issued_to: Optional[str] = None
-    department: Optional[str] = None
+    file_no: Mapped[str] = mapped_column(String, index=True)
+    subject: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    issued_to: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    department: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    issue_date: date = Field(default_factory=date.today)
-    due_date: Optional[date] = None
-    returned_date: Optional[date] = None
+    issue_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    returned_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    remarks: Optional[str] = None
+    remarks: Mapped[Optional[str]] = mapped_column(String, nullable=True)

@@ -1,6 +1,6 @@
 from typing import Optional, List
 from sqlalchemy import select, and_, or_, asc
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models import House
 from app.schemas.house import HouseCreate, HouseUpdate
