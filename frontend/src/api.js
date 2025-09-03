@@ -82,16 +82,18 @@ export const deleteHouse = async (houseId) => {
 }
 
 // ----------------- Allotments -----------------
+export const listAllotments = async (params = {}) => {
+  const r = await api.get('/allotments/', { params })
+  return asList(r.data)
+}
 
-// Needed by AllotmentsPage.jsx
 export const searchAllotments = async (params = {}) => {
   const r = await api.get('/allotments/', { params })
   return asList(r.data)
 }
 
-// Needed by AllotmentsPage.jsx and HouseAllotmentsPage.jsx
 export const createAllotment = async (payload) => {
-  // payload should match your backend schema (house_id, person_name, etc.)
+  // payload should match backend schema (house_id, person_name, etc.)
   const r = await api.post('/allotments/', payload)
   return r.data
 }
@@ -110,7 +112,6 @@ export const deleteAllotment = async (id) => {
   await api.delete(`/allotments/${id}`)
 }
 
-// Helper used in some pages
 export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
   const house = await getHouseByFile(fileNo)
   if (!house) return []
@@ -118,6 +119,25 @@ export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
     params: { house_id: house.id, ...params },
   })
   return asList(r.data)
+}
+
+// ----------------- File Movements (FilesPage.jsx) -----------------
+export const listMovements = async (params = {}) => {
+  // params: { outstanding, missing, file_no, ... }
+  const r = await api.get('/files/', { params })
+  return asList(r.data)
+}
+
+export const issueFile = async (payload) => {
+  // payload: { file_no, subject?, issued_to?, department?, due_date?, remarks? }
+  const r = await api.post('/files/', payload)
+  return r.data
+}
+
+export const returnFile = async (id, returned_date = null) => {
+  // backend: POST /files/{id}/return with optional returned_date
+  const r = await api.post(`/files/${id}/return`, { returned_date })
+  return r.data
 }
 
 // Export both default AND named so `import { api }` works
