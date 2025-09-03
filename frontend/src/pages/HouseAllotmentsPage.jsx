@@ -1,22 +1,53 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import {
-  getHouseByFile,
-  createAllotment,
-  api, // <-- add this
-} from '../api'
+import { api, createAllotment } from '../api'
 
-/** retirement age used to auto-calc DOR from DOB */
+// ---------- utils
+const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []))
+const isIsoDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))
 const RETIREMENT_AGE_YEARS = 60
 const addYears = (isoDate, years) => {
-  if (!isoDate) return ''
+  if (!isIsoDate(isoDate)) return ''
   const [y, m, d] = isoDate.split('-').map(Number)
-  if (!y || !m || !d) return ''
   const dt = new Date(Date.UTC(y + years, m - 1, d))
   return dt.toISOString().slice(0, 10)
 }
 
-export default function HouseAllotmentsPage(){
+// Resolve house strictly by file number (tries exact then q-search)
+async function findHouseByFileNoStrict(fileNo) {
+  // 1) exact filter if backend supports it
+  try {
+    const r = await api.get('/houses/', { params: { file_no: fileNo } })
+    const list = asList(r.data)
+    if (list.length) {
+      // prefer exact match on file_no
+      const exact = list.find(h => String(h.file_no) === String(fileNo))
+      return exact || list[0]
+    }
+  } catch (_) {}
+  // 2) generic q search, then exact pick
+  const r2 = await api.get('/houses/', { params: { q: fileNo } })
+  const list2 = asList(r2.data)
+  const exact2 = list2.find(h => String(h.file_no) === String(fileNo))
+  return exact2 || list2[0] || null
+}
+
+// Load allotments by file number only; do not send house_id in API params.
+// We query with q=<fileNo> and filter client-side to EXACT file number.
+async function listAllotmentsByFileNoStrict(fileNo, extraParams = {}) {
+  const r = await api.get('/allotments/', {
+    params: { q: fileNo, ordering: '-allotment_date', ...extraParams },
+  })
+  const raw = asList(r.data)
+  // keep only items whose house/file number matches exactly
+  return raw.filter(it => {
+    // common shapes: it.house?.file_no OR it.file_no
+    const fn = (it && it.house && it.house.file_no) || it?.file_no
+    return String(fn) === String(fileNo)
+  })
+}
+
+export default function HouseAllotmentsPage() {
   const { fileNo } = useParams()
   const [house, setHouse] = useState(null)
   const [history, setHistory] = useState([])
@@ -29,56 +60,39 @@ export default function HouseAllotmentsPage(){
     person_name:'', designation:'', bps:'', directorate:'', cnic:'',
     allotment_date:'', date_of_birth:'', date_of_retirement:'',
     occupation_date:'', vacation_date:'',
-    retention:'false', retention_last_date:'',
+    retention_last_date:'',
     pool:'', qtr_status:'', allotment_medium:'other',
-    active:'true', notes:''
+    notes:''
   })
 
-  const title = useMemo(() => `House — Allotment History`, [])
+  const title = useMemo(() => 'House — Allotment History', [])
 
-  async function load(){
+  async function load() {
     setLoading(true); setError('')
-    try{
-      let h = null
-
-      // If the route param looks like a numeric ID, fetch by ID for exact match.
-      if (/^\d+$/.test(String(fileNo || '').trim())) {
-        const res = await api.get(`/houses/${fileNo}/`)   // <-- trailing slash
-        h = res.data
-      } else {
-        // Otherwise, find by file number (helper already does exact + q fallback)
-        h = await getHouseByFile(fileNo)
-      }
-
-      if (!h) {
-        setHouse(null)
-        setHistory([])
-        throw new Error('House not found for the given file no')
-      }
-
+    try {
+      // Resolve the house strictly by file number
+      const h = await findHouseByFileNoStrict(fileNo)
+      if (!h) throw new Error('House not found for the given file number')
       setHouse(h)
 
-      // Always fetch history by house_id to avoid ambiguous "by-file" lookups.
-      const histRes = await api.get('/allotments/', { params: { house_id: h.id } })
-      const data = histRes.data
-      const list = Array.isArray(data) ? data : (data?.results ?? [])
+      // Load history strictly by file number (query by q, filter exact)
+      const list = await listAllotmentsByFileNoStrict(fileNo)
       setHistory(list)
-    }catch(err){
-      setError(err.message || 'Failed to load')
+    } catch (e) {
+      setError(e?.message || 'Failed to load')
       setHouse(null)
       setHistory([])
-    }finally{
+    } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => { load() }, [fileNo])
 
-  const onChange = (k,v) => {
+  const onChange = (k, v) => {
     setForm(f => {
       const next = { ...f, [k]: v }
       if (k === 'date_of_birth') {
-        // auto-fill DOR = DOB + 60y
         next.date_of_retirement = addYears(v, RETIREMENT_AGE_YEARS)
       }
       return next
@@ -87,12 +101,12 @@ export default function HouseAllotmentsPage(){
 
   async function submit(e){
     e.preventDefault()
-    if(!house) return
+    if (!house) return
     setSaving(true); setError('')
-    try{
-      // Map to backend field names it uses:
+    try {
+      // Map to backend fields it expects (dob/dor/medium/retention_last)
       const payload = {
-        house_id: Number(house.id),
+        house_id: Number(house.id), // required by backend for creation
         person_name: (form.person_name || '').trim() || null,
         designation: form.designation || null,
         bps: form.bps ? Number(form.bps) : null,
@@ -110,23 +124,23 @@ export default function HouseAllotmentsPage(){
         notes: form.notes || null,
       }
 
-      // Auto-end previous active allotment for this house
+      // Auto-end any active allotment for this house
       await createAllotment(payload, { forceEndPrevious: true })
 
-      // reset form, close it, and refresh history
+      // reset + reload view
       setForm({
         person_name:'', designation:'', bps:'', directorate:'', cnic:'',
         allotment_date:'', date_of_birth:'', date_of_retirement:'',
         occupation_date:'', vacation_date:'',
-        retention:'false', retention_last_date:'',
+        retention_last_date:'',
         pool:'', qtr_status:'', allotment_medium:'other',
-        active:'true', notes:''
+        notes:''
       })
       setOpenForm(false)
       await load()
-    }catch(err){
-      setError(err.message || 'Save failed')
-    }finally{
+    } catch (e) {
+      setError(e?.message || 'Save failed')
+    } finally {
       setSaving(false)
     }
   }
@@ -151,7 +165,7 @@ export default function HouseAllotmentsPage(){
         </div>
       )}
 
-      {/* HISTORY FIRST */}
+      {/* HISTORY */}
       <div className="card" style={{marginBottom:'1rem'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.5rem'}}>
           <h3 style={{margin:0}}>Previous Allotments</h3>
@@ -194,7 +208,7 @@ export default function HouseAllotmentsPage(){
         )}
       </div>
 
-      {/* ADD FORM (collapsed by default) */}
+      {/* ADD FORM */}
       {openForm && (
         <form className="card" onSubmit={submit}>
           <h3>Add Allotment</h3>
@@ -246,7 +260,6 @@ export default function HouseAllotmentsPage(){
                 <option value="other">other</option>
               </select>
             </label>
-            {/* Keeping 'active' out of payload since backend derives from qtr_status */}
             <label>Notes
               <input value={form.notes} onChange={e=>onChange('notes', e.target.value)} />
             </label>
