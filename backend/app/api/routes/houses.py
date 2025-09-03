@@ -7,6 +7,9 @@ from app.schemas import house as s
 from app.models import House
 from app.schemas.house import HouseUpdate
 from app.models.house import House
+from app.db import get_session
+from sqlmodel import Session
+from fastapi import Depends
 
 router = APIRouter(prefix="/houses", tags=["houses"])
 
