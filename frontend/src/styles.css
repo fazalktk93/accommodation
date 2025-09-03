@@ -1,26 +1,26 @@
-/* === CDA-Inspired Design Tokens (free to use) === */
+/* === Green Theme (drop-in replacement using your existing classes) === */
 :root{
-  /* Palette (inspired, not copied) */
-  --cda-primary: #0a6aa1;      /* dignified blue */
-  --cda-primary-600:#095e8f;
-  --cda-primary-700:#084f78;
-  --cda-accent:  #0f9d8f;      /* teal accent for chips/links */
+  /* Fresh green palette */
+  --cda-primary: #2f9e44;      /* emerald */
+  --cda-primary-600:#2a8e3d;
+  --cda-primary-700:#237835;
+  --cda-accent:  #16a34a;      /* vivid green for chips/links */
   --cda-bg:      #ffffff;
-  --cda-surface: #f6f8fa;      /* light card background */
-  --cda-muted:   #e5e9ef;      /* subtle lines */
-  --cda-text:    #22252a;      /* body text */
-  --cda-text-2:  #4a4f57;      /* secondary text */
-  --cda-link:    #0a6aa1;
-  --cda-danger:  #b3261e;
-  --cda-warning: #b8860b;
-  --cda-success: #1e8e3e;
+  --cda-surface: #f6fbf7;      /* light greenish surface */
+  --cda-muted:   #e1eee4;      /* subtle lines with green hue */
+  --cda-text:    #1b1d1c;      /* body text */
+  --cda-text-2:  #5b645d;      /* secondary text */
+  --cda-link:    #2f9e44;
+  --cda-danger:  #dc2626;
+  --cda-warning: #b45309;
+  --cda-success: #1e7e34;
 
-  /* Type scale & fonts (Urdu-friendly stack) */
+  /* Type scale & fonts */
   --font-sans: "Inter","Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif, "Noto Nastaliq Urdu";
-  --font-size-1: clamp(2rem, 1.6rem + 1.2vw, 2.5rem); /* h1 */
-  --font-size-2: clamp(1.5rem, 1.2rem + 0.8vw, 2rem); /* h2 */
-  --font-size-3: 1.25rem;                              /* h3 */
-  --font-size-4: 1.125rem;                             /* h4 */
+  --font-size-1: clamp(2rem, 1.6rem + 1.2vw, 2.5rem);
+  --font-size-2: clamp(1.5rem, 1.2rem + 0.8vw, 2rem);
+  --font-size-3: 1.25rem;
+  --font-size-4: 1.125rem;
   --font-base:   16px;
   --line:        1.6;
 
@@ -38,19 +38,19 @@
   --t: .18s cubic-bezier(.2,.6,.2,1);
 }
 
-/* Dark mode (automatic if user prefers) */
+/* Dark mode */
 @media (prefers-color-scheme: dark){
   :root{
-    --cda-bg:#0f1215;
-    --cda-surface:#151a1f;
-    --cda-muted:#242b33;
-    --cda-text:#e8eaed;
-    --cda-text-2:#b7bdc6;
+    --cda-bg:#0f1210;
+    --cda-surface:#121712;
+    --cda-muted:#1d271f;
+    --cda-text:#e6efe8;
+    --cda-text-2:#b7c4bb;
     --shadow-1: 0 1px 2px rgba(0,0,0,.5), 0 6px 16px rgba(0,0,0,.35);
-    --cda-link:#7dc2ff;
-    --cda-primary:#7dc2ff;
-    --cda-primary-600:#6ab6fb;
-    --cda-primary-700:#56a9f7;
+    --cda-link:#7de0a7;
+    --cda-primary:#75d69d;
+    --cda-primary-600:#63c789;
+    --cda-primary-700:#4fb774;
   }
 }
 
@@ -70,7 +70,7 @@ a{ color: var(--cda-link); text-decoration: none; }
 a:hover{ text-decoration: underline; }
 .container{ max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter); }
 
-/* === Header & Top Nav (mega-menu friendly) === */
+/* === Header & Top Nav === */
 .site-header{
   background: linear-gradient(0deg, var(--cda-primary-700), var(--cda-primary));
   color: #fff;
@@ -92,14 +92,14 @@ a:hover{ text-decoration: underline; }
   padding: .35rem 0 .75rem;
 }
 .nav a{
-  color:#eaf4ff; padding:.4rem .6rem; border-radius:6px;
+  color:#effbf2; padding:.4rem .6rem; border-radius:6px;
 }
 .nav a:hover, .nav a:focus{
   background: rgba(255,255,255,.12);
   outline: none;
 }
 
-/* === Hero / Banner cards (like homepage callouts) === */
+/* === Hero / Banner cards === */
 .hero{
   background: var(--cda-surface);
   border-top: var(--border);
@@ -134,7 +134,7 @@ a:hover{ text-decoration: underline; }
   font-weight:600; color: var(--cda-text-2); font-size:.85rem;
 }
 
-/* === Cards (News, Notices, Tenders style) === */
+/* === Cards === */
 .card{
   background:#fff; border: var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow-1); overflow:hidden;
@@ -151,7 +151,7 @@ a:hover{ text-decoration: underline; }
   grid-template-columns: repeat(auto-fit, minmax(280px,1fr));
 }
 
-/* === Tables (for “Public Notices”, “Tenders”, etc.) === */
+/* === Tables === */
 .table{
   width:100%; border-collapse: collapse; background:#fff;
   border: var(--border); border-radius: var(--radius); overflow:hidden;
@@ -162,9 +162,9 @@ a:hover{ text-decoration: underline; }
 }
 .table th, .table td{ padding:.75rem .75rem; border-bottom: var(--border); }
 .table th{
-  text-align:left; background: #eef4f9; color:#0a3450; font-weight:700;
+  text-align:left; background: #eaf7ee; color:#10361c; font-weight:700;
 }
-.table tr:hover td{ background: rgba(10,106,161,.04); }
+.table tr:hover td{ background: rgba(47,158,68,.06); }
 
 /* === Buttons & badges === */
 .btn{
@@ -184,11 +184,11 @@ a:hover{ text-decoration: underline; }
   background: transparent; color: var(--cda-primary);
   border-color: var(--cda-primary);
 }
-.btn-ghost:hover{ background: rgba(10,106,161,.08); }
+.btn-ghost:hover{ background: rgba(47,158,68,.10); }
 
 .badge{
   display:inline-block; padding:.2rem .5rem; border-radius:999px;
-  font-size:.8rem; font-weight:600; background: #e7f4f2; color:#0b6b61;
+  font-size:.8rem; font-weight:600; background: #e6f6ed; color:#136d33;
 }
 .badge.warn{ background:#fff6e5; color:#8a6b1f; }
 .badge.danger{ background:#fde7e7; color:#8a1820; }
@@ -201,12 +201,12 @@ input[type="text"], input[type="date"], input[type="number"], select, textarea{
 }
 @media (prefers-color-scheme: dark){
   input[type="text"], input[type="date"], input[type="number"], select, textarea{
-    background: #0f1419; border-color:#2a313a; color: var(--cda-text);
+    background: #0f1410; border-color:#1e2a20; color: var(--cda-text);
   }
 }
 input:focus, select:focus, textarea:focus{
   outline:none; border-color: var(--cda-primary);
-  box-shadow: 0 0 0 3px rgba(10,106,161,.15);
+  box-shadow: 0 0 0 3px rgba(47,158,68,.18);
 }
 
 /* === Footer === */
@@ -230,8 +230,8 @@ input:focus, select:focus, textarea:focus{
 .m0{ margin:0 !important; } .mt1{ margin-top: .5rem; } .mt2{ margin-top: 1rem; } .mt3{ margin-top: 1.5rem; }
 .p1{ padding: .5rem; } .p2{ padding: 1rem; } .p3{ padding: 1.5rem; }
 
-/* Example banner chip (like small category labels) */
+/* Example banner chip */
 .kicker-chip{
   display:inline-block; font-size:.78rem; letter-spacing:.06em; text-transform:uppercase;
-  padding:.2rem .5rem; border-radius:999px; background:#e7f0f7; color:#0a4062; font-weight:700;
+  padding:.2rem .5rem; border-radius:999px; background:#e8f6eb; color:#16592e; font-weight:700;
 }
