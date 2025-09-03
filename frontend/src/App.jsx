@@ -20,6 +20,7 @@ export default function App(){
           <Route path="/allotments" element={<AllotmentsPage/>} />
           <Route path="/files" element={<FilesPage/>} />
           <Route path="/houses/:fileNo/allotments" element={<HouseAllotmentsPage/>} /> {/* NEW */}
+          <Route path="/houses/:houseId/allotments" element={<HouseAllotmentHistory />} />
         </Routes>
       </div>
     </div>
