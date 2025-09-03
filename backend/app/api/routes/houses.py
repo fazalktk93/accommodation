@@ -65,7 +65,7 @@ def delete_(house_id: int, db: Session = Depends(get_db)):
     return crud.delete(db, house_id)
 
 @router.patch("/{house_id}", response_model=House)
-def update_house(house_id: int, data: HouseUpdate, session: Session = Depends(get_session)):
+def update_house(house_id: int, data: HouseUpdate, session: Session = Depends(get_db)):
     house = session.get(House, house_id)
     if not house: raise HTTPException(404)
     payload = data.dict(exclude_unset=True)
