@@ -7,7 +7,7 @@ import {
   updateAllotment,
 } from '../api'
 
-// tolerate array OR {results:[...]}
+// ---------- helpers
 function normalizeList(resp) {
   if (!resp) return []
   if (Array.isArray(resp)) return resp
@@ -91,7 +91,7 @@ export default function AllotmentsPage() {
   async function search() {
     try {
       setLoading(true); setError('')
-      // API helper expects the query string
+      // API helper expects the query string (optional)
       const resp = await searchAllotments(q && q.trim() ? q.trim() : undefined)
       setRows(normalizeList(resp))
     } catch (e) {
@@ -184,22 +184,11 @@ export default function AllotmentsPage() {
     }
   }
 
-  // Build a nice label for house (works whether row.house is present or not)
+  // helpers to show house fields even if backend doesn't embed full house
   function houseFromRow(row) {
     if (row?.house) return row.house
     if (!row?.house_id) return null
     return safeHouses.find(h => String(h.id) === String(row.house_id)) || null
-  }
-  function houseLabel(h) {
-    if (!h) return '-'
-    const parts = []
-    if (h.file_no) parts.push(h.file_no)
-    const desc = []
-    if (h.sector) desc.push(`Sector ${h.sector}`)
-    if (h.street) desc.push(`Street ${h.street}`)
-    if (h.qtr_no || h.number) desc.push(`Qtr ${h.qtr_no ?? h.number}`)
-    const tail = desc.join(' • ')
-    return tail ? `${parts.join(' ')}${parts.length ? ' — ' : ''}${tail}` : (parts[0] || `Qtr ${h.qtr_no ?? h.number ?? h.id}`)
   }
 
   return (
@@ -222,7 +211,7 @@ export default function AllotmentsPage() {
         <div className="error" style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
       ) : null}
 
-      {/* ADD form (full form, no simple mode) */}
+      {/* ADD form */}
       {showForm ? (
         <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
           <strong>New Allotment</strong>
@@ -233,7 +222,7 @@ export default function AllotmentsPage() {
                 <option value="">-- Select house / Qtr --</option>
                 {safeHouses.map(h => (
                   <option key={h.id} value={h.id}>
-                    {houseLabel(h)}
+                    {(h.file_no ?? '-') + ' — Sector ' + (h.sector ?? '-') + ' • Street ' + (h.street ?? '-') + ' • Qtr ' + (h.qtr_no ?? h.number ?? h.id)}
                   </option>
                 ))}
               </select>
@@ -330,7 +319,10 @@ export default function AllotmentsPage() {
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Allottee</th>
-              <th style={{ textAlign: 'left' }}>House</th>
+              <th style={{ textAlign: 'left' }}>File No</th>
+              <th style={{ textAlign: 'left' }}>Sector</th>
+              <th style={{ textAlign: 'left' }}>Street</th>
+              <th style={{ textAlign: 'left' }}>Qtr</th>
               <th>BPS</th>
               <th>Medium</th>
               <th>Allotment</th>
@@ -341,7 +333,7 @@ export default function AllotmentsPage() {
           </thead>
           <tbody>
             {(Array.isArray(rows) ? rows : []).map(r => {
-              const h = houseFromRow(r)
+              const h = houseFromRow(r) || {}
               return (
                 <tr key={r.id}>
                   <td>
@@ -349,10 +341,13 @@ export default function AllotmentsPage() {
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
-                  <td>
-                    <div>{houseLabel(h)}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.directorate || ''}</div>
-                  </td>
+
+                  {/* separate house fields */}
+                  <td>{h.file_no ?? '-'}</td>
+                  <td>{h.sector ?? '-'}</td>
+                  <td>{h.street ?? '-'}</td>
+                  <td>{h.qtr_no ?? h.number ?? '-'}</td>
+
                   <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
                   <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
@@ -369,10 +364,10 @@ export default function AllotmentsPage() {
               )
             })}
             {!loading && (!rows || rows.length === 0) ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
             ) : null}
             {loading ? (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
             ) : null}
           </tbody>
         </table>
@@ -407,7 +402,9 @@ export default function AllotmentsPage() {
                   >
                     <option value="">-- Select house / Qtr --</option>
                     {safeHouses.map(h => (
-                      <option key={h.id} value={h.id}>{houseLabel(h)}</option>
+                      <option key={h.id} value={h.id}>
+                        {(h.file_no ?? '-') + ' — Sector ' + (h.sector ?? '-') + ' • Street ' + (h.street ?? '-') + ' • Qtr ' + (h.qtr_no ?? h.number ?? h.id)}
+                      </option>
                     ))}
                   </select>
                 </label>
