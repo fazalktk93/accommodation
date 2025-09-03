@@ -234,13 +234,20 @@ const [form, setForm] = useState({
         <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
           <div className="grid">
             {/* House (locked) */}
-            <label>House
-              <div style={{ padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, background: '#f8f8f8' }}>
-                {editTarget?.house_file_no ?? '-'} — Qtr {editTarget?.house_qtr_no ?? '-'}
-              </div>
-              {/* keep house_id in a hidden field so it still submits */}
-              <input type="hidden" value={editForm.house_id} />
-            </label>
+          <label>House
+            <select
+              value={form.house_id}
+              onChange={e => onChange('house_id', e.target.value)}
+              required
+            >
+              <option value="">-- Select house / Qtr --</option>
+              {houses.map(h => (
+                <option key={h.id} value={h.id}>
+                  {h.file_no} — Qtr {h.qtr_no}
+                </option>
+              ))}
+            </select>
+          </label>
             <label>Allottee
               <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
@@ -380,13 +387,13 @@ const [form, setForm] = useState({
             <h3>Edit Allotment</h3>
             <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
               <div className="grid">
+                {/* EDIT: House (locked / read-only) */}
                 <label>House
-                  <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
-                    <option value="">Select house</option>
-                    {houses.map(h => (
-                      <option key={h.id} value={h.id}>{h.file_no} — Qtr {h.qtr_no}</option>
-                    ))}
-                  </select>
+                  <div style={{ padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, background: '#f8f8f8' }}>
+                    {editTarget?.house_file_no ?? '-'} — Qtr {editTarget?.house_qtr_no ?? '-'}
+                  </div>
+                  {/* keep existing house_id so it gets submitted */}
+                  <input type="hidden" value={editForm.house_id} />
                 </label>
 
                 <label>Allottee
