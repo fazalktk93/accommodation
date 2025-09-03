@@ -2,13 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 
-/** Toggle to show/hide the “Status” column (Allottee status). */
 const SHOW_STATUS_COLS = false;
-
-/** API base — no hardcoded IPs */
 const API = `${window.location.protocol}//${window.location.hostname}:8000/api`;
 
-// helpers
 const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []));
 const fmt = (d) => (d ? String(d) : "-");
 
@@ -43,23 +39,11 @@ function Modal({ title, children, onClose }) {
 }
 
 const emptyAllotment = {
-  person_name: "",
-  designation: "",
-  directorate: "",
-  cnic: "",
-  pool: "",
-  medium: "",
-  bps: "",
-  allotment_date: "",
-  occupation_date: "",
-  vacation_date: "",
-  dob: "",
-  dor: "",
-  retention_until: "",
-  retention_last: "",
-  qtr_status: "active",
-  allottee_status: "in_service",
-  notes: "",
+  person_name: "", designation: "", directorate: "", cnic: "",
+  pool: "", medium: "", bps: "",
+  allotment_date: "", occupation_date: "", vacation_date: "",
+  dob: "", dor: "", retention_until: "", retention_last: "",
+  qtr_status: "active", allottee_status: "in_service", notes: "",
 };
 
 export default function HouseAllotmentHistory() {
@@ -69,7 +53,6 @@ export default function HouseAllotmentHistory() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // Add / Edit modals
   const [showAdd, setShowAdd] = useState(false);
   const [addData, setAddData] = useState(emptyAllotment);
   const [forceEndPrev, setForceEndPrev] = useState(true);
@@ -80,30 +63,30 @@ export default function HouseAllotmentHistory() {
 
   const api = useMemo(() => ({
     async getHouse(id) {
-      // trailing slash required
-      const r = await fetch(`${API}/houses/${id}/`);
+      // FastAPI route is /houses/{id} (NO trailing slash)
+      const r = await fetch(`${API}/houses/${id}`);
       if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
       return r.json();
     },
     async listAllotmentsByHouseId(house_id) {
+      // List endpoint is defined at /allotments/ (with trailing slash)
       const u = new URL(`${API}/allotments/`);
       u.searchParams.set("house_id", house_id);
-      // optionally: newest first
-      // u.searchParams.set("ordering", "-allotment_date");
-      // u.searchParams.set("limit", "500");
+      // optional: u.searchParams.set("limit", "500");
       const r = await fetch(u.toString());
       if (!r.ok) throw new Error(`Failed to load allotments: ${r.status}`);
       const data = await r.json();
       return asList(data);
     },
-    // CHANGED: explicit history by file number (backend exposes it)
     async listAllotmentsByFileNo(file_no) {
+      // Backend route exists at /allotments/history/by-file/{file_no}
       const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(file_no)}`);
       if (!r.ok) throw new Error(`Failed to load allotments (by file): ${r.status}`);
-      return r.json(); // backend returns a plain list
+      return r.json();
     },
     async patchHouseStatus(id, status) {
-      const r = await fetch(`${API}/houses/${id}/`, {
+      // PATCH to /houses/{id} (NO trailing slash)
+      const r = await fetch(`${API}/houses/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, status_manual: true }),
@@ -112,7 +95,7 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async createAllotment(payload, forceEnd) {
-      const u = new URL(`${API}/allotments/`);
+      const u = new URL(`${API}/allotments/`); // list/create endpoint keeps trailing slash
       if (forceEnd) u.searchParams.set("force_end_previous", "true");
       const r = await fetch(u.toString(), {
         method: "POST",
@@ -129,7 +112,8 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async updateAllotment(id, payload, forceEnd) {
-      const u = new URL(`${API}/allotments/${id}/`);
+      // Item route: /allotments/{id} (NO trailing slash)
+      const u = new URL(`${API}/allotments/${id}`);
       if (forceEnd) u.searchParams.set("force_end_previous", "true");
       const r = await fetch(u.toString(), {
         method: "PATCH",
@@ -146,7 +130,8 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async endAllotment(id) {
-      const r = await fetch(`${API}/allotments/${id}/end/`, { method: "POST" });
+      // Action route: /allotments/{id}/end (NO trailing slash)
+      const r = await fetch(`${API}/allotments/${id}/end`, { method: "POST" });
       if (!r.ok) throw new Error(`End failed: ${r.status}`);
       return r.json();
     }
@@ -159,12 +144,11 @@ export default function HouseAllotmentHistory() {
       const h = await api.getHouse(houseId);
       setHouse(h);
 
-      // CHANGED: load strictly by file_no to avoid any cross-file bleed
-      // (this uses backend route /allotments/history/by-file/{file_no})
+      // Try the dedicated by-file route first; if it returns empty, fall back to house_id filter.
       const list = h?.file_no
         ? await api.listAllotmentsByFileNo(h.file_no)
-        : await api.listAllotmentsByHouseId(h.id); // fallback
-      setRows(list);
+        : [];
+      setRows((list && list.length) ? list : await api.listAllotmentsByHouseId(h.id));
     } catch (e) {
       setErr(e.message || String(e));
       setRows([]);
@@ -179,7 +163,7 @@ export default function HouseAllotmentHistory() {
     try {
       await api.createAllotment(
         { ...addData, house_id: house.id },
-        true // always end previous when adding
+        true
       );
       setShowAdd(false);
       setAddData(emptyAllotment);
@@ -218,7 +202,6 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  // Column count adjusts when we hide Status
   const COLS = SHOW_STATUS_COLS ? 12 : 11;
 
   return (
@@ -247,7 +230,6 @@ export default function HouseAllotmentHistory() {
               <div><strong>Type:</strong> {fmt(house.type_code)} &nbsp; <strong>Status:</strong> <Badge>{fmt(house.status)}</Badge></div>
             </div>
             <div>
-              {/* Manual override for occupied/vacant */}
               <label style={{ fontSize: 12, color: "#666", marginRight: 8 }}>Set status:</label>
               <select
                 value={house.status || "vacant"}
@@ -355,7 +337,6 @@ export default function HouseAllotmentHistory() {
         </div>
       </section>
 
-      {/* Add Allotment Modal */}
       {showAdd && (
         <Modal title="Add Allotment" onClose={() => setShowAdd(false)}>
           <FormAllotment
@@ -369,7 +350,6 @@ export default function HouseAllotmentHistory() {
         </Modal>
       )}
 
-      {/* Edit Allotment Modal */}
       {editRow && (
         <Modal title={`Edit Allotment #${editRow.id}`} onClose={() => setEditRow(null)}>
           <FormAllotment
@@ -386,7 +366,6 @@ export default function HouseAllotmentHistory() {
   );
 }
 
-/** Reusable Add/Edit form (dates are free-text; backend parses multiple formats) */
 function FormAllotment({ data, onChange, onSubmit, submitLabel, forceEnd, onToggleForce }) {
   const bind = (name) => ({
     name,
@@ -396,11 +375,7 @@ function FormAllotment({ data, onChange, onSubmit, submitLabel, forceEnd, onTogg
 
   return (
     <div>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 8
-      }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <input placeholder="Allottee name" {...bind("person_name")} />
         <input placeholder="Designation" {...bind("designation")} />
         <input placeholder="Directorate" {...bind("directorate")} />
