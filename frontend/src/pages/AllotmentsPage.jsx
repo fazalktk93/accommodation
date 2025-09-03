@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   listAllotments,
   listHouses,
@@ -9,6 +9,9 @@ import {
 } from '../api'
 
 const RETIREMENT_AGE_YEARS = 60
+
+// Normalize API responses that might be either an array or { data: [...] }
+const asArray = (x) => (Array.isArray(x) ? x : (x && Array.isArray(x.data) ? x.data : []))
 
 // Safe DOR = DOB + RETIREMENT_AGE_YEARS (UTC to avoid TZ off-by-one)
 function computeDOR(dobStr) {
@@ -42,9 +45,9 @@ export default function AllotmentsPage() {
     medium: '',
     allotment_date: '',
     dob: '',
-    dor: '',     // derived; read-only
+    dor: '', // derived; read-only
   })
-  const onChange = (k, v) => setForm(s => {
+  const onChange = (k, v) => setForm((s) => {
     const next = { ...s, [k]: v }
     if (k === 'dob') next.dor = computeDOR(v)
     return next
@@ -92,7 +95,8 @@ export default function AllotmentsPage() {
   }
 
   useEffect(() => {
-    listHouses().then(setHouses)
+    // load houses + initial list, with normalization so it won't crash
+    listHouses().then((h) => setHouses(asArray(h))).catch((e) => setError(e.message))
     search()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -105,11 +109,12 @@ export default function AllotmentsPage() {
         person_name: filter.person_name || undefined,
         file_no: filter.file_no || undefined,
         qtr_no: filter.qtr_no || undefined,
-        active: filter.active === '' ? undefined : filter.active
+        active: filter.active === '' ? undefined : filter.active,
       })
-      setItems(r)
+      setItems(asArray(r))
     } catch (err) {
       setError(err.message)
+      setItems([]) // prevent render crash
     }
   }
 
@@ -126,12 +131,11 @@ export default function AllotmentsPage() {
         medium: form.medium || null,
         allotment_date: form.allotment_date || null,
         dob: form.dob || null,
-        dor: form.dob ? computeDOR(form.dob) : null,   // derived
-        // keep other backend fields null/omitted (directorate, cnic, etc.)
+        dor: form.dob ? computeDOR(form.dob) : null, // derived
       }
-      await createAllotment(payload) // api.js already sends force_end_previous=true
+      await createAllotment(payload) // api.js should send force_end_previous=true
       setShowForm(false)
-      setForm({ house_id:'', person_name:'', designation:'', bps:'', medium:'', allotment_date:'', dob:'', dor:'' })
+      setForm({ house_id: '', person_name: '', designation: '', bps: '', medium: '', allotment_date: '', dob: '', dor: '' })
       await search()
     } catch (err) {
       setError(err.message)
@@ -166,7 +170,7 @@ export default function AllotmentsPage() {
         dob: editForm.dob || null,
         dor: editForm.dob ? computeDOR(editForm.dob) : null,
       }
-      await updateAllotment(editTarget.id, payload) // api.js sends force_end_previous=true
+      await updateAllotment(editTarget.id, payload) // api.js should send force_end_previous=true
       closeEdit()
       await search()
     } catch (err) {
@@ -176,29 +180,42 @@ export default function AllotmentsPage() {
     }
   }
 
-  // Pretty date for table
   const showDate = (d) => d || '-'
+  const safeHouses = Array.isArray(houses) ? houses : []
+  const safeItems = Array.isArray(items) ? items : []
 
   return (
     <div>
       <h2>Allotments</h2>
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error">{String(error)}</div>}
 
-      {/* Filters stay the same */}
+      {/* Filters */}
       <form className="filters" onSubmit={search}>
-        <input placeholder="Allottee name" value={filter.person_name}
-               onChange={e => setFilter({ ...filter, person_name: e.target.value })} />
-        <input placeholder="House File No" value={filter.file_no}
-               onChange={e => setFilter({ ...filter, file_no: e.target.value })} />
-        <input placeholder="Quarter No" value={filter.qtr_no}
-               onChange={e => setFilter({ ...filter, qtr_no: e.target.value })} />
-        <select value={filter.active} onChange={e => setFilter({ ...filter, active: e.target.value })}>
+        <input
+          placeholder="Allottee name"
+          value={filter.person_name}
+          onChange={(e) => setFilter({ ...filter, person_name: e.target.value })}
+        />
+        <input
+          placeholder="House File No"
+          value={filter.file_no}
+          onChange={(e) => setFilter({ ...filter, file_no: e.target.value })}
+        />
+        <input
+          placeholder="Quarter No"
+          value={filter.qtr_no}
+          onChange={(e) => setFilter({ ...filter, qtr_no: e.target.value })}
+        />
+        <select
+          value={filter.active}
+          onChange={(e) => setFilter({ ...filter, active: e.target.value })}
+        >
           <option value="">All</option>
           <option value="true">Active</option>
           <option value="false">Ended</option>
         </select>
         <button type="submit">Search</button>
-        <button type="button" onClick={() => setShowForm(s => !s)}>
+        <button type="button" onClick={() => setShowForm((s) => !s)}>
           {showForm ? 'Close' : 'Add Allotment'}
         </button>
       </form>
@@ -208,25 +225,34 @@ export default function AllotmentsPage() {
         <form className="card" onSubmit={onSave} style={{ margin: '1rem 0' }}>
           <div className="grid">
             <label>House
-              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
+              <select
+                value={form.house_id}
+                onChange={(e) => onChange('house_id', e.target.value)}
+                required
+              >
                 <option value="">-- Select house / Qtr --</option>
-                {houses.map(h => (
-                  <option key={h.id} value={h.id}>{h.file_no} — Qtr {h.qtr_no}</option>
+                {safeHouses.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.file_no} — Qtr {h.qtr_no}
+                  </option>
                 ))}
               </select>
             </label>
+
             <label>Allottee
-              <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
+              <input value={form.person_name} onChange={(e) => onChange('person_name', e.target.value)} />
             </label>
+
             <label>Designation
-              <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
+              <input value={form.designation} onChange={(e) => onChange('designation', e.target.value)} />
             </label>
 
             <label>BPS
-              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+              <input value={form.bps} onChange={(e) => onChange('bps', e.target.value)} />
             </label>
+
             <label>Medium
-              <select value={form.medium} onChange={e => onChange('medium', e.target.value)}>
+              <select value={form.medium} onChange={(e) => onChange('medium', e.target.value)}>
                 <option value="">Select medium</option>
                 <option value="family transfer">Family Transfer</option>
                 <option value="mutual">Mutual</option>
@@ -234,18 +260,23 @@ export default function AllotmentsPage() {
                 <option value="gwl">GWL</option>
               </select>
             </label>
+
             <label>Allotment Date
-              <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
+              <input type="date" value={form.allotment_date} onChange={(e) => onChange('allotment_date', e.target.value)} />
             </label>
 
             <label>DOB
-              <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
+              <input type="date" value={form.dob} onChange={(e) => onChange('dob', e.target.value)} />
             </label>
+
             <label>DOR (auto)
               <input value={form.dor} readOnly />
             </label>
           </div>
-          <div><button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button></div>
+
+          <div>
+            <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button>
+          </div>
         </form>
       )}
 
@@ -266,7 +297,7 @@ export default function AllotmentsPage() {
             </tr>
           </thead>
           <tbody>
-            {items.map(it => {
+            {(safeItems).map((it) => {
               const dor = it.dor || computeDOR(it.dob || '')
               return (
                 <tr key={it.id}>
@@ -299,11 +330,11 @@ export default function AllotmentsPage() {
               <div className="grid">
                 <label>Vacation Date
                   <input type="date" value={endForm.vacation_date}
-                         onChange={e => setEndForm({ ...endForm, vacation_date: e.target.value })} />
+                         onChange={(e) => setEndForm({ ...endForm, vacation_date: e.target.value })} />
                 </label>
                 <label>Notes
                   <input value={endForm.notes}
-                         onChange={e => setEndForm({ ...endForm, notes: e.target.value })} />
+                         onChange={(e) => setEndForm({ ...endForm, notes: e.target.value })} />
                 </label>
               </div>
               <div style={{ marginTop: '.75rem' }}>
@@ -331,22 +362,22 @@ export default function AllotmentsPage() {
 
                 <label>Allottee
                   <input value={editForm.person_name}
-                         onChange={e => setEditForm({ ...editForm, person_name: e.target.value })} />
+                         onChange={(e) => setEditForm({ ...editForm, person_name: e.target.value })} />
                 </label>
 
                 <label>Designation
                   <input value={editForm.designation}
-                         onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
+                         onChange={(e) => setEditForm({ ...editForm, designation: e.target.value })} />
                 </label>
 
                 <label>BPS
                   <input value={editForm.bps}
-                         onChange={e => setEditForm({ ...editForm, bps: e.target.value })} />
+                         onChange={(e) => setEditForm({ ...editForm, bps: e.target.value })} />
                 </label>
 
                 <label>Medium
                   <select value={editForm.medium}
-                          onChange={e => setEditForm({ ...editForm, medium: e.target.value })}>
+                          onChange={(e) => setEditForm({ ...editForm, medium: e.target.value })}>
                     <option value="">Select medium</option>
                     <option value="family transfer">Family Transfer</option>
                     <option value="mutual">Mutual</option>
@@ -357,12 +388,12 @@ export default function AllotmentsPage() {
 
                 <label>Allotment Date
                   <input type="date" value={editForm.allotment_date}
-                         onChange={e => setEditForm({ ...editForm, allotment_date: e.target.value })} />
+                         onChange={(e) => setEditForm({ ...editForm, allotment_date: e.target.value })} />
                 </label>
 
                 <label>DOB
                   <input type="date" value={editForm.dob}
-                         onChange={e => setEditForm({
+                         onChange={(e) => setEditForm({
                            ...editForm,
                            dob: e.target.value,
                            dor: computeDOR(e.target.value)
