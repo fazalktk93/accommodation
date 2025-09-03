@@ -1,3 +1,4 @@
+from backend.app.models.house import House
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, Boolean, Date, ForeignKey, Text
 from enum import Enum
@@ -54,3 +55,7 @@ class Allotment(SQLModel, table=True):
     allottee_status: AllotteeStatus = Field(default=AllotteeStatus.in_service)
 
     house: "House" = Relationship(back_populates="allotments")
+
+    @property
+    def is_active(self) -> bool:
+        return self.qtr_status == QtrStatus.active
