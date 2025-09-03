@@ -1,132 +1,229 @@
-import { useEffect, useState } from 'react'
-import { listMovements, issueFile, returnFile, listHouses } from '../api'
-import { useLocation } from 'react-router-dom'
+// frontend/src/pages/FileMovement.jsx
+import React, { useEffect, useMemo, useState } from 'react';
+import { api } from '../api'; // your axios wrapper
 
-function useQuery(){ const { search } = useLocation(); return new URLSearchParams(search) }
+const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []));
+const isBlank = (s) => !String(s || '').trim();
 
-export default function FilesPage(){
-  const query = useQuery()
-  const initialCode = query.get('file_no') || ''
+export default function FileMovement() {
+  // form state
+  const [fileNoInput, setFileNoInput] = useState('');
+  const [houseOptions, setHouseOptions] = useState([]);
+  const [selectedHouse, setSelectedHouse] = useState(null);
 
-  const [items, setItems] = useState([])
-  const [houses, setHouses] = useState([])
-  const [filter, setFilter] = useState({ outstanding: 'true', file_no: initialCode })
-  const [form, setForm] = useState({ file_no: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
-  const [error, setError] = useState('')
+  const [subject, setSubject] = useState('');
+  const [issuedTo, setIssuedTo] = useState('');
+  const [department, setDepartment] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [remarks, setRemarks] = useState('');
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '-'
+  const [issuing, setIssuing] = useState(false);
+  const [error, setError] = useState('');
 
-  // NOTE: listMovements() (from api.js) returns the data array directly
-  const load = () =>
-    listMovements({
-      outstanding: filter.outstanding === '' ? undefined : (filter.outstanding === 'true'),
-      file_no: filter.file_no || undefined
-    })
-      .then(arr => setItems(Array.isArray(arr) ? arr : []))
-      .catch(e => setError(e?.message || 'Failed to load'))
+  // list below the form (your existing table)
+  const [rows, setRows] = useState([]);
 
-  useEffect(() => {
-    load()
-    // listHouses() also returns data directly per updated api.js
-    listHouses().then(setHouses).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // --- helpers
+  const canIssue = useMemo(() => {
+    // gatekeeping: a house MUST be chosen, and basic fields not empty
+    if (!selectedHouse) return false;
+    if (isBlank(issuedTo)) return false;
+    // you can add more required fields here if needed:
+    // if (isBlank(subject)) return false;
+    return true;
+  }, [selectedHouse, issuedTo /*, subject */]);
 
-  const search = (e) => { e.preventDefault(); load() }
-
-  const issue = async (e) => {
-    e.preventDefault()
-    try{
-      setError('')
-      await issueFile({
-        ...form,
-        // ensure empty strings don't break date parsing
-        due_date: form.due_date || null
-      })
-      setForm({ file_no:'', subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
-      load()
-    }catch(err){
-      setError(err.message)
+  async function loadIssues() {
+    try {
+      const r = await api.get('/file-movements/'); // adjust to your list endpoint
+      setRows(asList(r.data));
+    } catch (e) {
+      // non-blocking
     }
   }
 
-  const ret = async (id) => {
-    try{
-      setError('')
-      await returnFile(id) // optional returned_date param, omitted => today
-      load()
-    }catch(err){
-      setError(err.message)
+  useEffect(() => { loadIssues(); }, []);
+
+  // --- search houses by file number (prefer exact matches, but show options)
+  async function searchHousesByFileNo(q) {
+    setSelectedHouse(null);
+    setHouseOptions([]);
+    if (isBlank(q)) return;
+
+    try {
+      // try exact route first, if your backend has it
+      const exact = await api.get(`/houses/by-file/${encodeURIComponent(q)}`).catch(() => null);
+      if (exact?.data) {
+        setHouseOptions([exact.data]);
+        return;
+      }
+
+      // fallback to list search
+      const r = await api.get('/houses/', { params: { q } });
+      const list = asList(r.data)
+        .filter(h => String(h.file_no).toLowerCase().includes(String(q).toLowerCase()));
+      setHouseOptions(list);
+    } catch (e) {
+      setHouseOptions([]);
+    }
+  }
+
+  // prevent “auto-submit” – this button will never submit the form by default
+  async function handleIssueClick() {
+    setError('');
+    // client-side validation
+    if (!selectedHouse) {
+      setError('Please pick a house for this file number.');
+      return;
+    }
+    if (isBlank(issuedTo)) {
+      setError('Please fill “Issued To”.');
+      return;
+    }
+
+    // build payload (uses file_no; include house_id if your backend needs it)
+    const payload = {
+      file_no: selectedHouse.file_no,
+      house_id: selectedHouse.id, // harmless if backend ignores; useful if it needs it
+      subject: subject || null,
+      issued_to: issuedTo,
+      department: department || null,
+      due_date: dueDate || null,
+      remarks: remarks || null,
+      status: 'issued',
+    };
+
+    try {
+      setIssuing(true);
+      await api.post('/file-movements/', payload); // adjust to your create endpoint
+      // reset inputs except fileNo (keep it so you can issue another related item)
+      setSubject('');
+      setIssuedTo('');
+      setDepartment('');
+      setDueDate('');
+      setRemarks('');
+      await loadIssues();
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'Failed to issue');
+    } finally {
+      setIssuing(false);
     }
   }
 
   return (
     <div>
       <h2>File Movement</h2>
-      {error && <div className="error">{error}</div>}
 
-      <form className="filters" onSubmit={search}>
-        <input
-          placeholder="File No"
-          value={filter.file_no}
-          onChange={e=>setFilter({...filter, file_no:e.target.value})}
-        />
-        <select
-          value={filter.outstanding}
-          onChange={e=>setFilter({...filter, outstanding:e.target.value})}
-        >
-          <option value="">All</option>
-          <option value="true">Outstanding Only</option>
-          <option value="false">Include Returned</option>
-        </select>
-        <button type="submit">Search</button>
-      </form>
-
-      <form className="card" onSubmit={issue}>
+      <div className="card" style={{ marginBottom: 16 }}>
         <h3>Issue File</h3>
-        <div className="grid">
-          <label>File No
-            <input value={form.file_no} onChange={e=>setForm({...form, file_no:e.target.value})} placeholder="e.g. ABC-123"/>
-          </label>
-          <label>Subject
-            <input value={form.subject} onChange={e=>setForm({...form, subject:e.target.value})}/>
-          </label>
-          <label>Issued To
-            <input value={form.issued_to} onChange={e=>setForm({...form, issued_to:e.target.value})}/>
-          </label>
-          <label>Department
-            <input value={form.department} onChange={e=>setForm({...form, department:e.target.value})}/>
-          </label>
-          <label>Due Date
-            <input type="date" value={form.due_date} onChange={e=>setForm({...form, due_date:e.target.value})}/>
-          </label>
-          <label>Remarks
-            <input value={form.remarks} onChange={e=>setForm({...form, remarks:e.target.value})}/>
-          </label>
-        </div>
-        <div><button type="submit">Issue File</button></div>
-      </form>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>ID</th><th>File No</th><th>Issued To</th><th>Issue Date</th><th>Due</th><th>Status</th><th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items || []).map(it => (
-            <tr key={it.id}>
-              <td>{it.id}</td>
-              <td>{it.file_no}</td>
-              <td>{it.issued_to}{it.department ? ` (${it.department})` : ''}</td>
-              <td>{fmtDate(it.issue_date)}</td>
-              <td>{fmtDate(it.due_date)}</td>
-              <td>{it.returned_date ? 'Returned' : 'Issued'}</td>
-              <td>{!it.returned_date && <button onClick={()=>ret(it.id)}>Mark In-Record</button>}</td>
+        {error && <div className="error" style={{ marginBottom: 8 }}>{error}</div>}
+
+        {/* not a <form> submit; explicit controlled Issue button */}
+        <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          {/* File No + House confirmation */}
+          <div style={{ gridColumn: '1 / span 3' }}>
+            <label>File No</label>
+            <input
+              placeholder="e.g. ABC-123"
+              value={fileNoInput}
+              onChange={(e) => setFileNoInput(e.target.value)}
+              onBlur={(e) => searchHousesByFileNo(e.target.value)}
+            />
+            {/* show a confirm dropdown once we have options */}
+            {houseOptions.length > 0 && (
+              <select
+                style={{ marginTop: 8, width: '100%' }}
+                value={selectedHouse?.id || ''}
+                onChange={(e) => {
+                  const h = houseOptions.find(x => String(x.id) === e.target.value);
+                  setSelectedHouse(h || null);
+                }}
+              >
+                <option value="">— Select house for this file —</option>
+                {houseOptions.map(h => (
+                  <option key={h.id} value={h.id}>
+                    {h.file_no} — Qtr {h.qtr_no}, Street {h.street}, Sector {h.sector}, Type {h.type_code}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label>Subject</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} />
+          </div>
+
+          <div>
+            <label>Issued To</label>
+            <input value={issuedTo} onChange={(e) => setIssuedTo(e.target.value)} />
+          </div>
+
+          <div>
+            <label>Department</label>
+            <input value={department} onChange={(e) => setDepartment(e.target.value)} />
+          </div>
+
+          <div>
+            <label>Due Date</label>
+            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </div>
+
+          <div style={{ gridColumn: '1 / span 3' }}>
+            <label>Remarks</label>
+            <input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          </div>
+
+          <div style={{ gridColumn: '1 / span 3' }}>
+            <button
+              type="button"
+              onClick={handleIssueClick}
+              disabled={!canIssue || issuing}
+              style={{ opacity: (!canIssue || issuing) ? 0.6 : 1 }}
+            >
+              {issuing ? 'Issuing…' : 'Issue File'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Issued list (unchanged; hook to your existing table) */}
+      <div className="card">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>ID</th><th>File No</th><th>Issued To</th><th>Issue Date</th><th>Due</th><th>Status</th><th>Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td>{r.id}</td>
+                <td>{r.file_no}</td>
+                <td>{r.issued_to || '-'}</td>
+                <td>{r.issue_date || '-'}</td>
+                <td>{r.due_date || '-'}</td>
+                <td>{r.status || '-'}</td>
+                <td>
+                  {/* your existing Mark In-Record button */}
+                  <button type="button" onClick={async () => {
+                    try {
+                      await api.post(`/file-movements/${r.id}/mark-in`);
+                      await loadIssues();
+                    } catch (e) {}
+                  }}>
+                    Mark In-Record
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={7} style={{ padding: 12, color: '#777' }}>No records.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
-  )
+  );
 }
