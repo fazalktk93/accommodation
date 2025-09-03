@@ -1,47 +1,88 @@
-from pydantic import BaseModel, Field, validator
+from typing import Optional
 from pydantic import BaseModel
-from app.models.house import HouseStatus
+from pydantic.utils import GetterDict
 
-ALLOWED_TYPES = set(list("ABCDEFGH"))
-ALLOWED_STATUS = {"available","vacant","occupied","reserved","maintenance","other"}
+# Getter that tolerates different column names on the ORM model
+class HouseGetter(GetterDict):
+    def get(self, key: str, default=None):
+        obj = self._obj
+
+        if key == "file_no":
+            for name in ("file_no", "file", "file_number", "fileno"):
+                if hasattr(obj, name):
+                    return getattr(obj, name)
+            return default
+
+        if key == "qtr_no":
+            for name in ("qtr_no", "qtr", "quarter_no"):
+                if hasattr(obj, name):
+                    return getattr(obj, name)
+            return default
+
+        if key == "street":
+            for name in ("street",):
+                if hasattr(obj, name):
+                    return getattr(obj, name)
+            return default
+
+        if key == "sector":
+            for name in ("sector",):
+                if hasattr(obj, name):
+                    return getattr(obj, name)
+            return default
+
+        if key == "type_code":
+            for name in ("type_code", "type", "house_type"):
+                if hasattr(obj, name):
+                    return getattr(obj, name)
+            return default
+
+        if key == "status":
+            return getattr(obj, "status", default)
+
+        if key == "status_manual":
+            return getattr(obj, "status_manual", default)
+
+        # fallback to normal attribute access
+        return getattr(obj, key, default)
+
+
+# ----- Request models (keep your existing expectations here) -----
+
+class HouseCreate(BaseModel):
+    # Keep file_no required if your API expects it on create.
+    file_no: str
+    qtr_no: Optional[int] = None
+    sector: Optional[str] = None
+    street: Optional[str] = None
+    type_code: Optional[str] = None
+    status: Optional[str] = "vacant"
+    status_manual: Optional[bool] = False
+
 
 class HouseUpdate(BaseModel):
-    status: HouseStatus | None = None
-    status_manual: bool | None = None
+    # All optional for PATCH
+    file_no: Optional[str] = None
+    qtr_no: Optional[int] = None
+    sector: Optional[str] = None
+    street: Optional[str] = None
+    type_code: Optional[str] = None
+    status: Optional[str] = None
+    status_manual: Optional[bool] = None
 
-class HouseBase(BaseModel):
-    file_no: str = Field(..., max_length=64)
-    qtr_no: int
-    street: str
-    sector: str
-    type_code: str = Field(..., min_length=1, max_length=1, description="Type code A-H")
-    status: str = Field("available", description="available, vacant, occupied, reserved, maintenance, other")
 
-    @validator("type_code")
-    def validate_type(cls, v):
-        if v.upper() not in ALLOWED_TYPES:
-            raise ValueError("type_code must be one of A-H")
-        return v.upper()
+# ----- Response model (tolerant to missing/renamed ORM fields) -----
 
-    @validator("status")
-    def normalize_status(cls, v):
-        val = v.lower()
-        if val not in ALLOWED_STATUS:
-            return "other"
-        return val
-
-class HouseCreate(HouseBase):
-    pass
-
-class HouseUpdate(BaseModel):
-    file_no: str | None = None
-    qtr_no: int | None = None
-    street: str | None = None
-    sector: str | None = None
-    type_code: str | None = None
-    status: str | None = None
-
-class HouseOut(HouseBase):
+class HouseOut(BaseModel):
     id: int
+    file_no: Optional[str] = None
+    qtr_no: Optional[int] = None
+    street: Optional[str] = None
+    sector: Optional[str] = None
+    type_code: Optional[str] = None
+    status: Optional[str] = None
+    status_manual: Optional[bool] = None
+
     class Config:
         orm_mode = True
+        getter_dict = HouseGetter
