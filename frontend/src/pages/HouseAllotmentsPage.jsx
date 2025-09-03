@@ -40,13 +40,16 @@ export default function HouseAllotmentsPage(){
     setLoading(true); setError('')
     try{
       const [h, hist] = await Promise.all([
-        getHouseByFile(fileNo),
-        listAllotmentHistoryByFile(fileNo),
+        getHouseByFile(fileNo),            // returns house object (not {data})
+        listAllotmentHistoryByFile(fileNo) // returns array (not {data})
       ])
-      setHouse(h.data)
-      setHistory(hist.data || [])
+      setHouse(h || null)
+      const list = Array.isArray(hist) ? hist : (hist?.results ?? [])
+      setHistory(list)
     }catch(err){
       setError(err.message || 'Failed to load')
+      setHouse(null)
+      setHistory([])
     }finally{
       setLoading(false)
     }
@@ -70,27 +73,30 @@ export default function HouseAllotmentsPage(){
     if(!house) return
     setSaving(true); setError('')
     try{
+      // Map to backend field names it actually uses:
+      // dob/dor, medium, retention_last (NOT *_date names)
       const payload = {
         house_id: Number(house.id),
-        person_name: form.person_name.trim(),
+        person_name: (form.person_name || '').trim() || null,
         designation: form.designation || null,
         bps: form.bps ? Number(form.bps) : null,
         directorate: form.directorate || null,
         cnic: form.cnic || null,
         allotment_date: form.allotment_date || null,
-        date_of_birth: form.date_of_birth || null,           // DOB
-        date_of_retirement: form.date_of_retirement || null, // DOR
+        dob: form.date_of_birth || null,                 // <-- backend expects 'dob'
+        dor: form.date_of_retirement || null,            // <-- backend expects 'dor'
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
-        retention: form.retention === 'true',
-        retention_last_date: form.retention_last_date || null,
+        retention_last: form.retention_last_date || null,// <-- backend expects 'retention_last'
         pool: form.pool || null,
         qtr_status: form.qtr_status || null,
-        allotment_medium: form.allotment_medium || 'other',
-        active: form.active === 'true',
+        medium: form.allotment_medium || 'other',        // <-- backend expects 'medium'
         notes: form.notes || null,
       }
-      await createAllotment(payload)
+
+      // Auto-end any active allotment on this house
+      await createAllotment(payload, { forceEndPrevious: true })
+
       // reset form, close it, and refresh history
       setForm({
         person_name:'', designation:'', bps:'', directorate:'', cnic:'',
@@ -149,7 +155,6 @@ export default function HouseAllotmentsPage(){
                 <th>Pool</th>
                 <th>Qtr Status</th>
                 <th>Medium</th>
-                {/* Status column intentionally removed */}
               </tr>
             </thead>
             <tbody>
@@ -165,7 +170,7 @@ export default function HouseAllotmentsPage(){
                   <td>{it.period_of_stay ?? '-'}</td>
                   <td>{it.pool || '-'}</td>
                   <td>{it.qtr_status || '-'}</td>
-                  <td>{it.allotment_medium || '-'}</td>
+                  <td>{it.medium || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -208,12 +213,6 @@ export default function HouseAllotmentsPage(){
             <label>Vacation
               <input type="date" value={form.vacation_date} onChange={e=>onChange('vacation_date', e.target.value)} />
             </label>
-            <label>Retention
-              <select value={form.retention} onChange={e=>onChange('retention', e.target.value)}>
-                <option value="false">No</option>
-                <option value="true">Yes</option>
-              </select>
-            </label>
             <label>Retention Last
               <input type="date" value={form.retention_last_date} onChange={e=>onChange('retention_last_date', e.target.value)} />
             </label>
@@ -231,12 +230,7 @@ export default function HouseAllotmentsPage(){
                 <option value="other">other</option>
               </select>
             </label>
-            <label>Active
-              <select value={form.active} onChange={e=>onChange('active', e.target.value)}>
-                <option value="true">Active</option>
-                <option value="false">Ended</option>
-              </select>
-            </label>
+            {/* Keeping 'active' out of payload since backend derives from qtr_status */}
             <label>Notes
               <input value={form.notes} onChange={e=>onChange('notes', e.target.value)} />
             </label>
