@@ -21,24 +21,26 @@ export default function AllotmentsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const [form, setForm] = useState({
-    house_id: '',
-    person_name: '',
-    designation: '',
-    directorate: '',
-    cnic: '',
-    pool: '',
-    medium: '',
-    bps: '',
-    allotment_date: '',
-    occupation_date: '',
-    vacation_date: '',
-    dob: '',
-    dor: '',
-    retention: 'No',
-    retention_last: '',
-    notes: '',
-  })
+const [form, setForm] = useState({
+  house_id: '',
+  person_name: '',
+  designation: '',
+  directorate: '',
+  cnic: '',
+  pool: '',
+  medium: '',
+  bps: '',
+  allotment_date: '',
+  occupation_date: '',
+  vacation_date: '',
+  dob: '',
+  dor: '',
+  retention_until: '',
+  retention_last: '',
+  qtr_status: 'active',
+  allottee_status: 'in_service',
+  notes: ''
+})
   const onChange = (k, v) => setForm(s => ({ ...s, [k]: v }))
 
   // END popover/modal
@@ -364,72 +366,98 @@ export default function AllotmentsPage() {
         <div className="modal">
           <div className="modal-body">
             <h3>Edit Allotment</h3>
-            <form onSubmit={onEditSave}>
+            <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
               <div className="grid">
-                <label>Allottee
-                  <input value={editForm.person_name} onChange={e => setEditForm({ ...editForm, person_name: e.target.value })} />
-                </label>
-                <label>Designation
-                  <input value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
-                </label>
-                <label>Directorate
-                  <input value={editForm.directorate} onChange={e => setEditForm({ ...editForm, directorate: e.target.value })} />
-                </label>
-                <label>CNIC
-                  <input value={editForm.cnic} onChange={e => setEditForm({ ...editForm, cnic: e.target.value })} />
-                </label>
-                <label>Pool
-                  <input value={editForm.pool} onChange={e => setEditForm({ ...editForm, pool: e.target.value })} />
-                </label>
-                <label>Medium
-                  <input value={editForm.medium} onChange={e => setEditForm({ ...editForm, medium: e.target.value })} />
-                </label>
-                <label>BPS
-                  <input value={editForm.bps} onChange={e => setEditForm({ ...editForm, bps: e.target.value })} />
-                </label>
-                <label>Allotment Date
-                  <input type="date" value={editForm.allotment_date} onChange={e => setEditForm({ ...editForm, allotment_date: e.target.value })} />
-                </label>
-                <label>Occupation Date
-                  <input type="date" value={editForm.occupation_date} onChange={e => setEditForm({ ...editForm, occupation_date: e.target.value })} />
-                </label>
-                <label>Vacation Date
-                  <input type="date" value={editForm.vacation_date} onChange={e => setEditForm({ ...editForm, vacation_date: e.target.value })} />
-                </label>
-                <label>DOB
-                  <input type="date" value={editForm.dob} onChange={e => setEditForm({ ...editForm, dob: e.target.value })} />
-                </label>
-                <label>DOR
-                  <input type="date" value={editForm.dor} onChange={e => setEditForm({ ...editForm, dor: e.target.value })} />
-                </label>
-                <label>Retention
-                  <select value={editForm.retention} onChange={e => setEditForm({ ...editForm, retention: e.target.value })}>
-                    <option>No</option>
-                    <option>Yes</option>
+                <label>House
+                  <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
+                    <option value="">Select house</option>
+                    {houses.map(h => (
+                      <option key={h.id} value={h.id}>{h.file_no} — Qtr {h.qtr_no}</option>
+                    ))}
                   </select>
                 </label>
-                <label>Retention Last
-                  <input type="date" value={editForm.retention_last} onChange={e => setEditForm({ ...editForm, retention_last: e.target.value })} />
+
+                <label>Allottee
+                  <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} required />
                 </label>
+
+                <label>Designation
+                  <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
+                </label>
+
+                <label>Directorate
+                  <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
+                </label>
+
+                <label>CNIC
+                  <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} placeholder="xxxxx-xxxxxxx-x" />
+                </label>
+
+                <label>Pool
+                  <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
+                </label>
+
+                <label>Medium
+                  <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
+                </label>
+
+                <label>BPS
+                  <input type="number" value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+                </label>
+
+                <label>Allotment Date
+                  <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
+                </label>
+
+                <label>Occupation Date
+                  <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
+                </label>
+
+                <label>Vacation Date
+                  <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
+                </label>
+
+                <label>DOB
+                  <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
+                </label>
+
+                <label>DOR
+                  <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
+                </label>
+
+                <label>Retention Until
+                  <input type="date" value={form.retention_until} onChange={e => onChange('retention_until', e.target.value)} />
+                </label>
+
+                <label>Retention Last
+                  <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
+                </label>
+
+                <label>Quarter Status
+                  <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
+                    <option value="active">active</option>
+                    <option value="ended">ended</option>
+                  </select>
+                </label>
+
+                <label>Allottee Status
+                  <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
+                    <option value="in_service">in service</option>
+                    <option value="retired">retired</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </label>
+
                 <label>Notes
-                  <input value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                  <textarea value={form.notes} onChange={e => onChange('notes', e.target.value)} />
                 </label>
               </div>
 
-              <label style={{ display: 'block', marginTop: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={forceEndOnEdit}
-                  onChange={e => setForceEndOnEdit(e.target.checked)}
-                />{' '}
-                End any existing active allotment automatically (force)
-              </label>
-
-              <div style={{ marginTop: '.75rem' }}>
-                <button type="button" onClick={closeEdit}>Cancel</button>{' '}
-                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+              <div>
+                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button>
               </div>
             </form>
+
           </div>
         </div>
       )}
