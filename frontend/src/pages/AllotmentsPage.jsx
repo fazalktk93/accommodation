@@ -183,6 +183,7 @@ const [form, setForm] = useState({
         dor: editForm.dor || null,
         retention: (editForm.retention || '').toLowerCase() === 'yes',
         retention_last: editForm.retention_last || null,
+        medium: form.medium || null,
         notes: editForm.notes || null,
       }
       await updateAllotment(editTarget.id, payload, forceEndOnEdit)
@@ -234,20 +235,20 @@ const [form, setForm] = useState({
         <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
           <div className="grid">
             {/* House (locked) */}
-          <label>House
-            <select
-              value={form.house_id}
-              onChange={e => onChange('house_id', e.target.value)}
-              required
-            >
-              <option value="">-- Select house / Qtr --</option>
-              {houses.map(h => (
-                <option key={h.id} value={h.id}>
-                  {h.file_no} — Qtr {h.qtr_no}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>House
+              <select
+                value={form.house_id}
+                onChange={e => onChange('house_id', e.target.value)}
+                required
+              >
+                <option value="">-- Select house / Qtr --</option>
+                {houses.map(h => (
+                  <option key={h.id} value={h.id}>
+                    {h.file_no} — Qtr {h.qtr_no}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label>Allottee
               <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
@@ -264,7 +265,16 @@ const [form, setForm] = useState({
               <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
             </label>
             <label>Medium
-              <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
+              <select
+                value={form.medium}
+                onChange={e => onChange('medium', e.target.value)}
+              >
+                <option value="">Select medium</option>
+                <option value="family transfer">Family Transfer</option>
+                <option value="mutual">Mutual</option>
+                <option value="changes">Changes</option>
+                <option value="gwl">GWL</option>
+              </select>
             </label>
             <label>BPS
               <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
@@ -392,7 +402,6 @@ const [form, setForm] = useState({
                   <div style={{ padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, background: '#f8f8f8' }}>
                     {editTarget?.house_file_no ?? '-'} — Qtr {editTarget?.house_qtr_no ?? '-'}
                   </div>
-                  {/* keep existing house_id so it gets submitted */}
                   <input type="hidden" value={editForm.house_id} />
                 </label>
 
@@ -417,8 +426,17 @@ const [form, setForm] = useState({
                 </label>
 
                 <label>Medium
-                  <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
-                </label>
+                <select
+                  value={editForm.medium}
+                  onChange={e => setEditForm({ ...editForm, medium: e.target.value })}
+                >
+                  <option value="">Select medium</option>
+                  <option value="family transfer">Family Transfer</option>
+                  <option value="mutual">Mutual</option>
+                  <option value="changes">Changes</option>
+                  <option value="gwl">GWL</option>
+                </select>
+              </label>
 
                 <label>BPS
                   <input type="number" value={form.bps} onChange={e => onChange('bps', e.target.value)} />
