@@ -53,6 +53,9 @@ export const updateAllotment = (id, payload) =>
 export const deleteAllotment = (id) =>
   api.delete(`/allotments/${id}/`).then(r => r.data)
 
+export const searchAllotments = (query, params = {}) =>
+  api.get('/allotments/', { params: { search: query, ...params } }).then(r => r.data)
+
 // ---------------- Files (movements) ----------------
 export const listMovements = (params = {}) =>
   api.get('/files/', { params }).then(r => r.data)
