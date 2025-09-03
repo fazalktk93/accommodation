@@ -1,3 +1,4 @@
+// frontend/src/pages/AllotmentEdit.jsx
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
@@ -17,7 +18,8 @@ export default function AllotmentEdit() {
           setError('This page is for editing an existing allotment.')
           return
         }
-        const { data } = await api.get(`/allotments/${id}`)
+        // NOTE: trailing slash required
+        const { data } = await api.get(`/allotments/${id}/`)
         setForm({
           ...data,
           qtr_status: data.qtr_status || 'active',
@@ -32,7 +34,8 @@ export default function AllotmentEdit() {
   const update = async () => {
     setSaving(true)
     try {
-      await api.patch(`/allotments/${id}`, {
+      // NOTE: trailing slash required
+      await api.patch(`/allotments/${id}/`, {
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
         qtr_status: form.qtr_status,           // drives house.status when not manual
@@ -46,8 +49,8 @@ export default function AllotmentEdit() {
     }
   }
 
-  if (error) return <p style={{ color: 'crimson' }}>{error}</p>
-  if (!form) return <p>Loading…</p>
+  if (error) return <p style={{ color: 'crimson', padding: 16 }}>{error}</p>
+  if (!form) return <p style={{ padding: 16 }}>Loading…</p>
 
   return (
     <div style={{ padding: 24 }}>
@@ -96,7 +99,7 @@ export default function AllotmentEdit() {
         </label>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button disabled={saving} onClick={update}>Save</button>
+          <button disabled={saving} onClick={update}>{saving ? 'Saving…' : 'Save'}</button>
           <button onClick={() => nav(-1)}>Cancel</button>
         </div>
       </div>
