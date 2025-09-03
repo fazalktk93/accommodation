@@ -121,7 +121,7 @@ def end_allotment(
         "house_qtr_no": house.qtr_no if house else None,
     })
 @router.post("/", response_model=Allotment)
-def create_allotment(data: AllotmentCreate, session: Session = Depends(get_session)):
+def create_allotment(data: AllotmentCreate, session: Session = Depends(get_db)):
     obj = Allotment.from_orm(data)
     session.add(obj)
     session.commit()
@@ -131,14 +131,14 @@ def create_allotment(data: AllotmentCreate, session: Session = Depends(get_sessi
     return obj
 
 @router.get("/{allotment_id}", response_model=Allotment)
-def get_allotment(allotment_id: int, session: Session = Depends(get_session)):
+def get_allotment(allotment_id: int, session: Session = Depends(get_db)):
     obj = session.get(Allotment, allotment_id)
     if not obj: raise HTTPException(404)
     return obj
 
 @router.put("/{allotment_id}", response_model=Allotment)
 @router.patch("/{allotment_id}", response_model=Allotment)
-def update_allotment(allotment_id: int, data: AllotmentUpdate, session: Session = Depends(get_session)):
+def update_allotment(allotment_id: int, data: AllotmentUpdate, session: Session = Depends(get_db)):
     obj = session.get(Allotment, allotment_id)
     if not obj: raise HTTPException(404)
     for k, v in data.dict(exclude_unset=True).items():
@@ -151,7 +151,7 @@ def update_allotment(allotment_id: int, data: AllotmentUpdate, session: Session 
     return obj
 
 @router.delete("/{allotment_id}", status_code=204)
-def delete_allotment(allotment_id: int, session: Session = Depends(get_session)):
+def delete_allotment(allotment_id: int, session: Session = Depends(get_db)):
     obj = session.get(Allotment, allotment_id)
     if not obj: raise HTTPException(404)
     hid = obj.house_id
