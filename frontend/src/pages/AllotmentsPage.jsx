@@ -7,7 +7,29 @@ import {
   updateAllotment,
 } from '../api'
 
-// ---------------- helpers ----------------
+// ---------- Error boundary so errors show on-screen instead of white screen
+class PageErrorBoundary extends React.Component {
+  constructor(p){ super(p); this.state = { error: null } }
+  static getDerivedStateFromError(e){ return { error: e } }
+  componentDidCatch(e, info){ console.error('AllotmentsPage crashed:', e, info) }
+  render(){
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 16 }}>
+          <h3 style={{ color: '#b00020', marginTop: 0 }}>Something went wrong</h3>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>
+            {String(this.state.error && this.state.error.message || this.state.error)}
+          </pre>
+          <p>Open DevTools → Console for full stack.</p>
+          {this.props.children /* keeps layout space for hot-reload */}
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+// ---------- helpers (no modern syntax)
 function toDateInput(val) {
   if (!val) return ''
   var d = typeof val === 'string' ? new Date(val) : val
@@ -26,7 +48,7 @@ function numOrNull(v) {
   var n = Number(v)
   return isFinite(n) ? n : null
 }
-// tolerate array or {results:[...]}
+// tolerate array OR {results:[...]}
 function normalizeList(resp) {
   if (!resp) return []
   if (Array.isArray(resp)) return resp
@@ -34,22 +56,20 @@ function normalizeList(resp) {
   return []
 }
 
-// ---------------- component --------------
-export default function AllotmentsPage() {
-  // search/list
+// ---------- original page logic (kept intact)
+function AllotmentsPageInner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
   const [activeOnly, setActiveOnly] = useState(true)
 
-  // houses
   const [houses, setHouses] = useState([])
   const safeHouses = useMemo(function () {
     return Array.isArray(houses) ? houses : []
   }, [houses])
 
-  // add form (keep logic; just expose more fields)
+  // Add form: expose full fields (logic unchanged)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [addMode, setAddMode] = useState('full') // 'full' | 'simple'
@@ -74,26 +94,26 @@ export default function AllotmentsPage() {
   }
   const [form, setForm] = useState(emptyForm)
 
-  // edit modal (unchanged logic)
+  // Edit modal state
   const [editTarget, setEditTarget] = useState(null)
   const [updating, setUpdating] = useState(false)
 
-  // load houses once
+  // Load houses once
   useEffect(function () {
     var mounted = true
     ;(async function () {
       try {
         const hs = await listHouses()
-        if (mounted) setHouses(Array.isArray(hs) ? hs : (hs && hs.results ? hs.results : []))
+        const arr = Array.isArray(hs) ? hs : (hs && hs.results ? hs.results : [])
+        if (mounted) setHouses(arr)
       } catch (e) {
-        // keep going; page should not crash
-        // console.warn(e)
+        console.warn('listHouses failed:', e)
       }
     })()
     return function () { mounted = false }
   }, [])
 
-  // initial search
+  // Initial search
   useEffect(function () { search() }, []) // eslint-disable-line
 
   async function search() {
@@ -106,7 +126,7 @@ export default function AllotmentsPage() {
       setRows(normalizeList(resp))
     } catch (e) {
       setError(e && e.message ? e.message : 'Failed to load')
-      setRows([]) // don’t let UI crash
+      setRows([]) // avoid crashing maps
     } finally {
       setLoading(false)
     }
@@ -120,7 +140,6 @@ export default function AllotmentsPage() {
     if (e && e.preventDefault) e.preventDefault()
     try {
       setSaving(true); setError('')
-      // keep original create logic; only include added fields if provided
       const payload = {
         house_id: form.house_id || null,
         person_name: form.person_name || null,
@@ -134,7 +153,6 @@ export default function AllotmentsPage() {
         occupation_date: form.occupation_date || null,
         vacation_date: form.vacation_date || null,
         dob: form.dob || null,
-        // keep dor same logic (auto from dob if given)
         dor: form.dob ? computeDOR(form.dob) : (form.dor || null),
         retention_last: form.retention_last || null,
         qtr_status: form.qtr_status || 'active',
@@ -223,7 +241,7 @@ export default function AllotmentsPage() {
         <div className="error" style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
       ) : null}
 
-      {/* ADD form (same logic, just full fields exposed) */}
+      {/* ADD form (full fields; logic unchanged) */}
       {showForm ? (
         <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -278,7 +296,7 @@ export default function AllotmentsPage() {
               <input type="date" value={form.allotment_date} onChange={function (e) { onChange('allotment_date', e.target.value) }} />
             </label>
 
-            {/* Full-only extras (same create logic; only send if filled) */}
+            {/* Full-only extras */}
             {addMode === 'full' ? (
               <>
                 <label>Directorate
@@ -396,7 +414,7 @@ export default function AllotmentsPage() {
         </table>
       </div>
 
-      {/* EDIT modal (logic unchanged) */}
+      {/* EDIT modal */}
       {editTarget ? (
         <div className="modal-backdrop">
           <div className="modal card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white' }}>
@@ -578,5 +596,14 @@ export default function AllotmentsPage() {
         .page { padding: 12px; }
       `}</style>
     </div>
+  )
+}
+
+// ---------- default export wraps with the error boundary (no logic change)
+export default function AllotmentsPage() {
+  return (
+    <PageErrorBoundary>
+      <AllotmentsPageInner />
+    </PageErrorBoundary>
   )
 }
