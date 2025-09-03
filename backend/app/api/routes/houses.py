@@ -7,9 +7,9 @@ from app.schemas import house as s
 from app.models import House
 from app.schemas.house import HouseUpdate
 from app.models.house import House
-from app.db import get_session
-from sqlmodel import Session
+from app.api.deps import get_db
 from fastapi import Depends
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/houses", tags=["houses"])
 

@@ -11,7 +11,6 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlmodel import Session
 from app.models.allotment import Allotment
 from app.schemas.allotment import AllotmentCreate, AllotmentUpdate
-from app.db import get_session
 from app.services.houses import maybe_update_house_status
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
