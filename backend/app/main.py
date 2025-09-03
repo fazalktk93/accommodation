@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from app.api.routes import houses, allotments, files, health
 from app.core.config import settings
 from app.db.session import engine
+from sqlmodel import SQLModel
+from app import models
 
 app = FastAPI(title="Accommodation API", version="1.0.0")
 
@@ -26,6 +28,11 @@ app.include_router(health.router, prefix="/api")
 app.include_router(houses.router, prefix="/api")
 app.include_router(allotments.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
+
+@app.on_event("startup")
+def on_startup():
+    # creates all missing tables in the current DATABASE_URL
+    SQLModel.metadata.create_all(engine)
 
 @app.on_event("startup")
 def startup_ping_db():
