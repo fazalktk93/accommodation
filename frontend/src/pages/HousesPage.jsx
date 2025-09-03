@@ -9,7 +9,7 @@ export default function HousesPage(){
   const [filters, setFilters] = useState({ status:'', type_code:'' })
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ file_no:'', qtr_no:'', street:'', sector:'', type_code:'A', status:'available' })
-  const gotoAllotmentHistory = (file_no) => navigate(`/houses/${encodeURIComponent(file_no)}/allotments`)
+  const gotoAllotmentHistory = (id) => navigate(`/houses/${id}/allotments`)
   const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -98,7 +98,7 @@ export default function HousesPage(){
             <tr key={it.id}>
               <td>{it.id}</td>
               <td>
-                <a href="#" onClick={(e)=>{e.preventDefault(); gotoAllotmentHistory(it.file_no)}}>
+                <a href="#" onClick={(e)=>{e.preventDefault(); gotoAllotmentHistory(it.id)}}>
                   {it.file_no}
                 </a>
               </td>
