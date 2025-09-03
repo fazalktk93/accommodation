@@ -38,10 +38,21 @@ export const deleteAllotment = (id) =>
   api.delete(`/allotments/${id}`)
 
 // File movements
-export const listMovements = (params = {}) => api.get('/files/', { params })
-export const issueFile = (data) => api.post('/files/issue', data)   // {file_no or house_id, ...}
-export const returnFile = (id, data = {}) => api.post(`/files/${id}/return`, data)
-export const getFileStatus = (file_no) => api.get(`/files/status/${file_no}`)
+export const listMovements = (params = {}) =>
+  api.get('/files', { params }).then(r => r.data)
+export const issueFile = (data) =>
+  api.post('/files', data).then(r => r.data)
+export const returnFile = (id, returned_date = null) =>
+  api.post(`/files/${id}/return`, null, {
+    params: { returned_date }
+  }).then(r => r.data)
+
+export const updateMovement = (id, payload) =>
+api.patch(`/files/${id}`, payload).then(r => r.data)
+
+export const deleteMovement = (id) =>
+  api.delete(`/files/${id}`).then(r => r.data)
+
 
 // …keep existing imports/code…
 

@@ -37,7 +37,7 @@ export default function FilesPage(){
 
   const ret = async (id) => {
     try{
-      await returnFile(id, {})
+      await returnFile(id)
       load()
     }catch(err){ setError(err.message) }
   }
