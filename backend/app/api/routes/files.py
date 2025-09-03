@@ -1,41 +1,44 @@
-from typing import Optional
+from typing import Optional, List
+from datetime import date
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 from app.api.deps import get_db
-from app.schemas import file_movement as s
+from app.schemas.file_movement import FileMovementCreate, FileMovementUpdate, FileMovementOut
 from app.crud import file_movement as crud
-from app.crud import house as house_crud
 
-router = APIRouter(prefix="/files", tags=["file-movement"])
+router = APIRouter(prefix="/files", tags=["files"])
 
-@router.get("/", response_model=list[s.FileMovementOut])
-def list_movements(
-    skip: int = 0,
-    limit: int = 50,
-    outstanding: Optional[bool] = None,
-    file_no: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
-    return crud.list(db, skip, limit, outstanding, file_no)
+@router.get("/", response_model=List[FileMovementOut])
+def list_files(skip: int = 0, limit: int = 50,
+               file_no: Optional[str] = None, outstanding: Optional[bool] = None,
+               db: Session = Depends(get_db)):
+    rows = crud.list(db, skip=skip, limit=limit, file_no=file_no, outstanding=outstanding)
+    out: list[FileMovementOut] = []
+    for r in rows:
+        out.append(FileMovementOut.from_orm(r).copy(update={"outstanding": r.returned_date is None}))
+    return out
 
-@router.post("/issue", response_model=s.FileMovementOut, status_code=201)
-def issue_file(payload: s.FileIssueCreate, db: Session = Depends(get_db)):
-    return crud.issue(db, payload)
+@router.post("/", response_model=FileMovementOut, status_code=201)
+def issue_file(payload: FileMovementCreate, db: Session = Depends(get_db)):
+    obj = crud.create(db, payload)
+    return FileMovementOut.from_orm(obj).copy(update={"outstanding": obj.returned_date is None})
 
-@router.post("/{movement_id}/return", response_model=s.FileMovementOut)
-def return_file(movement_id: int, payload: s.FileReturn = s.FileReturn(), db: Session = Depends(get_db)):
-    return crud.return_file(db, movement_id, remarks=payload.remarks)
+@router.get("/{file_id}", response_model=FileMovementOut)
+def get_file(file_id: int, db: Session = Depends(get_db)):
+    obj = crud.get(db, file_id)
+    return FileMovementOut.from_orm(obj).copy(update={"outstanding": obj.returned_date is None})
 
-@router.get("/status/{file_no}", response_model=s.FileStatus)
-def status(file_no: str, db: Session = Depends(get_db)):
-    house = house_crud.get_by_file_no(db, file_no)
-    # find outstanding movement if any
-    from sqlalchemy import and_, select
-    fm = db.execute(
-        select(s.FileMovementModel).where(  # type: ignore[attr-defined]
-            and_(s.FileMovementModel.house_id == house.id,
-                 s.FileMovementModel.return_date.is_(None))
-    )).scalar_one_or_none()
-    if fm:
-        return s.FileStatus(file_no=file_no, status="issued", issued_to=fm.issued_to, subject=fm.subject)
-    return s.FileStatus(file_no=file_no, status="available")
+@router.patch("/{file_id}", response_model=FileMovementOut)
+def update_file(file_id: int, payload: FileMovementUpdate, db: Session = Depends(get_db)):
+    obj = crud.update(db, file_id, payload)
+    return FileMovementOut.from_orm(obj).copy(update={"outstanding": obj.returned_date is None})
+
+@router.post("/{file_id}/return", response_model=FileMovementOut)
+def return_file(file_id: int, returned_date: Optional[date] = None, db: Session = Depends(get_db)):
+    obj = crud.mark_returned(db, file_id, returned_date)
+    return FileMovementOut.from_orm(obj).copy(update={"outstanding": obj.returned_date is None})
+
+@router.delete("/{file_id}", status_code=204)
+def delete_file(file_id: int, db: Session = Depends(get_db)):
+    crud.delete(db, file_id)
+    return None

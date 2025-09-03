@@ -1,68 +1,52 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from typing import Optional, List
+from datetime import date as dt_date
+from sqlalchemy import select, and_, desc
+from sqlmodel import Session
 from fastapi import HTTPException, status
-from typing import Optional
-from app import models
-from app.schemas import file_movement as s
-from app.crud import house as house_crud
-from app.crud.utils import paginate
-from datetime import datetime, timezone
+from app.models import FileMovement
+from app.schemas.file_movement import FileMovementCreate, FileMovementUpdate
 
-def issue(db: Session, obj_in: s.FileIssueCreate):
-    house_id = obj_in.house_id
-    if not house_id and obj_in.file_no:
-        house_id = house_crud.get_by_file_no(db, obj_in.file_no).id
-    if not house_id:
-        raise HTTPException(status_code=400, detail="house_id or valid file_no is required")
-
-    existing = db.execute(
-        select(models.FileMovement).where(
-            and_(
-                models.FileMovement.house_id == house_id,
-                models.FileMovement.return_date.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File already issued and not yet returned.")
-
-    house = db.get(models.House, house_id)
-    if not house:
-        raise HTTPException(status_code=404, detail="House not found")
-
-    obj = models.FileMovement(
-        house_id=house_id,
-        file_no=house.file_no,
-        subject=obj_in.subject,
-        issued_to=obj_in.issued_to,
-        department=obj_in.department,
-        due_date=obj_in.due_date,
-        remarks=obj_in.remarks,
-    )
-    db.add(obj); db.commit(); db.refresh(obj)
-    return obj
-
-def return_file(db: Session, movement_id: int, remarks: Optional[str] = None):
-    obj = db.get(models.FileMovement, movement_id)
+def get(db: Session, file_id: int) -> FileMovement:
+    obj = db.get(FileMovement, file_id)
     if not obj:
-        raise HTTPException(status_code=404, detail="Record not found")
-    if obj.return_date is not None:
-        raise HTTPException(status_code=400, detail="Already returned")
-    obj.return_date = datetime.now(tz=timezone.utc)
-    if remarks:
-        obj.remarks = (obj.remarks + "\n" if obj.remarks else "") + remarks
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File record not found")
+    return obj
+
+def list(db: Session, skip=0, limit=50, file_no: Optional[str] = None,
+         outstanding: Optional[bool] = None) -> List[FileMovement]:
+    stmt = select(FileMovement)
+    conds = []
+    if file_no:
+        conds.append(FileMovement.file_no.ilike(f"%{file_no}%"))
+    if outstanding is not None:
+        if outstanding:
+            conds.append(FileMovement.returned_date.is_(None))
+        else:
+            conds.append(FileMovement.returned_date.is_not(None))
+    if conds:
+        stmt = stmt.where(and_(*conds))
+    stmt = stmt.order_by(desc(FileMovement.issue_date), desc(FileMovement.id)).offset(skip).limit(limit)
+    return db.execute(stmt).scalars().all()
+
+def create(db: Session, obj_in: FileMovementCreate) -> FileMovement:
+    obj = FileMovement(**obj_in.dict())
     db.add(obj); db.commit(); db.refresh(obj)
     return obj
 
-def list(db: Session, skip: int = 0, limit: int = 50, outstanding: Optional[bool] = None, file_no: Optional[str] = None):
-    q = db.query(models.FileMovement)
-    if outstanding is True: q = q.filter(models.FileMovement.return_date.is_(None))
-    if outstanding is False: q = q.filter(models.FileMovement.return_date.is_not(None))
-    if file_no: q = q.filter(models.FileMovement.file_no == file_no)
-    q = q.order_by(models.FileMovement.id.desc())
-    return paginate(q, skip, limit).all()
-
-def get(db: Session, movement_id: int):
-    obj = db.get(models.FileMovement, movement_id)
-    if not obj: raise HTTPException(404, "Record not found")
+def update(db: Session, file_id: int, obj_in: FileMovementUpdate) -> FileMovement:
+    obj = get(db, file_id)
+    data = obj_in.dict(exclude_unset=True)
+    for k, v in data.items():
+        setattr(obj, k, v)
+    db.add(obj); db.commit(); db.refresh(obj)
     return obj
+
+def mark_returned(db: Session, file_id: int, returned_date: Optional[dt_date] = None) -> FileMovement:
+    obj = get(db, file_id)
+    obj.returned_date = returned_date or dt_date.today()
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
+
+def delete(db: Session, file_id: int) -> None:
+    obj = get(db, file_id)
+    db.delete(obj); db.commit()

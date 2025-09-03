@@ -1,32 +1,27 @@
 from __future__ import annotations
+from typing import Optional, List
+from sqlmodel import SQLModel, Field, Relationship
 
-from typing import Optional
+class HouseStatus:
+    VACANT = "vacant"
+    OCCUPIED = "occupied"
+    MAINTENANCE = "maintenance"
 
-from sqlalchemy import String, Integer, Boolean
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from .base import Base
-
-
-class House(Base):
+class House(SQLModel, table=True):
     __tablename__ = "house"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
 
-    # Canonical identifiers used throughout the app
-    file_no: Mapped[str] = mapped_column(String, index=True, unique=True)
-    qtr_no: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
-    street: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    sector: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    type_code: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
+    # Canonical identifiers
+    file_no: str = Field(index=True)
+    qtr_no: Optional[int] = Field(default=None, index=True)
+    street: Optional[str] = Field(default=None, index=True)
+    sector: Optional[str] = Field(default=None, index=True)
+    type_code: Optional[str] = Field(default=None, index=True)
 
     # Header status
-    status: Mapped[str] = mapped_column(String, nullable=False, default="vacant")
-    status_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: str = Field(default=HouseStatus.VACANT)
+    status_manual: bool = Field(default=False)
 
-    # Relationship to allotments
-    allotments: Mapped[list["Allotment"]] = relationship(
-        back_populates="house",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+    # Back relation
+    allotments: List["Allotment"] = Relationship(back_populates="house")

@@ -1,21 +1,20 @@
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Integer, Date, DateTime, Text, ForeignKey
-from .base import Base
+from __future__ import annotations
+from typing import Optional
+from datetime import date
+from sqlmodel import SQLModel, Field
 
-class FileMovement(Base):
-    __tablename__ = "file_movements"
+class FileMovement(SQLModel, table=True):
+    __tablename__ = "file_movement"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    house_id: Mapped[int] = mapped_column(ForeignKey("houses.id", ondelete="CASCADE"), index=True, nullable=False)
-    file_no: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    id: Optional[int] = Field(default=None, primary_key=True)
 
-    subject: Mapped[str] = mapped_column(String(200), nullable=False)
-    issued_to: Mapped[str] = mapped_column(String(120), nullable=False)
-    department: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    due_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
-    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_no: str = Field(index=True)
+    subject: Optional[str] = None
+    issued_to: Optional[str] = None
+    department: Optional[str] = None
 
-    issue_date: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
-    return_date: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    issue_date: date = Field(default_factory=date.today)
+    due_date: Optional[date] = None
+    returned_date: Optional[date] = None
 
-    house = relationship("House", back_populates="movements")
+    remarks: Optional[str] = None

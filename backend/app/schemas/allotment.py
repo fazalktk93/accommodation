@@ -1,21 +1,7 @@
-from __future__ import annotations
-
 from typing import Optional
 from datetime import date
 from pydantic import BaseModel
-
-# Enum types are optional – import if present, else fall back to str
-try:
-    from app.models.allotment import QtrStatus, AllotteeStatus  # type: ignore
-except Exception:
-    # fallback string enums to avoid import-time failures
-    class QtrStatus(str):  # type: ignore
-        active = "active"
-        ended = "ended"
-    class AllotteeStatus(str):  # type: ignore
-        in_service = "in_service"
-        retired = "retired"
-        cancelled = "cancelled"
+from app.models.allotment import QtrStatus, AllotteeStatus
 
 class AllotmentBase(BaseModel):
     house_id: int
@@ -25,14 +11,19 @@ class AllotmentBase(BaseModel):
     cnic: Optional[str] = None
     pool: Optional[str] = None
     medium: Optional[str] = None
+    bps: Optional[int] = None
 
     allotment_date: Optional[date] = None
     occupation_date: Optional[date] = None
     vacation_date: Optional[date] = None
+    dob: Optional[date] = None
+    dor: Optional[date] = None
+    retention_until: Optional[date] = None
+    retention_last: Optional[date] = None
 
-    # Accept either enum or raw string values
-    qtr_status: Optional[QtrStatus] = None
-    allottee_status: Optional[AllotteeStatus] = None
+    qtr_status: QtrStatus = QtrStatus.active
+    allottee_status: AllotteeStatus = AllotteeStatus.in_service
+    notes: Optional[str] = None
 
 class AllotmentCreate(AllotmentBase):
     pass
@@ -44,16 +35,23 @@ class AllotmentUpdate(BaseModel):
     cnic: Optional[str] = None
     pool: Optional[str] = None
     medium: Optional[str] = None
+    bps: Optional[int] = None
 
     allotment_date: Optional[date] = None
     occupation_date: Optional[date] = None
     vacation_date: Optional[date] = None
+    dob: Optional[date] = None
+    dor: Optional[date] = None
+    retention_until: Optional[date] = None
+    retention_last: Optional[date] = None
 
     qtr_status: Optional[QtrStatus] = None
     allottee_status: Optional[AllotteeStatus] = None
+    notes: Optional[str] = None
 
 class AllotmentOut(AllotmentBase):
     id: int
+    # computed in routes
     period_of_stay: Optional[int] = None
     house_file_no: Optional[str] = None
     house_qtr_no: Optional[int] = None
