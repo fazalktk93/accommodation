@@ -14,7 +14,8 @@ app = FastAPI(title="Accommodation API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=([] if settings.ENV == "production" else settings.BACKEND_CORS_ORIGINS),
+    allow_origin_regex=(settings.BACKEND_CORS_ORIGIN_REGEX if settings.ENV != "production" else None),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

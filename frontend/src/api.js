@@ -1,5 +1,6 @@
 import axios from 'axios'
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'
+const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
+const baseURL = import.meta.env.VITE_API_BASE_URL || defaultApiBase
 
 export const api = axios.create({ baseURL, timeout: 10000 })
 
