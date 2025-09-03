@@ -13,35 +13,26 @@ const addYears = (isoDate, years) => {
   return dt.toISOString().slice(0, 10)
 }
 
-// Resolve house strictly by file number (tries exact then q-search)
+// ✅ Resolve house strictly by backend route: /houses/by-file/{file_no}
 async function findHouseByFileNoStrict(fileNo) {
-  // 1) exact filter if backend supports it
-  try {
-    const r = await api.get('/houses/', { params: { file_no: fileNo } })
-    const list = asList(r.data)
-    if (list.length) {
-      // prefer exact match on file_no
-      const exact = list.find(h => String(h.file_no) === String(fileNo))
-      return exact || list[0]
-    }
-  } catch (_) {}
-  // 2) generic q search, then exact pick
-  const r2 = await api.get('/houses/', { params: { q: fileNo } })
-  const list2 = asList(r2.data)
-  const exact2 = list2.find(h => String(h.file_no) === String(fileNo))
-  return exact2 || list2[0] || null
+  const r = await api.get(`/houses/by-file/${encodeURIComponent(fileNo)}`)
+  return r.data || null
 }
 
-// Load allotments by file number only; do not send house_id in API params.
-// We query with q=<fileNo> and filter client-side to EXACT file number.
+// ✅ Load allotments via the nested endpoint that matches your backend: /houses/{id}/allotments
+async function listAllotmentsByHouseIdNested(houseId) {
+  const r = await api.get(`/houses/${houseId}/allotments`)
+  // backend returns a plain list
+  return Array.isArray(r.data) ? r.data : asList(r.data)
+}
+
+// (kept for compatibility if you ever need it elsewhere; not used in load now)
 async function listAllotmentsByFileNoStrict(fileNo, extraParams = {}) {
   const r = await api.get('/allotments/', {
     params: { q: fileNo, ordering: '-allotment_date', ...extraParams },
   })
   const raw = asList(r.data)
-  // keep only items whose house/file number matches exactly
   return raw.filter(it => {
-    // common shapes: it.house?.file_no OR it.file_no
     const fn = (it && it.house && it.house.file_no) || it?.file_no
     return String(fn) === String(fileNo)
   })
@@ -70,13 +61,16 @@ export default function HouseAllotmentsPage() {
   async function load() {
     setLoading(true); setError('')
     try {
-      // Resolve the house strictly by file number
+      // ✅ Resolve the house strictly by file number (authoritative)
       const h = await findHouseByFileNoStrict(fileNo)
       if (!h) throw new Error('House not found for the given file number')
       setHouse(h)
 
-      // Load history strictly by file number (query by q, filter exact)
-      const list = await listAllotmentsByFileNoStrict(fileNo)
+      // ✅ Load history via nested endpoint (authoritative)
+      const list = await listAllotmentsByHouseIdNested(h.id)
+
+      // If (for any reason) nested returns empty but you know there is history,
+      // you could fallback to listAllotmentsByFileNoStrict(fileNo) here.
       setHistory(list)
     } catch (e) {
       setError(e?.message || 'Failed to load')
@@ -104,9 +98,8 @@ export default function HouseAllotmentsPage() {
     if (!house) return
     setSaving(true); setError('')
     try {
-      // Map to backend fields it expects (dob/dor/medium/retention_last)
       const payload = {
-        house_id: Number(house.id), // required by backend for creation
+        house_id: Number(house.id),
         person_name: (form.person_name || '').trim() || null,
         designation: form.designation || null,
         bps: form.bps ? Number(form.bps) : null,
