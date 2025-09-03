@@ -26,8 +26,10 @@ def _recompute_house_status(db: Session, house_id: int) -> None:
     if not h or getattr(h, "status_manual", False):
         return
     latest = (
-        db.execute(select(Allotment).where(Allotment.house_id == house_id)
-                  .order_by(Allotment.id.desc()).limit(1))
+        db.execute(select(Allotment)
+                   .where(Allotment.house_id == house_id)
+                   .order_by(Allotment.id.desc())
+                   .limit(1))
         .scalars().first()
     )
     h.status = "occupied" if (latest and _is_active(latest)) else "vacant"
@@ -61,21 +63,60 @@ def list(db: Session, skip=0, limit=50, house_id: Optional[int] = None,
     stmt = stmt.order_by(occ.is_(None), desc(occ), desc(Allotment.id)).offset(skip).limit(limit)
     return db.execute(stmt).scalars().all()
 
-def create(db: Session, obj_in: s.AllotmentCreate) -> Allotment:
+def _end_previous_active_if_needed(db: Session, house_id: int, vacation_date: Optional[dt_date],
+                                   force_end_previous: bool) -> None:
+    prev = (
+        db.execute(select(Allotment)
+                   .where(Allotment.house_id == house_id,
+                          Allotment.qtr_status == QtrStatus.active)
+                   .order_by(Allotment.id.desc())
+                   .limit(1))
+        .scalars().first()
+    )
+    if not prev:
+        return
+    if not force_end_previous:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Active allotment already exists for this house (id={prev.id}). "
+                   f"End it first or set force_end_previous=true."
+        )
+    # force end previous
+    prev.qtr_status = QtrStatus.ended
+    if not prev.vacation_date:
+        prev.vacation_date = vacation_date or dt_date.today()
+    db.add(prev)
+
+def create(db: Session, obj_in: s.AllotmentCreate,
+           force_end_previous: bool = False) -> Allotment:
+    # Enforce single active per house
+    if obj_in.qtr_status == QtrStatus.active:
+        _end_previous_active_if_needed(db, obj_in.house_id, obj_in.vacation_date, force_end_previous)
+
     obj = Allotment(**obj_in.dict())
-    db.add(obj); db.flush()
+    db.add(obj)
+    db.flush()
     _sync_house_status(db, obj)
-    db.commit(); db.refresh(obj)
+    db.commit()
+    db.refresh(obj)
     return obj
 
-def update(db: Session, allotment_id: int, obj_in: s.AllotmentUpdate) -> Allotment:
+def update(db: Session, allotment_id: int, obj_in: s.AllotmentUpdate,
+           force_end_previous: bool = False) -> Allotment:
     obj = get(db, allotment_id)
     data = obj_in.dict(exclude_unset=True)
+
+    # If caller turns this allotment active, ensure no other active exists
+    if data.get("qtr_status") == QtrStatus.active and obj.qtr_status != QtrStatus.active:
+        _end_previous_active_if_needed(db, obj.house_id, data.get("vacation_date"), force_end_previous)
+
     for k, v in data.items():
         setattr(obj, k, v)
+
     db.add(obj)
     _sync_house_status(db, obj)
-    db.commit(); db.refresh(obj)
+    db.commit()
+    db.refresh(obj)
     return obj
 
 def end(db: Session, allotment_id: int, notes: Optional[str] = None,
@@ -88,7 +129,8 @@ def end(db: Session, allotment_id: int, notes: Optional[str] = None,
         obj.notes = (obj.notes + "\n" if obj.notes else "") + notes
     db.add(obj)
     _sync_house_status(db, obj)
-    db.commit(); db.refresh(obj)
+    db.commit()
+    db.refresh(obj)
     return obj
 
 def delete(db: Session, allotment_id: int) -> None:
