@@ -3,8 +3,9 @@ import HousesPage from './pages/HousesPage'
 import AllotmentsPage from './pages/AllotmentsPage'
 import FilesPage from './pages/FilesPage'
 import HouseAllotmentsPage from './pages/HouseAllotmentsPage.jsx'
+import HouseAllotmentHistory from './pages/HouseAllotmentHistory.jsx'
 
-export default function App(){
+export default function App() {
   return (
     <div>
       <nav className="nav">
@@ -16,10 +17,10 @@ export default function App(){
       </nav>
       <div className="container">
         <Routes>
-          <Route path="/" element={<HousesPage/>} />
-          <Route path="/allotments" element={<AllotmentsPage/>} />
-          <Route path="/files" element={<FilesPage/>} />
-          <Route path="/houses/:fileNo/allotments" element={<HouseAllotmentsPage/>} /> {/* NEW */}
+          <Route path="/" element={<HousesPage />} />
+          <Route path="/allotments" element={<AllotmentsPage />} />
+          <Route path="/files" element={<FilesPage />} />
+          <Route path="/houses/:fileNo/allotments" element={<HouseAllotmentsPage />} />
           <Route path="/houses/:houseId/allotments" element={<HouseAllotmentHistory />} />
         </Routes>
       </div>
