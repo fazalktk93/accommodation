@@ -19,23 +19,11 @@ async function findHouseByFileNoStrict(fileNo) {
   return r.data || null
 }
 
-// ✅ Load allotments via the nested endpoint that matches your backend: /houses/{id}/allotments
-async function listAllotmentsByHouseIdNested(houseId) {
-  const r = await api.get(`/houses/${houseId}/allotments`)
+// ✅ Load allotments strictly by file number via backend route: /allotments/history/by-file/{file_no}
+async function listAllotmentsByFileNoStrict(fileNo) {
+  const r = await api.get(`/allotments/history/by-file/${encodeURIComponent(fileNo)}`)
   // backend returns a plain list
   return Array.isArray(r.data) ? r.data : asList(r.data)
-}
-
-// (kept for compatibility if you ever need it elsewhere; not used in load now)
-async function listAllotmentsByFileNoStrict(fileNo, extraParams = {}) {
-  const r = await api.get('/allotments/', {
-    params: { q: fileNo, ordering: '-allotment_date', ...extraParams },
-  })
-  const raw = asList(r.data)
-  return raw.filter(it => {
-    const fn = (it && it.house && it.house.file_no) || it?.file_no
-    return String(fn) === String(fileNo)
-  })
 }
 
 export default function HouseAllotmentsPage() {
@@ -61,16 +49,13 @@ export default function HouseAllotmentsPage() {
   async function load() {
     setLoading(true); setError('')
     try {
-      // ✅ Resolve the house strictly by file number (authoritative)
+      // ✅ Resolve the house by file number (no IDs in URL)
       const h = await findHouseByFileNoStrict(fileNo)
       if (!h) throw new Error('House not found for the given file number')
       setHouse(h)
 
-      // ✅ Load history via nested endpoint (authoritative)
-      const list = await listAllotmentsByHouseIdNested(h.id)
-
-      // If (for any reason) nested returns empty but you know there is history,
-      // you could fallback to listAllotmentsByFileNoStrict(fileNo) here.
+      // ✅ Load history strictly by file number endpoint
+      const list = await listAllotmentsByFileNoStrict(fileNo)
       setHistory(list)
     } catch (e) {
       setError(e?.message || 'Failed to load')
@@ -98,6 +83,7 @@ export default function HouseAllotmentsPage() {
     if (!house) return
     setSaving(true); setError('')
     try {
+      // Backend needs house_id for creation; we resolved it internally from file_no
       const payload = {
         house_id: Number(house.id),
         person_name: (form.person_name || '').trim() || null,
