@@ -136,7 +136,7 @@ export default function AllotmentsPage() {
         await updateAllotment(editingId, payload)
       } else {
         payload.force_end_previous = true
-        await createAllotment(payload)
+        await createAllotment(payload, { forceEndPrevious: true })
       }
 
       setShowForm(false)
