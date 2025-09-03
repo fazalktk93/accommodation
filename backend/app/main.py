@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db.session import engine
+from app.db.bootstrap import ensure_sqlite_schema  # <-- ADD THIS
 from app.api.routes import houses, allotments, files, health
-from app.models import Base  # <-- this now works because __init__.py exports Base
+from app.models import Base
 
 app = FastAPI()
 
@@ -24,6 +25,9 @@ app.include_router(health.router, prefix="/api")
 
 @app.on_event("startup")
 def on_startup():
-    # ensure models are imported so tables are registered
-    from app import models  # noqa: F401
+    # 1) upgrade existing SQLite schema in-place (idempotent)
+    ensure_sqlite_schema(engine)
+
+    # 2) create missing tables (no-ops if present)
+    from app import models  # ensure models imported
     Base.metadata.create_all(bind=engine)
