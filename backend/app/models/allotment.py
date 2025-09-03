@@ -4,6 +4,7 @@ from enum import Enum
 from sqlmodel import SQLModel, Field, Relationship
 from datetime import date
 from .base import Base
+from typing import Optional
 
 class Allotment(Base):
     __tablename__ = "allotments"
