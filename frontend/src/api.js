@@ -58,8 +58,14 @@ export const deleteHouse = id =>
 export const listAllotments = (params = {}) =>
   api.get('/allotments/', { params }).then(r => r.data)
 
-export const searchAllotments = (query, params = {}) =>
-  api.get('/allotments/', { params: { search: query, ...params } }).then(r => r.data)
+export const searchAllotments = (query, params = {}) => {
+  const q = (query ?? '').trim();
+  if (!q) return api.get('/allotments/', { params }).then(r => r.data);
+  // Heuristic: if the query contains only digits and dashes/slashes, treat as file_no; else person_name
+  const isLikelyFile = /^[\d\-\/]+$/.test(q);
+  const key = isLikelyFile ? 'file_no' : 'person_name';
+  return api.get('/allotments/', { params: { [key]: q, ...params } }).then(r => r.data);
+}
 
 export const createAllotment = (data, { forceEndPrevious = false } = {}) =>
   api.post(
