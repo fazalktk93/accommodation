@@ -1,9 +1,9 @@
 from typing import Generator
-from app.db.session import SessionLocal
-from app.db.session import engine
+from sqlmodel import Session
+from app.db.session import get_session
 
-def get_db() -> Generator:
-    db = SessionLocal()
+def get_db() -> Generator[Session, None, None]:
+    db = get_session()
     try:
         yield db
     finally:

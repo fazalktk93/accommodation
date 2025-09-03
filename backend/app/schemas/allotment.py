@@ -1,69 +1,48 @@
+from typing import Optional
 from datetime import date
-from pydantic import BaseModel, Field, validator
 from pydantic import BaseModel
-from datetime import date
-from app.models.allotment import AllotteeStatus, QtrStatus
-import re
-
-CNIC_RE = re.compile(r"^\d{5}-\d{7}-\d{1}$|^\d{13}$")
-ALLOWED_MEDIUM = {"family transfer", "changes", "mutual", "other"}
+from app.models.allotment import QtrStatus, AllotteeStatus
 
 class AllotmentBase(BaseModel):
     house_id: int
-    person_name: str = Field(..., max_length=120)
-    designation: str | None = None
-    bps: int | None = None
-    directorate: str | None = None
-    cnic: str | None = None
-    
-    occupation_date: date | None = None
-    vacation_date: date | None = None
-    qtr_status: QtrStatus
-    allottee_status: AllotteeStatus
-    
-    allotment_date: date | None = None
-    date_of_birth: date | None = None
-    date_of_retirement: date | None = None
-    occupation_date: date | None = None
-    vacation_date: date | None = None
+    person_name: Optional[str] = None
+    designation: Optional[str] = None
+    directorate: Optional[str] = None
+    cnic: Optional[str] = None
+    pool: Optional[str] = None
+    medium: Optional[str] = None
 
-    retention: bool | None = None
-    retention_last_date: date | None = None
+    allotment_date: Optional[date] = None
+    occupation_date: Optional[date] = None
+    vacation_date: Optional[date] = None
 
-    pool: str | None = None
-    qtr_status: str | None = None
-    allotment_medium: str | None = None
-    active: bool | None = True
-    notes: str | None = None
-
-    @validator("cnic")
-    def validate_cnic(cls, v):
-        if v and not CNIC_RE.match(v):
-            raise ValueError("Invalid CNIC (use xxxxx-xxxxxxx-x or 13 digits)")
-        return v
-
-    @validator("allotment_medium")
-    def normalize_medium(cls, v):
-        if v is None:
-            return v
-        vv = v.strip().lower()
-        return vv if vv in ALLOWED_MEDIUM else "other"
+    qtr_status: QtrStatus = QtrStatus.active
+    allottee_status: AllotteeStatus = AllotteeStatus.in_service
 
 class AllotmentCreate(AllotmentBase):
     pass
 
+class AllotmentUpdate(BaseModel):
+    person_name: Optional[str] = None
+    designation: Optional[str] = None
+    directorate: Optional[str] = None
+    cnic: Optional[str] = None
+    pool: Optional[str] = None
+    medium: Optional[str] = None
+
+    allotment_date: Optional[date] = None
+    occupation_date: Optional[date] = None
+    vacation_date: Optional[date] = None
+
+    qtr_status: Optional[QtrStatus] = None
+    allottee_status: Optional[AllotteeStatus] = None
+
 class AllotmentOut(AllotmentBase):
     id: int
-    period_of_stay: int | None = None  # (vacation_date or today) - occupation_date
-    house_file_no: str | None = None
-    house_qtr_no: int | None = None
+    # computed extras (filled in routes)
+    period_of_stay: Optional[int] = None
+    house_file_no: Optional[str] = None
+    house_qtr_no: Optional[int] = None
 
     class Config:
         orm_mode = True
-
-class AllotmentUpdate(BaseModel):
-    # make all optional for PATCH/PUT
-    occupation_date: date | None = None
-    vacation_date: date | None = None
-    qtr_status: QtrStatus | None = None
-    allottee_status: AllotteeStatus | None = None
