@@ -1,66 +1,56 @@
-import { useEffect, useState } from 'react'
+// frontend/src/pages/AllotmentsPage.jsx
+import React, { useEffect, useMemo, useState } from 'react'
 import {
-  listAllotments,
   listHouses,
+  searchAllotments,
   createAllotment,
-  endAllotment,
   updateAllotment,
-  deleteAllotment,
-} from '../api'
+} from '../api' // <-- keep your existing API import path
 
-const RETIREMENT_AGE_YEARS = 60
+// --- helpers ---------------------------------------------------------------
 
-// normalize API responses that may be [] or {data:[]}
-const asArray = (x) => (Array.isArray(x) ? x : (x && Array.isArray(x.data) ? x.data : []))
-
-// DOR = DOB + 60y (UTC to avoid TZ drift)
-function computeDOR(dobStr) {
-  if (!dobStr) return ''
-  const [y, m, d] = dobStr.split('-').map(Number)
-  if (!y || !m || !d) return ''
-  const dt = new Date(Date.UTC(y + RETIREMENT_AGE_YEARS, m - 1, d))
-  return dt.toISOString().slice(0, 10)
+function toDateInput(val) {
+  if (!val) return ''
+  // accept Date or string; return yyyy-mm-dd
+  const d = typeof val === 'string' ? new Date(val) : val
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString().slice(0, 10)
 }
 
+function computeDOR(dob) {
+  // Very simple DOR rule: 60 years from DOB
+  if (!dob) return ''
+  const d = new Date(dob)
+  if (Number.isNaN(d.getTime())) return ''
+  d.setFullYear(d.getFullYear() + 60)
+  return toDateInput(d)
+}
+
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+// --- component -------------------------------------------------------------
+
 export default function AllotmentsPage() {
-  // data
-  const [items, setItems] = useState([])
-  const [houses, setHouses] = useState([])
-
-  // filters
-  const [filter, setFilter] = useState({ person_name: '', file_no: '', qtr_no: '', active: 'true' })
-
-  // add/edit state
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
+  // listing/search
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [rows, setRows] = useState([])
+  const [q, setQ] = useState('')
+  const [activeOnly, setActiveOnly] = useState(true)
 
-  // ------- ADD (minimal) -------
+  // houses for selects
+  const [houses, setHouses] = useState([])
+  const safeHouses = useMemo(() => Array.isArray(houses) ? houses : [], [houses])
+
+  // add form (FULL by default; toggle to simple if you want)
+  const [showForm, setShowForm] = useState(false)
+  const [addMode, setAddMode] = useState('full') // 'full' | 'simple'
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    house_id: '',
-    person_name: '',
-    designation: '',
-    bps: '',
-    medium: '',
-    allotment_date: '',
-    dob: '',
-    dor: '', // derived
-  })
-  const onChange = (k, v) => setForm((s) => {
-    const next = { ...s, [k]: v }
-    if (k === 'dob') next.dor = computeDOR(v)
-    return next
-  })
-
-  // ------- END modal -------
-  const [endTarget, setEndTarget] = useState(null)
-  const [endForm, setEndForm] = useState({ notes: '', vacation_date: '' })
-  const openEnd = (row) => { setError(''); setEndTarget(row); setEndForm({ notes: '', vacation_date: '' }) }
-  const closeEnd = () => setEndTarget(null)
-
-  // ------- EDIT (FULL FIELDS; house locked; DOR auto) -------
-  const [editTarget, setEditTarget] = useState(null)
-  const [editForm, setEditForm] = useState({
     house_id: '',
     person_name: '',
     designation: '',
@@ -74,386 +64,537 @@ export default function AllotmentsPage() {
     vacation_date: '',
     dob: '',
     dor: '',
-    retention: 'No',       // UI string; we convert to boolean
+    retention: 'No',
     retention_last: '',
-    notes: ''
+    notes: '',
+    qtr_status: 'active',
+    allottee_status: 'in_service',
   })
 
-  const openEdit = (row) => {
-    setError('')
-    setEditTarget(row)
-    setEditForm({
-      house_id: row.house_id,
-      person_name: row.person_name || '',
-      designation: row.designation || '',
-      directorate: row.directorate || '',
-      cnic: row.cnic || '',
-      pool: row.pool || '',
-      medium: row.medium || '',
-      bps: row.bps ?? '',
-      allotment_date: row.allotment_date || '',
-      occupation_date: row.occupation_date || '',
-      vacation_date: row.vacation_date || '',
-      dob: row.dob || '',
-      dor: row.dor || computeDOR(row.dob || ''),
-      retention: row.retention ? 'Yes' : 'No',
-      retention_last: row.retention_last || '',
-      notes: row.notes || '',
-    })
-  }
-  const closeEdit = () => setEditTarget(null)
-
-  // DELETE
-  const onDelete = async (row) => {
-    if (!window.confirm('Delete this allotment record permanently?')) return
-    try { setError(''); await deleteAllotment(row.id); await search() }
-    catch (e) { setError(e.message) }
-  }
+  // edit modal
+  const [editTarget, setEditTarget] = useState(null)
+  const [updating, setUpdating] = useState(false)
 
   useEffect(() => {
-    listHouses().then((h) => setHouses(asArray(h))).catch((e) => setError(e.message))
+    let mounted = true
+    ;(async () => {
+      try {
+        const hs = await listHouses()
+        if (mounted) setHouses(hs || [])
+      } catch (e) {
+        // non-fatal
+      }
+    })()
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    // initial fetch
     search()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function search(e) {
-    if (e) e.preventDefault()
+  async function search() {
     try {
-      setError('')
-      const r = await listAllotments({
-        person_name: filter.person_name || undefined,
-        file_no: filter.file_no || undefined,
-        qtr_no: filter.qtr_no || undefined,
-        active: filter.active === '' ? undefined : filter.active
+      setLoading(true); setError('')
+      const resp = await searchAllotments({
+        q: q?.trim() || undefined,
+        active: activeOnly ? true : undefined,
       })
-      setItems(asArray(r))
-    } catch (err) {
-      setError(err.message)
-      setItems([])
+      setRows(Array.isArray(resp?.results) ? resp.results : (resp || []))
+    } catch (e) {
+      setError(e?.message || 'Failed to load allotments')
+    } finally {
+      setLoading(false)
     }
   }
 
-  // --------- ADD SUBMIT ----------
+  function onChange(key, val) {
+    setForm(prev => ({ ...prev, [key]: val }))
+  }
+
   async function onSave(e) {
-    e.preventDefault()
+    e?.preventDefault?.()
     try {
       setSaving(true); setError('')
       const payload = {
         house_id: form.house_id || null,
         person_name: form.person_name || null,
         designation: form.designation || null,
-        bps: form.bps === '' ? null : Number(form.bps),
+        directorate: form.directorate || null,
+        cnic: form.cnic || null,
+        pool: form.pool || null,
         medium: form.medium || null,
+        bps: numOrNull(form.bps),
+
         allotment_date: form.allotment_date || null,
+        occupation_date: form.occupation_date || null,
+        vacation_date: form.vacation_date || null,
+
         dob: form.dob || null,
-        dor: form.dob ? computeDOR(form.dob) : null,
+        dor: form.dob ? computeDOR(form.dob) : (form.dor || null),
+
+        retention_until: form.retention === 'Yes' ? (form.retention_last || null) : null,
+        retention_last: form.retention_last || null,
+
+        qtr_status: form.qtr_status || 'active',
+        allottee_status: form.allottee_status || 'in_service',
+        notes: form.notes || null,
+
+        // if your backend supports it, this mirrors previous behavior
+        force_end_previous: true,
       }
-      await createAllotment(payload) // api.js sends force_end_previous=true
+      await createAllotment(payload)
+
+      // reset
       setShowForm(false)
-      setForm({ house_id:'', person_name:'', designation:'', bps:'', medium:'', allotment_date:'', dob:'', dor:'' })
+      setForm({
+        house_id: '',
+        person_name: '',
+        designation: '',
+        directorate: '',
+        cnic: '',
+        pool: '',
+        medium: '',
+        bps: '',
+        allotment_date: '',
+        occupation_date: '',
+        vacation_date: '',
+        dob: '',
+        dor: '',
+        retention: 'No',
+        retention_last: '',
+        notes: '',
+        qtr_status: 'active',
+        allottee_status: 'in_service',
+      })
       await search()
-    } catch (err) {
-      setError(err.message)
+    } catch (e) {
+      setError(e?.message || 'Failed to create allotment')
     } finally {
       setSaving(false)
     }
   }
 
-  async function onEndConfirm(e) {
-    e.preventDefault()
-    try {
-      await endAllotment(endTarget.id, endForm.notes || null, endForm.vacation_date || null)
-      closeEnd()
-      search()
-    } catch (err) {
-      setError(err.message)
-    }
+  function openEdit(row) {
+    setEditTarget({
+      ...row,
+      // ensure date inputs are normalized
+      allotment_date: toDateInput(row.allotment_date),
+      occupation_date: toDateInput(row.occupation_date),
+      vacation_date: toDateInput(row.vacation_date),
+      dob: toDateInput(row.dob),
+      dor: toDateInput(row.dor || (row.dob ? computeDOR(row.dob) : '')),
+      retention_last: toDateInput(row.retention_last || row.retention_until),
+    })
   }
 
-  // --------- EDIT SUBMIT (FULL PAYLOAD) ----------
-  async function onEditSave(e) {
-    e.preventDefault()
+  async function onUpdate(e) {
+    e?.preventDefault?.()
+    if (!editTarget?.id) return
     try {
-      setSaving(true); setError('')
+      setUpdating(true); setError('')
       const payload = {
-        house_id: editForm.house_id, // locked
-        person_name: editForm.person_name || null,
-        designation: editForm.designation || null,
-        directorate: editForm.directorate || null,
-        cnic: editForm.cnic || null,
-        pool: editForm.pool || null,
-        medium: editForm.medium || null,
-        bps: editForm.bps === '' ? null : Number(editForm.bps),
-        allotment_date: editForm.allotment_date || null,
-        occupation_date: editForm.occupation_date || null,
-        vacation_date: editForm.vacation_date || null,
-        dob: editForm.dob || null,
-        dor: editForm.dob ? computeDOR(editForm.dob) : null,
-        retention: (editForm.retention || '').toLowerCase() === 'yes',
-        retention_last: editForm.retention_last || null,
-        notes: editForm.notes || null,
+        ...editTarget,
+        bps: numOrNull(editTarget.bps),
+        dor: editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || null),
+        retention_until: editTarget.retention_last || null,
       }
-      await updateAllotment(editTarget.id, payload) // api.js sends force_end_previous=true
-      closeEdit()
+      await updateAllotment(editTarget.id, payload)
+      setEditTarget(null)
       await search()
-    } catch (err) {
-      setError(err.message)
+    } catch (e) {
+      setError(e?.message || 'Failed to update allotment')
     } finally {
-      setSaving(false)
+      setUpdating(false)
     }
   }
-
-  const showDate = (d) => d || '-'
-  const safeHouses = asArray(houses)
-  const safeItems = asArray(items)
 
   return (
-    <div>
-      <h2>Allotments</h2>
-      {error && <div className="error">{String(error)}</div>}
+    <div className="page">
+      <div className="toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          placeholder="Search name, CNIC, file no, etc."
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && search()}
+          style={{ minWidth: 260 }}
+        />
+        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={activeOnly}
+            onChange={e => setActiveOnly(e.target.checked)}
+          />
+          Active only
+        </label>
+        <button onClick={search} disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setShowForm(v => !v)}>{showForm ? 'Close' : 'Add Allotment'}</button>
+      </div>
 
-      {/* Filters */}
-      <form className="filters" onSubmit={search}>
-        <input placeholder="Allottee name" value={filter.person_name}
-               onChange={e => setFilter({ ...filter, person_name: e.target.value })} />
-        <input placeholder="House File No" value={filter.file_no}
-               onChange={e => setFilter({ ...filter, file_no: e.target.value })} />
-        <input placeholder="Quarter No" value={filter.qtr_no}
-               onChange={e => setFilter({ ...filter, qtr_no: e.target.value })} />
-        <select value={filter.active} onChange={e => setFilter({ ...filter, active: e.target.value })}>
-          <option value="">All</option>
-          <option value="true">Active</option>
-          <option value="false">Ended</option>
-        </select>
-        <button type="submit">Search</button>
-        <button type="button" onClick={() => setShowForm(s => !s)}>
-          {showForm ? 'Close' : 'Add Allotment'}
-        </button>
-      </form>
+      {error && (
+        <div className="error" style={{ marginTop: 8, color: '#b00020' }}>
+          {error}
+        </div>
+      )}
 
-      {/* ADD form (minimal) */}
+      {/* ADD form (FULL with optional Simple toggle) */}
       {showForm && (
-        <form className="card" onSubmit={onSave} style={{ margin: '1rem 0' }}>
-          <div className="grid">
+        <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <strong>New Allotment</strong>
+            <label style={{ fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={addMode === 'simple'}
+                onChange={e => setAddMode(e.target.checked ? 'simple' : 'full')}
+              />{' '}
+              Simple mode
+            </label>
+          </div>
+
+          <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
+            {/* Always show */}
             <label>House
               <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
                 <option value="">-- Select house / Qtr --</option>
                 {safeHouses.map(h => (
-                  <option key={h.id} value={h.id}>{h.file_no} — Qtr {h.qtr_no}</option>
+                  <option key={h.id} value={h.id}>
+                    {h.file_no ? `${h.file_no} — ` : ''}Qtr {h.qtr_no || h.number || h.id}
+                  </option>
                 ))}
               </select>
             </label>
+
             <label>Allottee
               <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
+
             <label>Designation
               <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
             </label>
 
             <label>BPS
-              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} inputMode="numeric" />
             </label>
+
             <label>Medium
               <select value={form.medium} onChange={e => onChange('medium', e.target.value)}>
                 <option value="">Select medium</option>
                 <option value="family transfer">Family Transfer</option>
                 <option value="mutual">Mutual</option>
                 <option value="changes">Changes</option>
-                <option value="gwl">GWL</option>
+                <option value="fresh">Fresh</option>
               </select>
             </label>
+
             <label>Allotment Date
               <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
             </label>
 
-            <label>DOB
-              <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
-            </label>
-            <label>DOR (auto)
-              <input value={form.dor} readOnly />
-            </label>
-          </div>
-          <div><button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button></div>
-        </form>
-      )}
-
-      {/* TABLE: minimal columns */}
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>File No</th>
-              <th>Qtr No</th>
-              <th>Allottee</th>
-              <th>BPS</th>
-              <th>Designation</th>
-              <th>Allotment Date</th>
-              <th>DOB</th>
-              <th>DOR</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {safeItems.map(it => {
-              const dor = it.dor || computeDOR(it.dob || '')
-              return (
-                <tr key={it.id}>
-                  <td>{it.house_file_no || '-'}</td>
-                  <td>{it.house_qtr_no || '-'}</td>
-                  <td>{it.person_name || '-'}</td>
-                  <td>{it.bps ?? '-'}</td>
-                  <td>{it.designation || '-'}</td>
-                  <td>{showDate(it.allotment_date)}</td>
-                  <td>{showDate(it.dob)}</td>
-                  <td>{showDate(dor)}</td>
-                  <td>
-                    <button onClick={() => openEdit(it)}>Edit</button>{' '}
-                    {it.active && <button onClick={() => openEnd(it)}>End</button>}{' '}
-                    {!it.active && <button onClick={() => onDelete(it)}>Delete</button>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* END dialog */}
-      {endTarget && (
-        <div className="modal">
-          <div className="modal-body">
-            <h3>End Allotment</h3>
-            <form onSubmit={onEndConfirm}>
-              <div className="grid">
-                <label>Vacation Date
-                  <input type="date" value={endForm.vacation_date}
-                         onChange={e => setEndForm({ ...endForm, vacation_date: e.target.value })} />
-                </label>
-                <label>Notes
-                  <input value={endForm.notes}
-                         onChange={e => setEndForm({ ...endForm, notes: e.target.value })} />
-                </label>
-              </div>
-              <div style={{ marginTop: '.75rem' }}>
-                <button type="button" onClick={closeEnd}>Cancel</button>{' '}
-                <button type="submit">Confirm End</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT dialog — FULL FIELDS */}
-      {editTarget && (
-        <div className="modal">
-          <div className="modal-body">
-            <h3>Edit Allotment</h3>
-            <form className="card" onSubmit={onEditSave} style={{ margin: '1rem 0' }}>
-              <div className="grid">
-                {/* House locked */}
-                <label>House
-                  <div style={{ padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, background: '#f1f3f9' }}>
-                    {editTarget?.house_file_no ?? '-'} — Qtr {editTarget?.house_qtr_no ?? '-'}
-                  </div>
-                  <input type="hidden" value={editForm.house_id} />
-                </label>
-
-                <label>Allottee
-                  <input value={editForm.person_name}
-                         onChange={e => setEditForm({ ...editForm, person_name: e.target.value })} />
-                </label>
-
-                <label>Designation
-                  <input value={editForm.designation}
-                         onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
-                </label>
-
+            {/* Full-only */}
+            {addMode === 'full' && (
+              <>
                 <label>Directorate
-                  <input value={editForm.directorate}
-                         onChange={e => setEditForm({ ...editForm, directorate: e.target.value })} />
+                  <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
                 </label>
 
                 <label>CNIC
-                  <input value={editForm.cnic}
-                         onChange={e => setEditForm({ ...editForm, cnic: e.target.value })} />
+                  <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} />
                 </label>
 
                 <label>Pool
-                  <input value={editForm.pool}
-                         onChange={e => setEditForm({ ...editForm, pool: e.target.value })} />
-                </label>
-
-                <label>Medium
-                  <select value={editForm.medium}
-                          onChange={e => setEditForm({ ...editForm, medium: e.target.value })}>
-                    <option value="">Select medium</option>
-                    <option value="family transfer">Family Transfer</option>
-                    <option value="mutual">Mutual</option>
-                    <option value="changes">Changes</option>
-                    <option value="gwl">GWL</option>
-                  </select>
-                </label>
-
-                <label>BPS
-                  <input value={editForm.bps}
-                         onChange={e => setEditForm({ ...editForm, bps: e.target.value })} />
-                </label>
-
-                <label>Allotment Date
-                  <input type="date" value={editForm.allotment_date}
-                         onChange={e => setEditForm({ ...editForm, allotment_date: e.target.value })} />
+                  <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
                 </label>
 
                 <label>Occupation Date
-                  <input type="date" value={editForm.occupation_date}
-                         onChange={e => setEditForm({ ...editForm, occupation_date: e.target.value })} />
+                  <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
                 </label>
 
                 <label>Vacation Date
-                  <input type="date" value={editForm.vacation_date}
-                         onChange={e => setEditForm({ ...editForm, vacation_date: e.target.value })} />
+                  <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
                 </label>
 
                 <label>DOB
-                  <input type="date" value={editForm.dob}
-                         onChange={e => setEditForm({
-                           ...editForm,
-                           dob: e.target.value,
-                           dor: computeDOR(e.target.value)
-                         })} />
+                  <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
                 </label>
 
-                <label>DOR (auto)
-                  <input value={editForm.dor} readOnly />
+                <label>DOR (auto from DOB)
+                  <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
                 </label>
 
                 <label>Retention
-                  <select value={editForm.retention}
-                          onChange={e => setEditForm({ ...editForm, retention: e.target.value })}>
+                  <select value={form.retention} onChange={e => onChange('retention', e.target.value)}>
                     <option>No</option>
                     <option>Yes</option>
                   </select>
                 </label>
 
                 <label>Retention Last
-                  <input type="date" value={editForm.retention_last}
-                         onChange={e => setEditForm({ ...editForm, retention_last: e.target.value })} />
+                  <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
                 </label>
 
                 <label>Notes
-                  <input value={editForm.notes}
-                         onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                  <input value={form.notes} onChange={e => onChange('notes', e.target.value)} />
+                </label>
+
+                <label>Quarter Status
+                  <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
+                    <option value="active">active (occupied)</option>
+                    <option value="ended">ended (vacant)</option>
+                  </select>
+                </label>
+
+                <label>Allottee Status
+                  <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
+                    <option value="in_service">in service</option>
+                    <option value="retired">retired</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </label>
+              </>
+            )}
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <button type="button" onClick={() => setShowForm(false)}>Cancel</button>{' '}
+            <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+          </div>
+        </form>
+      )}
+
+      {/* table */}
+      <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
+        <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Allottee</th>
+              <th style={{ textAlign: 'left' }}>House</th>
+              <th>BPS</th>
+              <th>Medium</th>
+              <th>Allotment</th>
+              <th>Occupation</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td>
+                  <div><strong>{r.person_name || '-'}</strong></div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
+                </td>
+                <td>
+                  <div>{r.house?.file_no ? `${r.house.file_no} — ` : ''}Qtr {r.house?.qtr_no || r.house_id}</div>
+                  <div style={{ fontSize: 12, opacity: 0.75 }}>{r.directorate || ''}</div>
+                </td>
+                <td style={{ textAlign: 'center' }}>{r.bps ?? ''}</td>
+                <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
+                <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
+                <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
+                <td style={{ textAlign: 'center' }}>
+                  <span title={`Quarter: ${r.qtr_status || '-'} | Allottee: ${r.allottee_status || '-'}`}>
+                    {r.qtr_status || '-'}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <button onClick={() => openEdit(r)}>Edit</button>
+                </td>
+              </tr>
+            ))}
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
+            )}
+            {loading && (
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* EDIT modal */}
+      {editTarget && (
+        <div className="modal-backdrop">
+          <div className="modal card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong>Edit Allotment</strong>
+              <button onClick={() => setEditTarget(null)}>✕</button>
+            </div>
+
+            <form onSubmit={onUpdate}>
+              <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
+                <label>House
+                  <select
+                    value={editTarget.house_id || ''}
+                    onChange={e => setEditTarget(prev => ({ ...prev, house_id: e.target.value }))}
+                    required
+                  >
+                    <option value="">-- Select house / Qtr --</option>
+                    {safeHouses.map(h => (
+                      <option key={h.id} value={h.id}>
+                        {h.file_no ? `${h.file_no} — ` : ''}Qtr {h.qtr_no || h.number || h.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>Allottee
+                  <input
+                    value={editTarget.person_name || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, person_name: e.target.value }))}
+                  />
+                </label>
+
+                <label>Designation
+                  <input
+                    value={editTarget.designation || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, designation: e.target.value }))}
+                  />
+                </label>
+
+                <label>Directorate
+                  <input
+                    value={editTarget.directorate || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, directorate: e.target.value }))}
+                  />
+                </label>
+
+                <label>CNIC
+                  <input
+                    value={editTarget.cnic || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, cnic: e.target.value }))}
+                  />
+                </label>
+
+                <label>Pool
+                  <input
+                    value={editTarget.pool || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, pool: e.target.value }))}
+                  />
+                </label>
+
+                <label>Medium
+                  <select
+                    value={editTarget.medium || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, medium: e.target.value }))}
+                  >
+                    <option value="">Select medium</option>
+                    <option value="family transfer">Family Transfer</option>
+                    <option value="mutual">Mutual</option>
+                    <option value="changes">Changes</option>
+                    <option value="fresh">Fresh</option>
+                  </select>
+                </label>
+
+                <label>BPS
+                  <input
+                    value={editTarget.bps ?? ''}
+                    onChange={e => setEditTarget(p => ({ ...p, bps: e.target.value }))}
+                    inputMode="numeric"
+                  />
+                </label>
+
+                <label>Allotment Date
+                  <input
+                    type="date"
+                    value={editTarget.allotment_date || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, allotment_date: e.target.value }))}
+                  />
+                </label>
+
+                <label>Occupation Date
+                  <input
+                    type="date"
+                    value={editTarget.occupation_date || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, occupation_date: e.target.value }))}
+                  />
+                </label>
+
+                <label>Vacation Date
+                  <input
+                    type="date"
+                    value={editTarget.vacation_date || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, vacation_date: e.target.value }))}
+                  />
+                </label>
+
+                <label>DOB
+                  <input
+                    type="date"
+                    value={editTarget.dob || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, dob: e.target.value, dor: computeDOR(e.target.value) }))}
+                  />
+                </label>
+
+                <label>DOR (auto from DOB)
+                  <input readOnly value={editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || '')} />
+                </label>
+
+                <label>Retention Last
+                  <input
+                    type="date"
+                    value={editTarget.retention_last || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, retention_last: e.target.value }))}
+                  />
+                </label>
+
+                <label>Quarter Status
+                  <select
+                    value={editTarget.qtr_status || 'active'}
+                    onChange={e => setEditTarget(p => ({ ...p, qtr_status: e.target.value }))}
+                  >
+                    <option value="active">active (occupied)</option>
+                    <option value="ended">ended (vacant)</option>
+                  </select>
+                </label>
+
+                <label>Allottee Status
+                  <select
+                    value={editTarget.allottee_status || 'in_service'}
+                    onChange={e => setEditTarget(p => ({ ...p, allottee_status: e.target.value }))}
+                  >
+                    <option value="in_service">in service</option>
+                    <option value="retired">retired</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </label>
+
+                <label>Notes
+                  <input
+                    value={editTarget.notes || ''}
+                    onChange={e => setEditTarget(p => ({ ...p, notes: e.target.value }))}
+                  />
                 </label>
               </div>
 
-              <div>
-                <button type="button" onClick={closeEdit}>Cancel</button>{' '}
-                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+              <div style={{ marginTop: 12 }}>
+                <button type="button" onClick={() => setEditTarget(null)}>Cancel</button>{' '}
+                <button type="submit" disabled={updating}>{updating ? 'Saving…' : 'Save changes'}</button>
               </div>
             </form>
           </div>
+          <style>{`
+            .modal-backdrop {
+              position: fixed; inset: 0; background: rgba(0,0,0,.25);
+              display: flex; align-items: flex-start; justify-content: center; z-index: 50;
+            }
+          `}</style>
         </div>
       )}
+
+      <style>{`
+        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
+        .toolbar input[type="text"], .toolbar input:not([type]), .toolbar input[type="search"] { height: 32px; }
+        input, select { width: 100%; height: 34px; box-sizing: border-box; }
+        input[readonly] { background: #f8f8f8; }
+        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+        button { height: 32px; padding: 0 12px; }
+        .page { padding: 12px; }
+      `}</style>
     </div>
   )
 }
