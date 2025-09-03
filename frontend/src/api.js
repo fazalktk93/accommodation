@@ -1,7 +1,6 @@
-// api.js
 import axios from 'axios'
 
-// ---- SAFE access to Vite env (won't crash if not using Vite)
+// Safe access to Vite env (won't crash elsewhere)
 const viteEnv = (typeof import !== 'undefined' && typeof import.meta !== 'undefined' && import.meta && import.meta.env)
   ? import.meta.env
   : {}
@@ -9,15 +8,27 @@ const viteEnv = (typeof import !== 'undefined' && typeof import.meta !== 'undefi
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
 const baseURL = viteEnv.VITE_API_BASE_URL || defaultApiBase
 
+console.log('[api] baseURL =', baseURL)
+
 export const api = axios.create({ baseURL, timeout: 10000 })
 
-// Normalize errors
+// Log all requests
+api.interceptors.request.use(cfg => {
+  console.log('[api req]', cfg.method?.toUpperCase(), cfg.url, { params: cfg.params, data: cfg.data })
+  return cfg
+})
+
+// Normalize + log errors
 api.interceptors.response.use(
-  function (res) { return res },
-  function (err) {
+  res => {
+    console.log('[api res]', res.config.method?.toUpperCase(), res.config.url, res.status)
+    return res
+  },
+  err => {
     const msg =
       (err && err.response && err.response.data && err.response.data.detail) ||
       err.message || 'Request failed'
+    console.error('[api err]', msg, err?.response?.status, err?.config?.url)
     return Promise.reject(new Error(msg))
   }
 )
@@ -31,7 +42,6 @@ export const deleteHouse    = (id)          => api.delete(`/houses/${id}`)
 // ---------------- Allotments ------------
 export const listAllotments = (params = {}) => api.get('/allotments/', { params })
 
-// Keep force_end_previous=true to auto-end any previous active allotment for that house.
 export const createAllotment = (data) =>
   api.post('/allotments', data, { params: { force_end_previous: true } })
 
