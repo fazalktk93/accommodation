@@ -7,47 +7,6 @@ import {
   updateAllotment,
 } from '../api'
 
-// ---------- Error boundary so errors show on-screen instead of white screen
-class PageErrorBoundary extends React.Component {
-  constructor(p){ super(p); this.state = { error: null } }
-  static getDerivedStateFromError(e){ return { error: e } }
-  componentDidCatch(e, info){ console.error('AllotmentsPage crashed:', e, info) }
-  render(){
-    if (this.state.error) {
-      return (
-        <div style={{ padding: 16 }}>
-          <h3 style={{ color: '#b00020', marginTop: 0 }}>Something went wrong</h3>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>
-            {String(this.state.error && this.state.error.message || this.state.error)}
-          </pre>
-          <p>Open DevTools → Console for full stack.</p>
-          {this.props.children /* keeps layout space for hot-reload */}
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
-
-// ---------- helpers (no modern syntax)
-function toDateInput(val) {
-  if (!val) return ''
-  var d = typeof val === 'string' ? new Date(val) : val
-  if (isNaN(d.getTime())) return ''
-  return d.toISOString().slice(0, 10)
-}
-function computeDOR(dob) {
-  if (!dob) return ''
-  var d = new Date(dob)
-  if (isNaN(d.getTime())) return ''
-  d.setFullYear(d.getFullYear() + 60)
-  return toDateInput(d)
-}
-function numOrNull(v) {
-  if (v === '' || v === null || v === undefined) return null
-  var n = Number(v)
-  return isFinite(n) ? n : null
-}
 // tolerate array OR {results:[...]}
 function normalizeList(resp) {
   if (!resp) return []
@@ -55,24 +14,36 @@ function normalizeList(resp) {
   if (resp && Array.isArray(resp.results)) return resp.results
   return []
 }
+function toDateInput(val) {
+  if (!val) return ''
+  const d = typeof val === 'string' ? new Date(val) : val
+  if (isNaN(d.getTime())) return ''
+  return d.toISOString().slice(0, 10)
+}
+function computeDOR(dob) {
+  if (!dob) return ''
+  const d = new Date(dob)
+  if (isNaN(d.getTime())) return ''
+  d.setFullYear(d.getFullYear() + 60)
+  return toDateInput(d)
+}
+function numOrNull(v) {
+  if (v === '' || v === null || v === undefined) return null
+  const n = Number(v)
+  return isFinite(n) ? n : null
+}
 
-// ---------- original page logic (kept intact)
-function AllotmentsPageInner() {
+export default function AllotmentsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
-  const [activeOnly, setActiveOnly] = useState(true)
 
+  // houses for selects / fallback rendering
   const [houses, setHouses] = useState([])
-  const safeHouses = useMemo(function () {
-    return Array.isArray(houses) ? houses : []
-  }, [houses])
+  const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
 
-  // Add form: expose full fields (logic unchanged)
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [addMode, setAddMode] = useState('full') // 'full' | 'simple'
+  // Add / Edit forms
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -92,16 +63,17 @@ function AllotmentsPageInner() {
     allottee_status: 'in_service',
     notes: '',
   }
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(emptyForm)
 
-  // Edit modal state
   const [editTarget, setEditTarget] = useState(null)
   const [updating, setUpdating] = useState(false)
 
   // Load houses once
-  useEffect(function () {
-    var mounted = true
-    ;(async function () {
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
       try {
         const hs = await listHouses()
         const arr = Array.isArray(hs) ? hs : (hs && hs.results ? hs.results : [])
@@ -110,34 +82,32 @@ function AllotmentsPageInner() {
         console.warn('listHouses failed:', e)
       }
     })()
-    return function () { mounted = false }
+    return () => { mounted = false }
   }, [])
 
   // Initial search
-  useEffect(function () { search() }, []) // eslint-disable-line
+  useEffect(() => { search() }, []) // eslint-disable-line
 
   async function search() {
     try {
       setLoading(true); setError('')
-      const resp = await searchAllotments({
-        q: q && q.trim() ? q.trim() : undefined,
-        active: activeOnly ? true : undefined,
-      })
+      // API helper expects the query string
+      const resp = await searchAllotments(q && q.trim() ? q.trim() : undefined)
       setRows(normalizeList(resp))
     } catch (e) {
-      setError(e && e.message ? e.message : 'Failed to load')
-      setRows([]) // avoid crashing maps
+      setError(e?.message || 'Failed to load')
+      setRows([])
     } finally {
       setLoading(false)
     }
   }
 
   function onChange(key, val) {
-    setForm(function (prev) { return Object.assign({}, prev, { [key]: val }) })
+    setForm(prev => ({ ...prev, [key]: val }))
   }
 
   async function onSave(e) {
-    if (e && e.preventDefault) e.preventDefault()
+    if (e?.preventDefault) e.preventDefault()
     try {
       setSaving(true); setError('')
       const payload = {
@@ -164,7 +134,7 @@ function AllotmentsPageInner() {
       setForm(emptyForm)
       await search()
     } catch (e) {
-      setError(e && e.message ? e.message : 'Failed to create')
+      setError(e?.message || 'Failed to create')
     } finally {
       setSaving(false)
     }
@@ -195,22 +165,41 @@ function AllotmentsPageInner() {
   }
 
   async function onUpdate(e) {
-    if (e && e.preventDefault) e.preventDefault()
-    if (!editTarget || !editTarget.id) return
+    if (e?.preventDefault) e.preventDefault()
+    if (!editTarget?.id) return
     try {
       setUpdating(true); setError('')
-      const payload = Object.assign({}, editTarget, {
+      const payload = {
+        ...editTarget,
         bps: numOrNull(editTarget.bps),
         dor: editTarget.dob ? computeDOR(editTarget.dob) : (editTarget.dor || null),
-      })
+      }
       await updateAllotment(editTarget.id, payload)
       setEditTarget(null)
       await search()
     } catch (e) {
-      setError(e && e.message ? e.message : 'Failed to update')
+      setError(e?.message || 'Failed to update')
     } finally {
       setUpdating(false)
     }
+  }
+
+  // Build a nice label for house (works whether row.house is present or not)
+  function houseFromRow(row) {
+    if (row?.house) return row.house
+    if (!row?.house_id) return null
+    return safeHouses.find(h => String(h.id) === String(row.house_id)) || null
+  }
+  function houseLabel(h) {
+    if (!h) return '-'
+    const parts = []
+    if (h.file_no) parts.push(h.file_no)
+    const desc = []
+    if (h.sector) desc.push(`Sector ${h.sector}`)
+    if (h.street) desc.push(`Street ${h.street}`)
+    if (h.qtr_no || h.number) desc.push(`Qtr ${h.qtr_no ?? h.number}`)
+    const tail = desc.join(' • ')
+    return tail ? `${parts.join(' ')}${parts.length ? ' — ' : ''}${tail}` : (parts[0] || `Qtr ${h.qtr_no ?? h.number ?? h.id}`)
   }
 
   return (
@@ -220,70 +209,58 @@ function AllotmentsPageInner() {
         <input
           placeholder="Search name, CNIC, file no, etc."
           value={q}
-          onChange={function (e) { setQ(e.target.value) }}
-          onKeyDown={function (e) { if (e.key === 'Enter') search() }}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') search() }}
           style={{ minWidth: 260 }}
         />
-        <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          <input
-            type="checkbox"
-            checked={activeOnly}
-            onChange={function (e) { setActiveOnly(e.target.checked) }}
-          />
-          Active only
-        </label>
         <button onClick={search} disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
         <div style={{ flex: 1 }} />
-        <button onClick={function () { setShowForm(function (v) { return !v }) }}>{showForm ? 'Close' : 'Add Allotment'}</button>
+        <button onClick={() => setShowForm(v => !v)}>{showForm ? 'Close' : 'Add Allotment'}</button>
       </div>
 
       {error ? (
         <div className="error" style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
       ) : null}
 
-      {/* ADD form (full fields; logic unchanged) */}
+      {/* ADD form (full form, no simple mode) */}
       {showForm ? (
         <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <strong>New Allotment</strong>
-            <label style={{ fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={addMode === 'simple'}
-                onChange={function (e) { setAddMode(e.target.checked ? 'simple' : 'full') }}
-              /> Simple mode
-            </label>
-          </div>
+          <strong>New Allotment</strong>
 
           <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
-            {/* Minimal/common fields */}
             <label>House
-              <select value={form.house_id} onChange={function (e) { onChange('house_id', e.target.value) }} required>
+              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
                 <option value="">-- Select house / Qtr --</option>
-                {safeHouses.map(function (h) {
-                  return (
-                    <option key={h.id} value={h.id}>
-                      {(h.file_no ? (h.file_no + ' — ') : '') + 'Qtr ' + (h.qtr_no || h.number || h.id)}
-                    </option>
-                  )
-                })}
+                {safeHouses.map(h => (
+                  <option key={h.id} value={h.id}>
+                    {houseLabel(h)}
+                  </option>
+                ))}
               </select>
             </label>
 
             <label>Allottee
-              <input value={form.person_name} onChange={function (e) { onChange('person_name', e.target.value) }} />
+              <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
 
             <label>Designation
-              <input value={form.designation} onChange={function (e) { onChange('designation', e.target.value) }} />
+              <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
             </label>
 
-            <label>BPS
-              <input value={form.bps} onChange={function (e) { onChange('bps', e.target.value) }} inputMode="numeric" />
+            <label>Directorate
+              <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
+            </label>
+
+            <label>CNIC
+              <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} />
+            </label>
+
+            <label>Pool
+              <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
             </label>
 
             <label>Medium
-              <select value={form.medium} onChange={function (e) { onChange('medium', e.target.value) }}>
+              <select value={form.medium} onChange={e => onChange('medium', e.target.value)}>
                 <option value="">Select medium</option>
                 <option value="family transfer">Family Transfer</option>
                 <option value="mutual">Mutual</option>
@@ -292,69 +269,56 @@ function AllotmentsPageInner() {
               </select>
             </label>
 
-            <label>Allotment Date
-              <input type="date" value={form.allotment_date} onChange={function (e) { onChange('allotment_date', e.target.value) }} />
+            <label>BPS
+              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} inputMode="numeric" />
             </label>
 
-            {/* Full-only extras */}
-            {addMode === 'full' ? (
-              <>
-                <label>Directorate
-                  <input value={form.directorate} onChange={function (e) { onChange('directorate', e.target.value) }} />
-                </label>
+            <label>Allotment Date
+              <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
+            </label>
 
-                <label>CNIC
-                  <input value={form.cnic} onChange={function (e) { onChange('cnic', e.target.value) }} />
-                </label>
+            <label>Occupation Date
+              <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
+            </label>
 
-                <label>Pool
-                  <input value={form.pool} onChange={function (e) { onChange('pool', e.target.value) }} />
-                </label>
+            <label>Vacation Date
+              <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
+            </label>
 
-                <label>Occupation Date
-                  <input type="date" value={form.occupation_date} onChange={function (e) { onChange('occupation_date', e.target.value) }} />
-                </label>
+            <label>DOB
+              <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
+            </label>
 
-                <label>Vacation Date
-                  <input type="date" value={form.vacation_date} onChange={function (e) { onChange('vacation_date', e.target.value) }} />
-                </label>
+            <label>DOR (auto from DOB)
+              <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
+            </label>
 
-                <label>DOB
-                  <input type="date" value={form.dob} onChange={function (e) { onChange('dob', e.target.value) }} />
-                </label>
+            <label>Retention Last
+              <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
+            </label>
 
-                <label>DOR (auto from DOB)
-                  <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
-                </label>
+            <label>Quarter Status
+              <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
+                <option value="active">active (occupied)</option>
+                <option value="ended">ended (vacant)</option>
+              </select>
+            </label>
 
-                <label>Retention Last
-                  <input type="date" value={form.retention_last} onChange={function (e) { onChange('retention_last', e.target.value) }} />
-                </label>
+            <label>Allottee Status
+              <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
+                <option value="in_service">in service</option>
+                <option value="retired">retired</option>
+                <option value="cancelled">cancelled</option>
+              </select>
+            </label>
 
-                <label>Quarter Status
-                  <select value={form.qtr_status} onChange={function (e) { onChange('qtr_status', e.target.value) }}>
-                    <option value="active">active (occupied)</option>
-                    <option value="ended">ended (vacant)</option>
-                  </select>
-                </label>
-
-                <label>Allottee Status
-                  <select value={form.allottee_status} onChange={function (e) { onChange('allottee_status', e.target.value) }}>
-                    <option value="in_service">in service</option>
-                    <option value="retired">retired</option>
-                    <option value="cancelled">cancelled</option>
-                  </select>
-                </label>
-
-                <label>Notes
-                  <input value={form.notes} onChange={function (e) { onChange('notes', e.target.value) }} />
-                </label>
-              </>
-            ) : null}
+            <label>Notes
+              <input value={form.notes} onChange={e => onChange('notes', e.target.value)} />
+            </label>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <button type="button" onClick={function () { setShowForm(false) }}>Cancel</button>{' '}
+            <button type="button" onClick={() => setShowForm(false)}>Cancel</button>{' '}
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
           </div>
         </form>
@@ -376,8 +340,8 @@ function AllotmentsPageInner() {
             </tr>
           </thead>
           <tbody>
-            {(Array.isArray(rows) ? rows : []).map(function (r) {
-              var house = r && r.house ? r.house : null
+            {(Array.isArray(rows) ? rows : []).map(r => {
+              const h = houseFromRow(r)
               return (
                 <tr key={r.id}>
                   <td>
@@ -386,7 +350,7 @@ function AllotmentsPageInner() {
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
                   <td>
-                    <div>{(house && house.file_no ? (house.file_no + ' — ') : '') + 'Qtr ' + (house && (house.qtr_no || house.number) || r.house_id)}</div>
+                    <div>{houseLabel(h)}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.directorate || ''}</div>
                   </td>
                   <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
@@ -399,7 +363,7 @@ function AllotmentsPageInner() {
                     </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button onClick={function () { openEdit(r) }}>Edit</button>
+                    <button onClick={() => openEdit(r)}>Edit</button>
                   </td>
                 </tr>
               )
@@ -414,13 +378,23 @@ function AllotmentsPageInner() {
         </table>
       </div>
 
+      <style>{`
+        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
+        input, select { width: 100%; height: 34px; box-sizing: border-box; }
+        input[readonly] { background: #f8f8f8; }
+        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+        button { height: 32px; padding: 0 12px; }
+        .page { padding: 12px; }
+      `}</style>
+
       {/* EDIT modal */}
       {editTarget ? (
         <div className="modal-backdrop">
           <div className="modal card" style={{ maxWidth: 980, margin: '5vh auto', padding: 16, background: 'white' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong>Edit Allotment</strong>
-              <button onClick={function () { setEditTarget(null) }}>✕</button>
+              <button onClick={() => setEditTarget(null)}>✕</button>
             </div>
 
             <form onSubmit={onUpdate}>
@@ -428,59 +402,55 @@ function AllotmentsPageInner() {
                 <label>House
                   <select
                     value={editTarget.house_id || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { house_id: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, house_id: e.target.value }))}
                     required
                   >
                     <option value="">-- Select house / Qtr --</option>
-                    {safeHouses.map(function (h) {
-                      return (
-                        <option key={h.id} value={h.id}>
-                          {(h.file_no ? (h.file_no + ' — ') : '') + 'Qtr ' + (h.qtr_no || h.number || h.id)}
-                        </option>
-                      )
-                    })}
+                    {safeHouses.map(h => (
+                      <option key={h.id} value={h.id}>{houseLabel(h)}</option>
+                    ))}
                   </select>
                 </label>
 
                 <label>Allottee
                   <input
                     value={editTarget.person_name || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { person_name: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, person_name: e.target.value }))}
                   />
                 </label>
 
                 <label>Designation
                   <input
                     value={editTarget.designation || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { designation: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, designation: e.target.value }))}
                   />
                 </label>
 
                 <label>Directorate
                   <input
                     value={editTarget.directorate || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { directorate: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, directorate: e.target.value }))}
                   />
                 </label>
 
                 <label>CNIC
                   <input
                     value={editTarget.cnic || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { cnic: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, cnic: e.target.value }))}
                   />
                 </label>
 
                 <label>Pool
                   <input
                     value={editTarget.pool || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { pool: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, pool: e.target.value }))}
                   />
                 </label>
 
                 <label>Medium
                   <select
                     value={editTarget.medium || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { medium: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, medium: e.target.value }))}
                   >
                     <option value="">Select medium</option>
                     <option value="family transfer">Family Transfer</option>
@@ -493,7 +463,7 @@ function AllotmentsPageInner() {
                 <label>BPS
                   <input
                     value={(editTarget.bps === 0 || editTarget.bps) ? editTarget.bps : ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { bps: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, bps: e.target.value }))}
                     inputMode="numeric"
                   />
                 </label>
@@ -502,7 +472,7 @@ function AllotmentsPageInner() {
                   <input
                     type="date"
                     value={editTarget.allotment_date || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { allotment_date: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, allotment_date: e.target.value }))}
                   />
                 </label>
 
@@ -510,7 +480,7 @@ function AllotmentsPageInner() {
                   <input
                     type="date"
                     value={editTarget.occupation_date || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { occupation_date: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, occupation_date: e.target.value }))}
                   />
                 </label>
 
@@ -518,7 +488,7 @@ function AllotmentsPageInner() {
                   <input
                     type="date"
                     value={editTarget.vacation_date || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { vacation_date: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, vacation_date: e.target.value }))}
                   />
                 </label>
 
@@ -526,7 +496,7 @@ function AllotmentsPageInner() {
                   <input
                     type="date"
                     value={editTarget.dob || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { dob: e.target.value, dor: computeDOR(e.target.value) }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, dob: e.target.value, dor: computeDOR(e.target.value) }))}
                   />
                 </label>
 
@@ -538,14 +508,14 @@ function AllotmentsPageInner() {
                   <input
                     type="date"
                     value={editTarget.retention_last || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { retention_last: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, retention_last: e.target.value }))}
                   />
                 </label>
 
                 <label>Quarter Status
                   <select
                     value={editTarget.qtr_status || 'active'}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { qtr_status: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, qtr_status: e.target.value }))}
                   >
                     <option value="active">active (occupied)</option>
                     <option value="ended">ended (vacant)</option>
@@ -555,7 +525,7 @@ function AllotmentsPageInner() {
                 <label>Allottee Status
                   <select
                     value={editTarget.allottee_status || 'in_service'}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { allottee_status: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, allottee_status: e.target.value }))}
                   >
                     <option value="in_service">in service</option>
                     <option value="retired">retired</option>
@@ -566,13 +536,13 @@ function AllotmentsPageInner() {
                 <label>Notes
                   <input
                     value={editTarget.notes || ''}
-                    onChange={function (e) { setEditTarget(function (p) { return Object.assign({}, p, { notes: e.target.value }) }) }}
+                    onChange={e => setEditTarget(p => ({ ...p, notes: e.target.value }))}
                   />
                 </label>
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <button type="button" onClick={function () { setEditTarget(null) }}>Cancel</button>{' '}
+                <button type="button" onClick={() => setEditTarget(null)}>Cancel</button>{' '}
                 <button type="submit" disabled={updating}>{updating ? 'Saving…' : 'Save changes'}</button>
               </div>
             </form>
@@ -585,25 +555,6 @@ function AllotmentsPageInner() {
           `}</style>
         </div>
       ) : null}
-
-      <style>{`
-        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
-        input, select { width: 100%; height: 34px; box-sizing: border-box; }
-        input[readonly] { background: #f8f8f8; }
-        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
-        button { height: 32px; padding: 0 12px; }
-        .page { padding: 12px; }
-      `}</style>
     </div>
-  )
-}
-
-// ---------- default export wraps with the error boundary (no logic change)
-export default function AllotmentsPage() {
-  return (
-    <PageErrorBoundary>
-      <AllotmentsPageInner />
-    </PageErrorBoundary>
   )
 }
