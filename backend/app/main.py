@@ -27,8 +27,8 @@ app.include_router(allotments.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(houses.router, prefix='/houses')
-app.include_router(auth.router)
-app.include_router(users.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
