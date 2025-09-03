@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { listHouses, createHouse, deleteHouse, updateHouse } from '../api'
-import { useNavigate, Link } from 'react-router-dom'  // ← added Link
+import { useNavigate, Link } from 'react-router-dom'
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
@@ -8,10 +8,16 @@ export default function HousesPage(){
   const [filters, setFilters] = useState({ status:'', type_code:'' })
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ file_no:'', qtr_no:'', street:'', sector:'', type_code:'A', status:'available' })
-  const gotoAllotmentHistory = (id) =>navigate(`/houses/${id}/allotments`)
   const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+
+  // ✅ goto by file_no instead of id
+  const gotoAllotmentHistory = (fileNo) => {
+    if (fileNo) {
+      navigate(`/houses/${encodeURIComponent(fileNo)}/allotments`)
+    }
+  }
 
   const load = () => listHouses({
     q: q || undefined,
@@ -97,8 +103,8 @@ export default function HousesPage(){
             <tr key={it.id}>
               <td>{it.id}</td>
               <td>
-                {/* use React Router link so the path is built correctly */}
-                <Link to={`/houses/${it.id}/allotments`}>
+                {/* ✅ Prefer file_no when linking to history */}
+                <Link to={`/houses/${encodeURIComponent(it.file_no)}/allotments`}>
                   {it.file_no}
                 </Link>
               </td>
