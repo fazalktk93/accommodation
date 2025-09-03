@@ -5,7 +5,12 @@ import axios from 'axios'
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
 let baseURL = defaultApiBase
 try {
-  if (typeof import.meta !== 'undefined' && import.meta && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
+  if (
+    typeof import.meta !== 'undefined' &&
+    import.meta &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE_URL
+  ) {
     baseURL = import.meta.env.VITE_API_BASE_URL
   }
 } catch (_) {}
@@ -14,7 +19,7 @@ console.log('[api] baseURL =', baseURL)
 
 export const api = axios.create({ baseURL, timeout: 10000 })
 
-// (optional) simple logs
+// --- logging
 api.interceptors.request.use(cfg => {
   try {
     console.log('[api req]', (cfg.method || 'get').toUpperCase(), cfg.url, { params: cfg.params })
@@ -22,11 +27,12 @@ api.interceptors.request.use(cfg => {
   return cfg
 })
 api.interceptors.response.use(
-  res => res, // keep the full axios response here; we .then(r => r.data) per call below
+  res => res,
   err => {
     const msg =
       (err && err.response && err.response.data && err.response.data.detail) ||
-      err.message || 'Request failed'
+      err.message ||
+      'Request failed'
     try {
       console.error('[api err]', msg, err?.response?.status, err?.config?.url)
     } catch (_) {}
@@ -35,32 +41,39 @@ api.interceptors.response.use(
 )
 
 // ---------------- Houses ----------------
-export const listHouses  = (params = {}) => api.get('/houses/', { params }).then(r => r.data)
-export const createHouse = (data)        => api.post('/houses/', data).then(r => r.data)
-export const updateHouse = (id, data)    => api.patch(`/houses/${id}/`, data).then(r => r.data)
-export const deleteHouse = (id)          => api.delete(`/houses/${id}/`).then(r => r.data)
+export const listHouses = (params = {}) =>
+  api.get('/houses/', { params }).then(r => r.data)
+
+export const createHouse = data =>
+  api.post('/houses/', data).then(r => r.data)
+
+export const updateHouse = (id, data) =>
+  api.patch(`/houses/${id}/`, data).then(r => r.data)
+
+export const deleteHouse = id =>
+  api.delete(`/houses/${id}/`).then(r => r.data)
 
 // ---------------- Allotments ----------------
 export const listAllotments = (params = {}) =>
   api.get('/allotments/', { params }).then(r => r.data)
 
-export const createAllotment = (data) =>
+export const searchAllotments = (query, params = {}) =>
+  api.get('/allotments/', { params: { search: query, ...params } }).then(r => r.data)
+
+export const createAllotment = data =>
   api.post('/allotments/', data).then(r => r.data)
 
 export const updateAllotment = (id, payload) =>
   api.patch(`/allotments/${id}/`, payload).then(r => r.data)
 
-export const deleteAllotment = (id) =>
+export const deleteAllotment = id =>
   api.delete(`/allotments/${id}/`).then(r => r.data)
-
-export const searchAllotments = (query, params = {}) =>
-  api.get('/allotments/', { params: { search: query, ...params } }).then(r => r.data)
 
 // ---------------- Files (movements) ----------------
 export const listMovements = (params = {}) =>
   api.get('/files/', { params }).then(r => r.data)
 
-export const issueFile = (data) =>
+export const issueFile = data =>
   api.post('/files/', data).then(r => r.data)
 
 export const updateFile = (id, payload) =>
@@ -69,5 +82,5 @@ export const updateFile = (id, payload) =>
 export const returnFile = (id, returned_date = null) =>
   api.post(`/files/${id}/return/`, null, { params: { returned_date } }).then(r => r.data)
 
-export const deleteFile = (id) =>
+export const deleteFile = id =>
   api.delete(`/files/${id}/`).then(r => r.data)
