@@ -25,6 +25,15 @@ export const createAllotment = (data) => api.post('/allotments/', data)
 export const endAllotment = (id, notes, vacation_date = null) =>
   api.post(`/allotments/${id}/end`, null, { params: { notes, vacation_date } })
 
+export const updateAllotment = (id, payload, forceEndPrevious = false) =>
+  api.patch(`/allotments/${id}`, payload, {
+    params: { force_end_previous: !!forceEndPrevious }
+  })
+
+// Delete an allotment (DELETE /allotments/:id)
+export const deleteAllotment = (id) =>
+  api.delete(`/allotments/${id}`)
+
 // File movements
 export const listMovements = (params = {}) => api.get('/files/', { params })
 export const issueFile = (data) => api.post('/files/issue', data)   // {file_no or house_id, ...}

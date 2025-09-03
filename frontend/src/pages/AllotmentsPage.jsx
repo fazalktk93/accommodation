@@ -1,118 +1,195 @@
 import { useEffect, useState } from 'react'
-import { listAllotments, createAllotment, endAllotment, listHouses } from '../api'
+import {
+  listAllotments,
+  listHouses,
+  createAllotment,
+  endAllotment,
+  updateAllotment,   // NEW
+  deleteAllotment,   // NEW
+} from '../api'
 
-export default function AllotmentsPage(){
+export default function AllotmentsPage() {
   // data
   const [items, setItems] = useState([])
   const [houses, setHouses] = useState([])
 
-  // search filters (search-first stays)
-  const [filter, setFilter] = useState({ person_name:'', file_no:'', qtr_no:'', active:'true' })
+  // filters
+  const [filter, setFilter] = useState({ person_name: '', file_no: '', qtr_no: '', active: 'true' })
 
   // add form
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // END modal
-  const [showEnd, setShowEnd] = useState(false)
-  const [endTarget, setEndTarget] = useState(null) // row being ended
-  const [endForm, setEndForm] = useState({ vacation_date: '', notes: '' })
-  const today = () => new Date().toISOString().slice(0,10)
-
-  // form state covers every field you asked for
   const [form, setForm] = useState({
     house_id: '',
-    person_name: '', designation: '', bps: '', directorate: '', cnic: '',
-    allotment_date: '', date_of_birth: '', date_of_retirement: '',
-    occupation_date: '', vacation_date: '',
-    retention: 'false', retention_last_date: '',
-    pool: '', qtr_status: '', allotment_medium: 'other',
-    active: 'true', notes: ''
+    person_name: '',
+    designation: '',
+    directorate: '',
+    cnic: '',
+    pool: '',
+    medium: '',
+    bps: '',
+    allotment_date: '',
+    occupation_date: '',
+    vacation_date: '',
+    dob: '',
+    dor: '',
+    retention: 'No',
+    retention_last: '',
+    notes: '',
   })
+  const onChange = (k, v) => setForm(s => ({ ...s, [k]: v }))
 
-  const search = (e) => {
-    e && e.preventDefault()
-    const params = {
-      person_name: filter.person_name || undefined,
-      file_no:      filter.file_no      || undefined,
-      qtr_no:       filter.qtr_no       || undefined,
-      active:       filter.active === '' ? undefined : filter.active,
+  // END popover/modal
+  const [endTarget, setEndTarget] = useState(null)
+  const [endForm, setEndForm] = useState({ notes: '', vacation_date: '' })
+  const openEnd = (row) => { setError(''); setEndTarget(row); setEndForm({ notes: '', vacation_date: '' }) }
+  const closeEnd = () => { setEndTarget(null) }
+
+  // EDIT modal
+  const [editTarget, setEditTarget] = useState(null)
+  const [editForm, setEditForm] = useState({ ...form })
+  const [forceEndOnEdit, setForceEndOnEdit] = useState(false)
+  const openEdit = (row) => {
+    setError('')
+    setEditTarget(row)
+    setForceEndOnEdit(false)
+    setEditForm({
+      house_id: row.house_id,
+      person_name: row.person_name || '',
+      designation: row.designation || '',
+      directorate: row.directorate || '',
+      cnic: row.cnic || '',
+      pool: row.pool || '',
+      medium: row.medium || '',
+      bps: row.bps ?? '',
+      allotment_date: row.allotment_date || '',
+      occupation_date: row.occupation_date || '',
+      vacation_date: row.vacation_date || '',
+      dob: row.dob || '',
+      dor: row.dor || '',
+      retention: row.retention ? 'Yes' : 'No',
+      retention_last: row.retention_last || '',
+      notes: row.notes || '',
+    })
+  }
+  const closeEdit = () => setEditTarget(null)
+
+  // DELETE
+  const onDelete = async (row) => {
+    if (!window.confirm('Delete this allotment record permanently?')) return
+    try {
+      setError('')
+      await deleteAllotment(row.id)
+      await search()
+    } catch (e) {
+      setError(e.message)
     }
-    listAllotments(params)
-      .then(r => setItems(r.data))
-      .catch(e => setError(e.message))
   }
 
   useEffect(() => {
+    listHouses().then(r => setHouses(r.data || r))
+    // initial load
     search()
-    listHouses().then(r => setHouses(r.data)).catch(()=>{}) // for house dropdown
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const onChange = (name, value) => setForm(f => ({ ...f, [name]: value }))
+  async function search(e) {
+    if (e) e.preventDefault()
+    try {
+      setError('')
+      const r = await listAllotments({
+        person_name: filter.person_name || undefined,
+        file_no: filter.file_no || undefined,
+        qtr_no: filter.qtr_no || undefined,
+        active: filter.active === '' ? undefined : filter.active
+      })
+      setItems(r.data || r)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
-  const submit = async (e) => {
+  async function onSave(e) {
     e.preventDefault()
-    setSaving(true); setError('')
-    try{
+    try {
+      setSaving(true); setError('')
       const payload = {
-        house_id: Number(form.house_id),
-        person_name: form.person_name.trim(),
-        designation: form.designation || null,
-        bps: form.bps ? Number(form.bps) : null,
-        directorate: form.directorate || null,
-        cnic: form.cnic || null,
-
-        allotment_date: form.allotment_date || null,
-        date_of_birth: form.date_of_birth || null,
-        date_of_retirement: form.date_of_retirement || null,
-        occupation_date: form.occupation_date || null,
-        vacation_date: form.vacation_date || null,
-
-        retention: form.retention === 'true',
-        retention_last_date: form.retention_last_date || null,
-
-        pool: form.pool || null,
-        qtr_status: form.qtr_status || null,
-        allotment_medium: form.allotment_medium || 'other',
-
-        active: form.active === 'true',
-        notes: form.notes || null
+        ...form,
+        bps: form.bps === '' ? null : Number(form.bps),
+        retention: (form.retention || '').toLowerCase() === 'yes'
       }
       await createAllotment(payload)
       setShowForm(false)
-      setForm(f => ({ ...f, person_name:'', designation:'', bps:'', directorate:'', cnic:'',
-        allotment_date:'', date_of_birth:'', date_of_retirement:'', occupation_date:'', vacation_date:'',
-        retention:'false', retention_last_date:'', pool:'', qtr_status:'', allotment_medium:'other', notes:'' }))
-      search()
-    }catch(err){
+      setForm({
+        house_id: '',
+        person_name: '',
+        designation: '',
+        directorate: '',
+        cnic: '',
+        pool: '',
+        medium: '',
+        bps: '',
+        allotment_date: '',
+        occupation_date: '',
+        vacation_date: '',
+        dob: '',
+        dor: '',
+        retention: 'No',
+        retention_last: '',
+        notes: '',
+      })
+      await search()
+    } catch (err) {
       setError(err.message)
-    }finally{
+    } finally {
       setSaving(false)
     }
   }
 
-  // ---------- END (vacation) modal ----------
-  const openEnd = (row) => {
-    setEndTarget(row)
-    setEndForm({
-      vacation_date: row?.vacation_date || today(),
-      notes: ''
-    })
-    setShowEnd(true)
-  }
-  const closeEnd = () => { setShowEnd(false); setEndTarget(null) }
-  const submitEnd = async (e) => {
+  async function onEndConfirm(e) {
     e.preventDefault()
-    try{
+    try {
       await endAllotment(endTarget.id, endForm.notes || null, endForm.vacation_date || null)
       closeEnd()
       search()
-    }catch(err){
+    } catch (err) {
       setError(err.message)
     }
   }
-  // -----------------------------------------
+
+  async function onEditSave(e) {
+    e.preventDefault()
+    try {
+      setSaving(true); setError('')
+      const payload = {
+        house_id: editForm.house_id,
+        person_name: editForm.person_name || null,
+        designation: editForm.designation || null,
+        directorate: editForm.directorate || null,
+        cnic: editForm.cnic || null,
+        pool: editForm.pool || null,
+        medium: editForm.medium || null,
+        bps: editForm.bps === '' ? null : Number(editForm.bps),
+        allotment_date: editForm.allotment_date || null,
+        occupation_date: editForm.occupation_date || null,
+        vacation_date: editForm.vacation_date || null,
+        dob: editForm.dob || null,
+        dor: editForm.dor || null,
+        retention: (editForm.retention || '').toLowerCase() === 'yes',
+        retention_last: editForm.retention_last || null,
+        notes: editForm.notes || null,
+      }
+      await updateAllotment(editTarget.id, payload, forceEndOnEdit)
+      closeEdit()
+      await search()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
@@ -120,111 +197,97 @@ export default function AllotmentsPage(){
       {error && <div className="error">{error}</div>}
 
       <form className="filters" onSubmit={search}>
-        <input placeholder="Allottee name" value={filter.person_name} onChange={e=>setFilter({...filter, person_name:e.target.value})}/>
-        <input placeholder="House File No" value={filter.file_no} onChange={e=>setFilter({...filter, file_no:e.target.value})}/>
-        <input placeholder="Quarter No" value={filter.qtr_no} onChange={e=>setFilter({...filter, qtr_no:e.target.value})}/>
-        <select value={filter.active} onChange={e=>setFilter({...filter, active:e.target.value})}>
+        <input
+          placeholder="Allottee name"
+          value={filter.person_name}
+          onChange={e => setFilter({ ...filter, person_name: e.target.value })}
+        />
+        <input
+          placeholder="House File No"
+          value={filter.file_no}
+          onChange={e => setFilter({ ...filter, file_no: e.target.value })}
+        />
+        <input
+          placeholder="Quarter No"
+          value={filter.qtr_no}
+          onChange={e => setFilter({ ...filter, qtr_no: e.target.value })}
+        />
+        <select
+          value={filter.active}
+          onChange={e => setFilter({ ...filter, active: e.target.value })}
+        >
           <option value="">All</option>
           <option value="true">Active</option>
           <option value="false">Ended</option>
         </select>
         <button type="submit">Search</button>
-        <button type="button" onClick={()=>setShowForm(s=>!s)}>{showForm ? 'Close' : 'Add Allotment'}</button>
+        <button type="button" onClick={() => setShowForm(s => !s)}>
+          {showForm ? 'Close' : 'Add Allotment'}
+        </button>
       </form>
 
       {showForm && (
-        <form className="card" onSubmit={submit}>
-          <h3>Add Allotment</h3>
+        <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
           <div className="grid">
             <label>House
-              <select value={form.house_id} onChange={e=>onChange('house_id', e.target.value)} required>
+              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)}>
                 <option value="">Select house</option>
                 {houses.map(h => (
-                  <option key={h.id} value={h.id}>{h.file_no} — Qtr {h.qtr_no} — {h.sector}</option>
+                  <option key={h.id} value={h.id}>
+                    {h.file_no} — {h.qtr_no}
+                  </option>
                 ))}
               </select>
             </label>
-
-            <label>Allottee Name
-              <input value={form.person_name} onChange={e=>onChange('person_name', e.target.value)} required/>
+            <label>Allottee
+              <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
-
             <label>Designation
-              <input value={form.designation} onChange={e=>onChange('designation', e.target.value)} />
+              <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
             </label>
-
-            <label>BPS
-              <input type="number" min="0" value={form.bps} onChange={e=>onChange('bps', e.target.value)} />
-            </label>
-
             <label>Directorate
-              <input value={form.directorate} onChange={e=>onChange('directorate', e.target.value)} />
+              <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
             </label>
-
             <label>CNIC
-              <input value={form.cnic} onChange={e=>onChange('cnic', e.target.value)} placeholder="xxxxx-xxxxxxx-x"/>
+              <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} />
             </label>
-
-            <label>Allotment Date
-              <input type="date" value={form.allotment_date} onChange={e=>onChange('allotment_date', e.target.value)} />
-            </label>
-
-            <label>Date of Birth
-              <input type="date" value={form.date_of_birth} onChange={e=>onChange('date_of_birth', e.target.value)} />
-            </label>
-
-            <label>Date of Retirement
-              <input type="date" value={form.date_of_retirement} onChange={e=>onChange('date_of_retirement', e.target.value)} />
-            </label>
-
-            <label>Occupation Date
-              <input type="date" value={form.occupation_date} onChange={e=>onChange('occupation_date', e.target.value)} />
-            </label>
-
-            <label>Vacation Date
-              <input type="date" value={form.vacation_date} onChange={e=>onChange('vacation_date', e.target.value)} />
-            </label>
-
-            <label>Retention
-              <select value={form.retention} onChange={e=>onChange('retention', e.target.value)}>
-                <option value="false">No</option>
-                <option value="true">Yes</option>
-              </select>
-            </label>
-
-            <label>Retention Last Date
-              <input type="date" value={form.retention_last_date} onChange={e=>onChange('retention_last_date', e.target.value)} />
-            </label>
-
             <label>Pool
-              <input value={form.pool} onChange={e=>onChange('pool', e.target.value)} />
+              <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
             </label>
-
-            <label>Qtr Status
-              <input value={form.qtr_status} onChange={e=>onChange('qtr_status', e.target.value)} />
+            <label>Medium
+              <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
             </label>
-
-            <label>Allotment Medium
-              <select value={form.allotment_medium} onChange={e=>onChange('allotment_medium', e.target.value)}>
-                <option value="family transfer">family transfer</option>
-                <option value="changes">changes</option>
-                <option value="mutual">mutual</option>
-                <option value="other">other</option>
+            <label>BPS
+              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+            </label>
+            <label>Allotment Date
+              <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
+            </label>
+            <label>Occupation Date
+              <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
+            </label>
+            <label>Vacation Date
+              <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
+            </label>
+            <label>DOB
+              <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
+            </label>
+            <label>DOR
+              <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
+            </label>
+            <label>Retention
+              <select value={form.retention} onChange={e => onChange('retention', e.target.value)}>
+                <option>No</option>
+                <option>Yes</option>
               </select>
             </label>
-
-            <label>Active
-              <select value={form.active} onChange={e=>onChange('active', e.target.value)}>
-                <option value="true">Active</option>
-                <option value="false">Ended</option>
-              </select>
+            <label>Retention Last
+              <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
             </label>
-
             <label>Notes
-              <input value={form.notes} onChange={e=>onChange('notes', e.target.value)} />
+              <input value={form.notes} onChange={e => onChange('notes', e.target.value)} />
             </label>
           </div>
-
           <div>
             <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button>
           </div>
@@ -238,7 +301,7 @@ export default function AllotmentsPage(){
             <th>CNIC</th><th>Allotment Date</th><th>DOB</th><th>DOR</th>
             <th>Retention</th><th>Retention Last</th>
             <th>Occupation</th><th>Vacation</th><th>Pool</th><th>Qtr Status</th><th>Medium</th>
-            <th>Period (days)</th><th>Status</th><th>Action</th>
+            <th>Period (days)</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -252,53 +315,119 @@ export default function AllotmentsPage(){
               <td>{it.directorate || '-'}</td>
               <td>{it.cnic || '-'}</td>
               <td>{it.allotment_date || '-'}</td>
-              <td>{it.date_of_birth || '-'}</td>
-              <td>{it.date_of_retirement || '-'}</td>
+              <td>{it.dob || '-'}</td>
+              <td>{it.dor || '-'}</td>
               <td>{it.retention ? 'Yes' : 'No'}</td>
-              <td>{it.retention_last_date || '-'}</td>
+              <td>{it.retention_last || '-'}</td>
               <td>{it.occupation_date || '-'}</td>
               <td>{it.vacation_date || '-'}</td>
               <td>{it.pool || '-'}</td>
-              <td>{it.qtr_status || '-'}</td>
-              <td>{it.allotment_medium || '-'}</td>
+              <td>{it.house_status || '-'}</td>
+              <td>{it.medium || '-'}</td>
               <td>{it.period_of_stay ?? '-'}</td>
-              <td>{it.active ? 'Active' : 'Ended'}</td>
-              <td>{it.active && <button onClick={()=>openEnd(it)}>End</button>}</td>
+              <td>{it.status || '-'}</td>
+              <td>
+                <button onClick={() => openEdit(it)}>Edit</button>{' '}
+                {it.active && <button onClick={() => openEnd(it)}>End</button>}{' '}
+                {!it.active && <button onClick={() => onDelete(it)}>Delete</button>}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* -------- End Allotment Modal -------- */}
-      {showEnd && (
-        <div className="modal-backdrop" onClick={closeEnd}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
+      {/* END dialog */}
+      {endTarget && (
+        <div className="modal">
+          <div className="modal-body">
             <h3>End Allotment</h3>
-            <p style={{marginTop:0}}>
-              File <b>{endTarget?.house_file_no}</b>, Qtr <b>{endTarget?.house_qtr_no}</b> — {endTarget?.person_name}
-            </p>
-            <form onSubmit={submitEnd}>
+            <form onSubmit={onEndConfirm}>
               <div className="grid">
                 <label>Vacation Date
-                  <input
-                    type="date"
-                    value={endForm.vacation_date}
-                    onChange={e=>setEndForm(f=>({...f, vacation_date: e.target.value}))}
-                    min={endTarget?.occupation_date || undefined}
-                    required
-                  />
+                  <input type="date" value={endForm.vacation_date} onChange={e => setEndForm({ ...endForm, vacation_date: e.target.value })} />
                 </label>
                 <label>Notes
-                  <input
-                    value={endForm.notes}
-                    onChange={e=>setEndForm(f=>({...f, notes: e.target.value}))}
-                    placeholder="optional"
-                  />
+                  <input value={endForm.notes} onChange={e => setEndForm({ ...endForm, notes: e.target.value })} />
                 </label>
               </div>
-              <div style={{marginTop:'.75rem'}}>
+              <div style={{ marginTop: '.75rem' }}>
                 <button type="button" onClick={closeEnd}>Cancel</button>{' '}
                 <button type="submit">Confirm End</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT dialog */}
+      {editTarget && (
+        <div className="modal">
+          <div className="modal-body">
+            <h3>Edit Allotment</h3>
+            <form onSubmit={onEditSave}>
+              <div className="grid">
+                <label>Allottee
+                  <input value={editForm.person_name} onChange={e => setEditForm({ ...editForm, person_name: e.target.value })} />
+                </label>
+                <label>Designation
+                  <input value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
+                </label>
+                <label>Directorate
+                  <input value={editForm.directorate} onChange={e => setEditForm({ ...editForm, directorate: e.target.value })} />
+                </label>
+                <label>CNIC
+                  <input value={editForm.cnic} onChange={e => setEditForm({ ...editForm, cnic: e.target.value })} />
+                </label>
+                <label>Pool
+                  <input value={editForm.pool} onChange={e => setEditForm({ ...editForm, pool: e.target.value })} />
+                </label>
+                <label>Medium
+                  <input value={editForm.medium} onChange={e => setEditForm({ ...editForm, medium: e.target.value })} />
+                </label>
+                <label>BPS
+                  <input value={editForm.bps} onChange={e => setEditForm({ ...editForm, bps: e.target.value })} />
+                </label>
+                <label>Allotment Date
+                  <input type="date" value={editForm.allotment_date} onChange={e => setEditForm({ ...editForm, allotment_date: e.target.value })} />
+                </label>
+                <label>Occupation Date
+                  <input type="date" value={editForm.occupation_date} onChange={e => setEditForm({ ...editForm, occupation_date: e.target.value })} />
+                </label>
+                <label>Vacation Date
+                  <input type="date" value={editForm.vacation_date} onChange={e => setEditForm({ ...editForm, vacation_date: e.target.value })} />
+                </label>
+                <label>DOB
+                  <input type="date" value={editForm.dob} onChange={e => setEditForm({ ...editForm, dob: e.target.value })} />
+                </label>
+                <label>DOR
+                  <input type="date" value={editForm.dor} onChange={e => setEditForm({ ...editForm, dor: e.target.value })} />
+                </label>
+                <label>Retention
+                  <select value={editForm.retention} onChange={e => setEditForm({ ...editForm, retention: e.target.value })}>
+                    <option>No</option>
+                    <option>Yes</option>
+                  </select>
+                </label>
+                <label>Retention Last
+                  <input type="date" value={editForm.retention_last} onChange={e => setEditForm({ ...editForm, retention_last: e.target.value })} />
+                </label>
+                <label>Notes
+                  <input value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
+                </label>
+              </div>
+
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={forceEndOnEdit}
+                  onChange={e => setForceEndOnEdit(e.target.checked)}
+                />{' '}
+                End any existing active allotment automatically (force)
+              </label>
+
+              <div style={{ marginTop: '.75rem' }}>
+                <button type="button" onClick={closeEdit}>Cancel</button>{' '}
+                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
               </div>
             </form>
           </div>
