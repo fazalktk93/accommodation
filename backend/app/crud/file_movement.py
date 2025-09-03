@@ -19,10 +19,7 @@ def list(db: Session, skip=0, limit=50, file_no: Optional[str] = None,
     if file_no:
         conds.append(FileMovement.file_no.ilike(f"%{file_no}%"))
     if outstanding is not None:
-        if outstanding:
-            conds.append(FileMovement.returned_date.is_(None))
-        else:
-            conds.append(FileMovement.returned_date.is_not(None))
+        conds.append(FileMovement.returned_date.is_(None) if outstanding else FileMovement.returned_date.is_not(None))
     if conds:
         stmt = stmt.where(and_(*conds))
     stmt = stmt.order_by(desc(FileMovement.issue_date), desc(FileMovement.id)).offset(skip).limit(limit)

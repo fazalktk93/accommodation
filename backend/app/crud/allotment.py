@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date as dt_date
 from typing import Optional, List
 from fastapi import HTTPException, status
-from sqlalchemy import select, and_, desc, asc
+from sqlalchemy import select, and_, desc
 from sqlmodel import Session
 from app.models import House, Allotment, QtrStatus
 from app.schemas import allotment as s

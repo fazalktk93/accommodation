@@ -37,12 +37,13 @@ def list_allotments(skip: int = 0, limit: int = 50,
 def history_by_file(file_no: str, db: Session = Depends(get_db)):
     from sqlalchemy import select, desc
     from app.models import Allotment
-    stmt = (select(Allotment)
-            .join(House)
-            .where(House.file_no == file_no)
-            .order_by(Allotment.occupation_date.is_(None),
-                      desc(Allotment.occupation_date), desc(Allotment.id)))
-    rows = db.execute(stmt).scalars().all()
+    rows = db.execute(
+        select(Allotment).join(House).where(House.file_no == file_no).order_by(
+            Allotment.occupation_date.is_(None),
+            desc(Allotment.occupation_date),
+            desc(Allotment.id),
+        )
+    ).scalars().all()
     out: list[s.AllotmentOut] = []
     for a in rows:
         out.append(

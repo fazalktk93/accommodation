@@ -1,57 +1,46 @@
 from __future__ import annotations
-
-from enum import Enum
 from typing import Optional
+from enum import Enum
 from datetime import date
-
-from sqlalchemy import String, Integer, Date, Enum as SAEnum, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from .base import Base
-
+from sqlmodel import SQLModel, Field, Relationship
 
 class QtrStatus(str, Enum):
-    active = "active"   # occupied
-    ended = "ended"     # vacated
-
+    active = "active"    # occupied
+    ended = "ended"      # vacated
 
 class AllotteeStatus(str, Enum):
     in_service = "in_service"
     retired = "retired"
     cancelled = "cancelled"
 
-
-class Allotment(Base):
+class Allotment(SQLModel, table=True):
     __tablename__ = "allotment"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    house_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("house.id", ondelete="CASCADE"),
-        index=True,
-        nullable=False,
-    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    house_id: int = Field(foreign_key="house.id", index=True)
 
-    # Person/meta
-    person_name: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    designation: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    directorate: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    cnic: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    pool: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    medium: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Person / meta (extend as needed)
+    person_name: Optional[str] = Field(default=None, index=True)
+    designation: Optional[str] = None
+    directorate: Optional[str] = None
+    cnic: Optional[str] = None
+    pool: Optional[str] = None
+    medium: Optional[str] = None
+    bps: Optional[int] = None
 
     # Dates
-    allotment_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    occupation_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    vacation_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    allotment_date: Optional[date] = None
+    occupation_date: Optional[date] = None
+    vacation_date: Optional[date] = None
+    dob: Optional[date] = None
+    dor: Optional[date] = None
+    retention_until: Optional[date] = None
+    retention_last: Optional[date] = None
 
-    # Status fields
-    qtr_status: Mapped[QtrStatus] = mapped_column(
-        SAEnum(QtrStatus), nullable=False, default=QtrStatus.active
-    )
-    allottee_status: Mapped[AllotteeStatus] = mapped_column(
-        SAEnum(AllotteeStatus), nullable=False, default=AllotteeStatus.in_service
-    )
+    # Status
+    qtr_status: QtrStatus = Field(default=QtrStatus.active)
+    allottee_status: AllotteeStatus = Field(default=AllotteeStatus.in_service)
+    notes: Optional[str] = None
 
     # Back relation
-    house: Mapped["House"] = relationship(back_populates="allotments")
+    house: Optional["House"] = Relationship(back_populates="allotments")

@@ -8,7 +8,7 @@ from app.api.routes import houses, allotments, files, health
 
 app = FastAPI()
 
-# CORS: regex allows localhost/LAN without hardcoding IPs
+# CORS: regex-based, no hardcoded IPs
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[],
@@ -18,14 +18,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers (all under /api)
+# Routers under /api
 app.include_router(houses.router, prefix="/api")
 app.include_router(allotments.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 
-# Create tables on startup (dev). For prod, use Alembic migrations.
+# Dev table creation (use Alembic for prod)
 @app.on_event("startup")
 def on_startup():
-    from app import models  # ensure models are imported
+    from app import models  # ensure models imported
     SQLModel.metadata.create_all(engine)
