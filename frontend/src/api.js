@@ -21,13 +21,16 @@ export const deleteHouse = (id) => api.delete(`/houses/${id}`)
 
 // Allotments
 export const listAllotments = (params = {}) => api.get('/allotments/', { params })
-export const createAllotment = (data) => api.post('/allotments/', data)
+export const createAllotment = (data) =>
+  api.post('/allotments', data, {
+    params: { force_end_previous: true }
+  })
 export const endAllotment = (id, notes, vacation_date = null) =>
   api.post(`/allotments/${id}/end`, null, { params: { notes, vacation_date } })
 
-export const updateAllotment = (id, payload, forceEndPrevious = false) =>
+export const updateAllotment = (id, payload) =>
   api.patch(`/allotments/${id}`, payload, {
-    params: { force_end_previous: !!forceEndPrevious }
+    params: { force_end_previous: true }
   })
 
 // Delete an allotment (DELETE /allotments/:id)

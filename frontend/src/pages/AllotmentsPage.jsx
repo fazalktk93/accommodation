@@ -21,7 +21,7 @@ export default function AllotmentsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // ----- ADD FORM STATE (only allowed fields) -----
+  // ----- ADD FORM STATE (only fields backend accepts) -----
   const [form, setForm] = useState({
     house_id: '',
     person_name: '',
@@ -36,7 +36,7 @@ export default function AllotmentsPage() {
     vacation_date: '',
     dob: '',
     dor: '',
-    retention: 'No',           // UI: "Yes" / "No" -> boolean on submit
+    retention: 'No',           // UI string; convert to boolean on submit
     retention_last: '',
     notes: ''
   })
@@ -129,7 +129,7 @@ export default function AllotmentsPage() {
     }
   }
 
-  // --------- ADD SUBMIT (only allowed fields) ----------
+  // --------- ADD SUBMIT (force end previous enabled in api.js) ----------
   async function onSave(e) {
     e.preventDefault()
     try {
@@ -152,7 +152,7 @@ export default function AllotmentsPage() {
         retention_last: form.retention_last || null,
         notes: form.notes || null,
       }
-      await createAllotment(payload)
+      await createAllotment(payload) // always sends force_end_previous=true
       setShowForm(false)
       setForm({
         house_id: '',
@@ -191,7 +191,7 @@ export default function AllotmentsPage() {
     }
   }
 
-  // --------- EDIT SUBMIT (only allowed fields) ----------
+  // --------- EDIT SUBMIT (force end previous enabled in api.js) ----------
   async function onEditSave(e) {
     e.preventDefault()
     try {
@@ -203,7 +203,7 @@ export default function AllotmentsPage() {
         directorate: editForm.directorate || null,
         cnic: editForm.cnic || null,
         pool: editForm.pool || null,
-        medium: editForm.medium || null,       // <-- from editForm
+        medium: editForm.medium || null,
         bps: editForm.bps === '' ? null : Number(editForm.bps),
         allotment_date: editForm.allotment_date || null,
         occupation_date: editForm.occupation_date || null,
@@ -214,7 +214,7 @@ export default function AllotmentsPage() {
         retention_last: editForm.retention_last || null,
         notes: editForm.notes || null,
       }
-      await updateAllotment(editTarget.id, payload, forceEndOnEdit)
+      await updateAllotment(editTarget.id, payload) // always sends force_end_previous=true
       closeEdit()
       await search()
     } catch (err) {
