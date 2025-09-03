@@ -1,15 +1,23 @@
+// api.js
 import axios from 'axios'
 
+// ---- SAFE access to Vite env (won't crash if not using Vite)
+const viteEnv = (typeof import !== 'undefined' && typeof import.meta !== 'undefined' && import.meta && import.meta.env)
+  ? import.meta.env
+  : {}
+
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
-const baseURL = import.meta.env.VITE_API_BASE_URL || defaultApiBase
+const baseURL = viteEnv.VITE_API_BASE_URL || defaultApiBase
 
 export const api = axios.create({ baseURL, timeout: 10000 })
 
 // Normalize errors
 api.interceptors.response.use(
-  res => res,
-  err => {
-    const msg = (err && err.response && err.response.data && err.response.data.detail) || err.message || 'Request failed'
+  function (res) { return res },
+  function (err) {
+    const msg =
+      (err && err.response && err.response.data && err.response.data.detail) ||
+      err.message || 'Request failed'
     return Promise.reject(new Error(msg))
   }
 )
@@ -23,7 +31,6 @@ export const deleteHouse    = (id)          => api.delete(`/houses/${id}`)
 // ---------------- Allotments ------------
 export const listAllotments = (params = {}) => api.get('/allotments/', { params })
 
-// The backend is mounted at /allotments (no trailing slash required).
 // Keep force_end_previous=true to auto-end any previous active allotment for that house.
 export const createAllotment = (data) =>
   api.post('/allotments', data, { params: { force_end_previous: true } })
