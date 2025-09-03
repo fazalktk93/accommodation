@@ -85,6 +85,9 @@ export const returnFile = (id, returned_date = null) =>
 export const deleteFile = id =>
   api.delete(`/files/${id}/`).then(r => r.data)
 
-// ---------------- House ↔ File relation ----------------
+// ---------------- House ↔ File relations ----------------
 export const getHouseByFile = (fileId) =>
   api.get(`/files/${fileId}/house/`).then(r => r.data)
+
+export const listAllotmentHistoryByFile = (fileId, params = {}) =>
+  api.get(`/files/${fileId}/allotments/`, { params }).then(r => r.data)
