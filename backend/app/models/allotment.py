@@ -2,6 +2,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, Boolean, Date, ForeignKey, Text
 from enum import Enum
 from sqlmodel import SQLModel, Field, Relationship
+from datetime import date
 from .base import Base
 
 class Allotment(Base):
