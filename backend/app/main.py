@@ -62,43 +62,78 @@ def on_startup():
 # -----------------------------------------------------------------------------
 # SQLAdmin: admin panel at /admin
 # -----------------------------------------------------------------------------
+# --- SQLAdmin (Admin panel at /admin) ---
 from sqladmin import Admin, ModelView
-from starlette.authentication import AuthenticationBackend, AuthCredentials, SimpleUser
-from starlette.requests import HTTPConnection
+from sqladmin.authentication import AuthenticationBackend  # <-- correct base class
 import jwt
+from sqlalchemy import select
+
 from app.core.security import SECRET_KEY, ALGORITHM
 from app.db.session import get_session
 from app.models.user import User, Role
-from sqlalchemy import select
-
-class AdminAuthBackend(AuthenticationBackend):
-    async def authenticate(self, conn: HTTPConnection):
-        auth = conn.headers.get("authorization") or ""
-        if not auth.lower().startswith("bearer "):
-            return
-        token = auth.split(" ", 1)[1].strip()
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            username = payload.get("sub")
-        except Exception:
-            return
-        # Load user from DB
-        with next(get_session()) as db:
-            user = db.scalar(select(User).where(User.username == username))
-            if not user or not user.is_active or user.role != Role.admin.value:
-                return
-        return AuthCredentials(["authenticated"]), SimpleUser(username)
-
-admin = Admin(app, engine, authentication_backend=AdminAuthBackend())
-
-# Register models with admin
 from app.models.house import House
 from app.models.allotment import Allotment
 from app.models.file_movement import FileMovement
 
+class AdminAuth(AuthenticationBackend):
+    """SQLAdmin auth that reuses our JWT and requires role=admin."""
+
+    def __init__(self, secret_key: str):
+        # SQLAdmin uses this for its own session cookie if you ever use its login form
+        super().__init__(secret_key=secret_key)
+
+    async def login(self, request):
+        """
+        Optional: if you want /admin/login form-based auth, implement this.
+        We're using JWT in headers/cookies, so just return False to disable.
+        """
+        return False
+
+    async def logout(self, request):
+        """Optional cleanup if you set cookies. We don't, so just return True."""
+        return True
+
+    async def authenticate(self, request):
+        """
+        Return True if authenticated (admin), else False.
+        We accept the token either from Authorization: Bearer <JWT> or from a
+        cookie named 'access_token' if you decide to set it on login.
+        """
+        token = None
+        auth = request.headers.get("authorization") or ""
+        if auth.lower().startswith("bearer "):
+            token = auth.split(" ", 1)[1].strip()
+        if not token:
+            token = request.cookies.get("access_token")
+
+        if not token:
+            return False
+
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username = payload.get("sub")
+            if not username:
+                return False
+        except Exception:
+            return False
+
+        # Verify user in DB with admin role
+        with next(get_session()) as db:
+            user = db.scalar(select(User).where(User.username == username))
+            if not user or not user.is_active:
+                return False
+            if (user.role if isinstance(user.role, str) else user.role.value) != Role.admin.value:
+                return False
+
+        return True
+
+# Instantiate admin with our backend
+admin = Admin(app, engine, authentication_backend=AdminAuth(secret_key=SECRET_KEY))
+
+# Register models
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
-    form_excluded_columns = ["hashed_password"]  # hide raw password
+    form_excluded_columns = ["hashed_password"]
     name_plural = "Users"
 
 class HouseAdmin(ModelView, model=House):
@@ -109,12 +144,8 @@ class AllotmentAdmin(ModelView, model=Allotment):
 
 class FileMovementAdmin(ModelView, model=FileMovement):
     column_list = [
-        FileMovement.id,
-        FileMovement.file_no,
-        FileMovement.issued_to,
-        FileMovement.issue_date,
-        FileMovement.due_date,
-        FileMovement.returned_date,
+        FileMovement.id, FileMovement.file_no, FileMovement.issued_to,
+        FileMovement.issue_date, FileMovement.due_date, FileMovement.returned_date
     ]
 
 admin.add_view(UserAdmin)
