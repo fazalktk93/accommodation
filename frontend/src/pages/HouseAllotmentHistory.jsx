@@ -47,8 +47,8 @@ const emptyAllotment = {
 };
 
 export default function HouseAllotmentHistory() {
-  // Accept both route styles
-  const { houseId, id } = useParams();
+  // ⬇️ now supports fileNo as the primary param; falls back to id/houseId if needed
+  const { fileNo, houseId, id } = useParams();
   const resolvedHouseId = houseId ?? id;
 
   const [house, setHouse] = useState(null);
@@ -66,17 +66,25 @@ export default function HouseAllotmentHistory() {
 
   const api = useMemo(() => ({
     async getHouse(id) {
+      // /houses/{id}
       const r = await fetch(`${API}/houses/${id}`);
       if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
       return r.json();
     },
-    // ✅ NEW: use the nested endpoint your backend already exposes
+    async getHouseByFile(file_no) {
+      // /houses/by-file/{file_no}
+      const r = await fetch(`${API}/houses/by-file/${encodeURIComponent(file_no)}`);
+      if (!r.ok) throw new Error(`Failed to load house by file: ${r.status}`);
+      return r.json();
+    },
     async listAllotmentsByHouseNested(house_id) {
+      // /houses/{id}/allotments
       const r = await fetch(`${API}/houses/${house_id}/allotments`);
       if (!r.ok) throw new Error(`Failed to load allotments (nested): ${r.status}`);
-      return r.json(); // returns a plain list
+      return r.json();
     },
     async listAllotmentsByHouseId(house_id) {
+      // /allotments/?house_id=...
       const u = new URL(`${API}/allotments/`);
       u.searchParams.set("house_id", house_id);
       const r = await fetch(u.toString());
@@ -85,6 +93,7 @@ export default function HouseAllotmentHistory() {
       return asList(data);
     },
     async listAllotmentsByFileNo(file_no) {
+      // /allotments/history/by-file/{file_no}
       const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(file_no)}`);
       if (!r.ok) throw new Error(`Failed to load allotments (by file): ${r.status}`);
       return r.json();
@@ -143,17 +152,25 @@ export default function HouseAllotmentHistory() {
     try {
       setLoading(true);
       setErr("");
+
+      // If URL contains fileNo, always drive both header + history from file number
+      if (fileNo) {
+        const h = await api.getHouseByFile(fileNo);
+        setHouse(h);
+        const list = await api.listAllotmentsByFileNo(fileNo);
+        setRows(Array.isArray(list) ? list : []);
+        return;
+      }
+
+      // Fallback (legacy): load by numeric house id
       const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
 
-      // ✅ First, use the nested endpoint (matches your HouseDetail page behavior)
+      // Prefer nested endpoint; fall back to other filters if needed
       const nested = await api.listAllotmentsByHouseNested(h.id);
-
-      // Fallbacks kept (in case someone removes the nested route)
       const rowsFinal =
         (Array.isArray(nested) && nested.length) ? nested :
         (h?.file_no ? await api.listAllotmentsByFileNo(h.file_no) : await api.listAllotmentsByHouseId(h.id));
-
       setRows(rowsFinal || []);
     } catch (e) {
       setErr(e.message || String(e));
@@ -163,7 +180,7 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [resolvedHouseId]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [fileNo, resolvedHouseId]);
 
   async function submitAdd() {
     try {
@@ -264,7 +281,7 @@ export default function HouseAllotmentHistory() {
         <div style={{ overflowX: "auto", marginTop: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid #eee" }}>
+              <tr style={{ borderBottom: "1px solid " }}>
                 <th style={{ textAlign: "left", padding: 8 }}>Allottee</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Designation</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Directorate</th>
