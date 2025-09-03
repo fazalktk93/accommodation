@@ -2,7 +2,7 @@
 import axios from 'axios'
 import { getToken, logout } from './auth'
 
-// Default base = http://HOST:8000/api (from your .env.sample)
+// Default base = http://HOST:8000/api (matches your .env.sample)
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
 let baseURL = defaultApiBase
 try {
@@ -14,7 +14,7 @@ try {
   ) {
     baseURL = import.meta.env.VITE_API_BASE_URL
   }
-} catch {}
+} catch { /* noop */ }
 
 const api = axios.create({
   baseURL,
@@ -43,10 +43,10 @@ api.interceptors.response.use(
   }
 )
 
-// helpers
+// Reusable helper for list responses
 const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []))
 
-// ----------------- EXISTING API CALLS (left intact, just using `api`) -----------------
+// ----------------- Houses -----------------
 export const listHouses = async (params = {}) => {
   const r = await api.get('/houses/', { params })
   return asList(r.data)
@@ -81,9 +81,19 @@ export const deleteHouse = async (houseId) => {
   await api.delete(`/houses/${houseId}`)
 }
 
-export const listAllotments = async (params = {}) => {
+// ----------------- Allotments -----------------
+
+// Needed by AllotmentsPage.jsx
+export const searchAllotments = async (params = {}) => {
   const r = await api.get('/allotments/', { params })
   return asList(r.data)
+}
+
+// Needed by AllotmentsPage.jsx and HouseAllotmentsPage.jsx
+export const createAllotment = async (payload) => {
+  // payload should match your backend schema (house_id, person_name, etc.)
+  const r = await api.post('/allotments/', payload)
+  return r.data
 }
 
 export const getAllotment = async (id) => {
@@ -100,6 +110,7 @@ export const deleteAllotment = async (id) => {
   await api.delete(`/allotments/${id}`)
 }
 
+// Helper used in some pages
 export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
   const house = await getHouseByFile(fileNo)
   if (!house) return []
@@ -109,4 +120,6 @@ export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
   return asList(r.data)
 }
 
+// Export both default AND named so `import { api }` works
+export { api }
 export default api
