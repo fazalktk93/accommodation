@@ -90,10 +90,17 @@ export default function HouseAllotmentHistory() {
       u.searchParams.set("house_id", house_id);
       // optionally: newest first
       // u.searchParams.set("ordering", "-allotment_date");
+      // u.searchParams.set("limit", "500");
       const r = await fetch(u.toString());
       if (!r.ok) throw new Error(`Failed to load allotments: ${r.status}`);
       const data = await r.json();
       return asList(data);
+    },
+    // CHANGED: explicit history by file number (backend exposes it)
+    async listAllotmentsByFileNo(file_no) {
+      const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(file_no)}`);
+      if (!r.ok) throw new Error(`Failed to load allotments (by file): ${r.status}`);
+      return r.json(); // backend returns a plain list
     },
     async patchHouseStatus(id, status) {
       const r = await fetch(`${API}/houses/${id}/`, {
@@ -151,8 +158,12 @@ export default function HouseAllotmentHistory() {
       setErr("");
       const h = await api.getHouse(houseId);
       setHouse(h);
-      // load history by house_id (reliable)
-      const list = await api.listAllotmentsByHouseId(h.id);
+
+      // CHANGED: load strictly by file_no to avoid any cross-file bleed
+      // (this uses backend route /allotments/history/by-file/{file_no})
+      const list = h?.file_no
+        ? await api.listAllotmentsByFileNo(h.file_no)
+        : await api.listAllotmentsByHouseId(h.id); // fallback
       setRows(list);
     } catch (e) {
       setErr(e.message || String(e));
