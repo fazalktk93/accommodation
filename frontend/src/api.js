@@ -37,20 +37,18 @@ export const updateHouse = (id, data)    => api.patch(`/houses/${id}`, data).the
 export const deleteHouse = (id)          => api.delete(`/houses/${id}`).then(r => r.data)
 
 // ---------------- Allotments ------------
-export const listAllotments = (params = {}) =>
-  api.get('/allotments/', { params }).then(r => r.data)
+// ----- Files (movements) endpoints -----
+export const listMovements = (params = {}) =>
+  api.get('/files', { params }).then(r => r.data)
 
-// 👇 alias so pages can import either name
-export const searchAllotments = (params = {}) => listAllotments(params)
+export const issueFile = (data) =>
+  api.post('/files', data).then(r => r.data)
 
-export const createAllotment = (data) =>
-  api.post('/allotments', data, { params: { force_end_previous: true } }).then(r => r.data)
+export const updateFile = (id, payload) =>
+  api.patch(`/files/${id}`, payload).then(r => r.data)
 
-export const endAllotment = (id, notes, vacation_date = null) =>
-  api.post(`/allotments/${id}/end`, null, { params: { notes, vacation_date } }).then(r => r.data)
+export const returnFile = (id, returned_date = null) =>
+  api.post(`/files/${id}/return`, null, { params: { returned_date } }).then(r => r.data)
 
-export const updateAllotment = (id, payload) =>
-  api.patch(`/allotments/${id}`, payload).then(r => r.data)
-
-export const deleteAllotment = (id) =>
-  api.delete(`/allotments/${id}`).then(r => r.data)
+export const deleteFile = (id) =>
+  api.delete(`/files/${id}`).then(r => r.data)
