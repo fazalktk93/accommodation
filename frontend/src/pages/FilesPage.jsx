@@ -10,6 +10,7 @@ export default function FilesPage(){
 
   const [items, setItems] = useState([])
   const [houses, setHouses] = useState([])
+  // include `missing` in the filter state
   const [filter, setFilter] = useState({ outstanding: 'true', missing: 'false', file_no: initialCode })
   const [form, setForm] = useState({ file_no: initialCode, subject:'', issued_to:'', department:'', due_date:'', remarks:'' })
   const [error, setError] = useState('')
@@ -19,10 +20,16 @@ export default function FilesPage(){
   const [selectedHouseId, setSelectedHouseId] = useState('')
 
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '-'
+  const isMissing = (it) =>
+    !it.returned_date &&
+    it.due_date &&
+    new Date(it.due_date) < new Date()
 
+  // pass `missing` through to the API
   const load = () =>
     listMovements({
       outstanding: filter.outstanding === '' ? undefined : (filter.outstanding === 'true'),
+      missing: filter.missing === '' ? undefined : (filter.missing === 'true'),
       file_no: filter.file_no || undefined
     })
       .then(arr => setItems(Array.isArray(arr) ? arr : []))
@@ -49,7 +56,7 @@ export default function FilesPage(){
     if (!opts.find(h => String(h.id) === String(selectedHouseId))) {
       setSelectedHouseId('')
     }
-  }, [form.file_no, houses])
+  }, [form.file_no, houses]) // selectedHouseId intentionally omitted
 
   const search = (e) => { e.preventDefault(); load() }
 
@@ -131,7 +138,18 @@ export default function FilesPage(){
           <option value="true">Outstanding Only</option>
           <option value="false">Include Returned</option>
         </select>
-        <button type="submit">Search</button>
+
+        {/* New: Missing toggle */}
+        <label style={{ marginLeft: 8 }}>
+          <input
+            type="checkbox"
+            checked={filter.missing === 'true'}
+            onChange={e => setFilter(f => ({ ...f, missing: e.target.checked ? 'true' : 'false' }))}
+          />
+          {' '}Missing (overdue & not returned)
+        </label>
+
+        <button type="submit" style={{ marginLeft: 8 }}>Search</button>
       </form>
 
       <form className="card" onSubmit={issue}>
@@ -202,7 +220,11 @@ export default function FilesPage(){
               <td>{it.issued_to}{it.department ? ` (${it.department})` : ''}</td>
               <td>{fmtDate(it.issue_date)}</td>
               <td>{fmtDate(it.due_date)}</td>
-              <td>{it.returned_date ? 'Returned' : 'Issued'}</td>
+              <td>
+                {it.returned_date
+                  ? 'Returned'
+                  : (isMissing(it) ? 'Missing' : 'Issued')}
+              </td>
               <td>{!it.returned_date && <button onClick={()=>ret(it.id)}>Mark In-Record</button>}</td>
             </tr>
           ))}
