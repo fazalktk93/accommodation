@@ -53,7 +53,7 @@ class Allotment(SQLModel, table=True):
     qtr_status: QtrStatus = Field(default=QtrStatus.active)
     allottee_status: AllotteeStatus = Field(default=AllotteeStatus.in_service)
 
-    house: "House" = Relationship(back_populates="allotments")
+    house: Optional["House"] = Relationship(sa_relationship_kwargs={"backref": "allotments"})
 
     @property
     def is_active(self) -> bool:
