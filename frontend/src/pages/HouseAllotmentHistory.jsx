@@ -8,30 +8,9 @@ const SHOW_STATUS_COLS = false;
 /** API base — no hardcoded IPs */
 const API = `${window.location.protocol}//${window.location.hostname}:8000/api`;
 
-const emptyAllotment = {
-  person_name: "",
-  designation: "",
-  directorate: "",
-  cnic: "",
-  pool: "",
-  medium: "",
-  bps: "",
-  allotment_date: "",
-  occupation_date: "",
-  vacation_date: "",
-  dob: "",
-  dor: "",
-  retention_until: "",
-  retention_last: "",
-  qtr_status: "active",           // not shown in table, but editable in form
-  allottee_status: "in_service",  // hidden in table for now
-  notes: "",
-};
-
-function fmt(d) {
-  if (!d) return "-";
-  return String(d);
-}
+// helpers
+const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []));
+const fmt = (d) => (d ? String(d) : "-");
 
 function Badge({ children }) {
   return (
@@ -63,6 +42,26 @@ function Modal({ title, children, onClose }) {
   );
 }
 
+const emptyAllotment = {
+  person_name: "",
+  designation: "",
+  directorate: "",
+  cnic: "",
+  pool: "",
+  medium: "",
+  bps: "",
+  allotment_date: "",
+  occupation_date: "",
+  vacation_date: "",
+  dob: "",
+  dor: "",
+  retention_until: "",
+  retention_last: "",
+  qtr_status: "active",
+  allottee_status: "in_service",
+  notes: "",
+};
+
 export default function HouseAllotmentHistory() {
   const { houseId } = useParams();
   const [house, setHouse] = useState(null);
@@ -81,17 +80,23 @@ export default function HouseAllotmentHistory() {
 
   const api = useMemo(() => ({
     async getHouse(id) {
-      const r = await fetch(`${API}/houses/${id}`);
+      // trailing slash required
+      const r = await fetch(`${API}/houses/${id}/`);
       if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
       return r.json();
     },
-    async getHistoryByFile(fileNo) {
-      const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(fileNo)}`);
+    async listAllotmentsByHouseId(house_id) {
+      const u = new URL(`${API}/allotments/`);
+      u.searchParams.set("house_id", house_id);
+      // optionally: newest first
+      // u.searchParams.set("ordering", "-allotment_date");
+      const r = await fetch(u.toString());
       if (!r.ok) throw new Error(`Failed to load allotments: ${r.status}`);
-      return r.json();
+      const data = await r.json();
+      return asList(data);
     },
     async patchHouseStatus(id, status) {
-      const r = await fetch(`${API}/houses/${id}`, {
+      const r = await fetch(`${API}/houses/${id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, status_manual: true }),
@@ -100,10 +105,15 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async createAllotment(payload, forceEnd) {
-      const r = await fetch(`${API}/allotments?force_end_previous=${forceEnd ? "true" : "false"}`, {
+      const u = new URL(`${API}/allotments/`);
+      if (forceEnd) u.searchParams.set("force_end_previous", "true");
+      const r = await fetch(u.toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          ...(forceEnd ? { force_end_previous: true } : {}),
+        }),
       });
       if (!r.ok) {
         const t = await r.text();
@@ -112,10 +122,15 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async updateAllotment(id, payload, forceEnd) {
-      const r = await fetch(`${API}/allotments/${id}?force_end_previous=${forceEnd ? "true" : "false"}`, {
+      const u = new URL(`${API}/allotments/${id}/`);
+      if (forceEnd) u.searchParams.set("force_end_previous", "true");
+      const r = await fetch(u.toString(), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          ...(forceEnd ? { force_end_previous: true } : {}),
+        }),
       });
       if (!r.ok) {
         const t = await r.text();
@@ -124,7 +139,7 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async endAllotment(id) {
-      const r = await fetch(`${API}/allotments/${id}/end`, { method: "POST" });
+      const r = await fetch(`${API}/allotments/${id}/end/`, { method: "POST" });
       if (!r.ok) throw new Error(`End failed: ${r.status}`);
       return r.json();
     }
@@ -136,10 +151,12 @@ export default function HouseAllotmentHistory() {
       setErr("");
       const h = await api.getHouse(houseId);
       setHouse(h);
-      const list = await api.getHistoryByFile(h.file_no);
+      // load history by house_id (reliable)
+      const list = await api.listAllotmentsByHouseId(h.id);
       setRows(list);
     } catch (e) {
       setErr(e.message || String(e));
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -147,16 +164,12 @@ export default function HouseAllotmentHistory() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [houseId]);
 
-  function onChange(setter) {
-    return (e) => setter((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  }
-
   async function submitAdd() {
     try {
-      await api.createAllotment({
-        ...addData,
-        house_id: house.id,
-      }, forceEndPrev);
+      await api.createAllotment(
+        { ...addData, house_id: house.id },
+        true // always end previous when adding
+      );
       setShowAdd(false);
       setAddData(emptyAllotment);
       await load();
@@ -263,7 +276,6 @@ export default function HouseAllotmentHistory() {
                 <th style={{ textAlign: "left", padding: 8 }}>Period (days)</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Pool</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Medium</th>
-                {/* Qtr Status hidden intentionally */}
                 {SHOW_STATUS_COLS && <th style={{ textAlign: "left", padding: 8 }}>Status</th>}
                 <th style={{ textAlign: "left", padding: 8 }}>Actions</th>
               </tr>
@@ -284,7 +296,6 @@ export default function HouseAllotmentHistory() {
                   <td style={{ padding: 8 }}>{fmt(r.period_of_stay)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.pool)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.medium)}</td>
-                  {/* Qtr Status hidden; Status column optional */}
                   {SHOW_STATUS_COLS && (
                     <td style={{ padding: 8 }}>
                       <Badge>{fmt(r.allottee_status)}</Badge>
@@ -398,7 +409,6 @@ function FormAllotment({ data, onChange, onSubmit, submitLabel, forceEnd, onTogg
           <option value="retired">retired</option>
           <option value="cancelled">cancelled</option>
         </select>
-        {/* Qtr status editable in form, but not shown in table */}
         <select {...bind("qtr_status")}>
           <option value="active">active</option>
           <option value="ended">ended</option>
