@@ -43,7 +43,7 @@ export default function AllotmentsPage() {
   const [houses, setHouses] = useState([])
   const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
 
-  // Add / Edit forms
+  // Subform state: used for both Add and Edit
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -64,11 +64,9 @@ export default function AllotmentsPage() {
     notes: '',
   }
   const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(emptyForm)
-
-  const [editTarget, setEditTarget] = useState(null)
-  const [updating, setUpdating] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState(null) // null => add, number => edit
 
   // Load houses once
   useEffect(() => {
@@ -91,7 +89,6 @@ export default function AllotmentsPage() {
   async function search() {
     try {
       setLoading(true); setError('')
-      // API helper expects the query string (optional)
       const resp = await searchAllotments(q && q.trim() ? q.trim() : undefined)
       setRows(normalizeList(resp))
     } catch (e) {
@@ -103,10 +100,15 @@ export default function AllotmentsPage() {
   }
 
   function onChange(key, val) {
-    setForm(prev => ({ ...prev, [key]: val }))
+    // keep DOR auto-calculated from DOB in the subform
+    if (key === 'dob') {
+      setForm(prev => ({ ...prev, dob: val, dor: val ? computeDOR(val) : '' }))
+    } else {
+      setForm(prev => ({ ...prev, [key]: val }))
+    }
   }
 
-  async function onSave(e) {
+  async function onSubmit(e) {
     if (e?.preventDefault) e.preventDefault()
     try {
       setSaving(true); setError('')
@@ -129,53 +131,53 @@ export default function AllotmentsPage() {
         allottee_status: form.allottee_status || 'in_service',
         notes: form.notes || null,
       }
-      await createAllotment(payload)
+
+      if (editingId) {
+        await updateAllotment(editingId, payload)
+      } else {
+        await createAllotment(payload)
+      }
+
       setShowForm(false)
       setForm(emptyForm)
+      setEditingId(null)
       await search()
     } catch (e) {
-      setError(e?.message || 'Failed to create')
+      setError(e?.message || 'Failed to save')
     } finally {
       setSaving(false)
     }
   }
 
-  // open Edit with only the fields you actually edit
+  function openAdd() {
+    setEditingId(null)
+    setForm(emptyForm)
+    setShowForm(true)
+  }
+
   function openEdit(row) {
     if (!row) return
-    setEditTarget({
-      id: row.id,
-      house_id: row.house_id,
+    setEditingId(row.id)
+    setForm({
+      house_id: row.house_id || '',
       person_name: row.person_name || '',
-      bps: (row.bps === 0 || row.bps) ? String(row.bps) : '',
+      designation: row.designation || '',
+      directorate: row.directorate || '',
+      cnic: row.cnic || '',
+      pool: row.pool || '',
       medium: row.medium || '',
+      bps: (row.bps === 0 || row.bps) ? String(row.bps) : '',
       allotment_date: toDateInput(row.allotment_date),
       occupation_date: toDateInput(row.occupation_date),
       vacation_date: toDateInput(row.vacation_date),
+      dob: toDateInput(row.dob),
+      dor: toDateInput(row.dor || (row.dob ? computeDOR(row.dob) : '')),
+      retention_last: toDateInput(row.retention_last),
       qtr_status: row.qtr_status || 'active',
       allottee_status: row.allottee_status || 'in_service',
       notes: row.notes || '',
     })
-  }
-
-  async function onUpdate(e) {
-    if (e?.preventDefault) e.preventDefault()
-    if (!editTarget?.id) return
-    try {
-      setUpdating(true); setError('')
-      const payload = {
-        ...editTarget,
-        bps: numOrNull(editTarget.bps),
-        // if DOB is not part of edit, keep dor as-is
-      }
-      await updateAllotment(editTarget.id, payload)
-      setEditTarget(null)
-      await search()
-    } catch (e) {
-      setError(e?.message || 'Failed to update')
-    } finally {
-      setUpdating(false)
-    }
+    setShowForm(true)
   }
 
   // helpers to show house fields even if backend doesn't embed full house
@@ -198,19 +200,22 @@ export default function AllotmentsPage() {
         />
         <button onClick={search} disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
         <div style={{ flex: 1 }} />
-        <button onClick={() => setShowForm(v => !v)}>{showForm ? 'Close' : 'Add Allotment'}</button>
+        <button onClick={openAdd}>{showForm ? (editingId ? 'Close Edit' : 'Close') : 'Add Allotment'}</button>
       </div>
 
       {error ? (
         <div className="error" style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
       ) : null}
 
-      {/* ADD form */}
+      {/* SUBFORM (used for both Add and Edit) */}
       {showForm ? (
-        <form className="card" onSubmit={onSave} style={{ margin: '1rem 0', padding: 12 }}>
-          <strong>New Allotment</strong>
+        <form className="card" onSubmit={onSubmit} style={{ margin: '1rem 0', padding: 12 }}>
+          <strong>{editingId ? 'Edit Allotment' : 'New Allotment'}</strong>
 
-          <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
+          <div
+            className="grid"
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}
+          >
             <label>House
               <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
                 <option value="">-- Select house / Qtr --</option>
@@ -273,7 +278,7 @@ export default function AllotmentsPage() {
             </label>
 
             <label>DOR (auto from DOB)
-              <input readOnly value={form.dob ? computeDOR(form.dob) : ''} />
+              <input readOnly value={form.dob ? computeDOR(form.dob) : (form.dor || '')} />
             </label>
 
             <label>Retention Last
@@ -301,8 +306,12 @@ export default function AllotmentsPage() {
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <button type="button" onClick={() => setShowForm(false)}>Cancel</button>{' '}
-            <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
+              Cancel
+            </button>{' '}
+            <button type="submit" disabled={saving}>
+              {saving ? (editingId ? 'Saving…' : 'Saving…') : (editingId ? 'Save changes' : 'Save')}
+            </button>
           </div>
         </form>
       ) : null}
@@ -376,129 +385,6 @@ export default function AllotmentsPage() {
         button { height: 32px; padding: 0 12px; }
         .page { padding: 12px; }
       `}</style>
-
-      {/* EDIT modal (clean, focused) */}
-      {editTarget ? (
-        <div className="modal-backdrop">
-          <div className="modal card" style={{ maxWidth: 700, margin: '5vh auto', padding: 16, background: 'white' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong>Edit Allotment</strong>
-              <button onClick={() => setEditTarget(null)}>✕</button>
-            </div>
-
-            <form onSubmit={onUpdate}>
-              <div className="grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}>
-                
-                <label>House
-                  <select
-                    value={editTarget.house_id || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, house_id: e.target.value }))}
-                    required
-                  >
-                    <option value="">-- Select house / Qtr --</option>
-                    {safeHouses.map(h => (
-                      <option key={h.id} value={h.id}>
-                        {(h.file_no ?? '-') + ' — Sector ' + (h.sector ?? '-') + ' • Street ' + (h.street ?? '-') + ' • Qtr ' + (h.qtr_no ?? h.number ?? h.id)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>Allottee
-                  <input
-                    value={editTarget.person_name}
-                    onChange={e => setEditTarget(p => ({ ...p, person_name: e.target.value }))}
-                  />
-                </label>
-
-                <label>BPS
-                  <input
-                    value={editTarget.bps}
-                    onChange={e => setEditTarget(p => ({ ...p, bps: e.target.value }))}
-                    inputMode="numeric"
-                  />
-                </label>
-
-                <label>Medium
-                  <select
-                    value={editTarget.medium}
-                    onChange={e => setEditTarget(p => ({ ...p, medium: e.target.value }))}
-                  >
-                    <option value="">Select medium</option>
-                    <option value="family transfer">Family Transfer</option>
-                    <option value="mutual">Mutual</option>
-                    <option value="changes">Changes</option>
-                    <option value="fresh">Fresh</option>
-                  </select>
-                </label>
-
-                <label>Allotment Date
-                  <input
-                    type="date"
-                    value={editTarget.allotment_date || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, allotment_date: e.target.value }))}
-                  />
-                </label>
-
-                <label>Occupation Date
-                  <input
-                    type="date"
-                    value={editTarget.occupation_date || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, occupation_date: e.target.value }))}
-                  />
-                </label>
-
-                <label>Vacation Date
-                  <input
-                    type="date"
-                    value={editTarget.vacation_date || ''}
-                    onChange={e => setEditTarget(p => ({ ...p, vacation_date: e.target.value }))}
-                  />
-                </label>
-
-                <label>Quarter Status
-                  <select
-                    value={editTarget.qtr_status}
-                    onChange={e => setEditTarget(p => ({ ...p, qtr_status: e.target.value }))}
-                  >
-                    <option value="active">active (occupied)</option>
-                    <option value="ended">ended (vacant)</option>
-                  </select>
-                </label>
-
-                <label>Allottee Status
-                  <select
-                    value={editTarget.allottee_status}
-                    onChange={e => setEditTarget(p => ({ ...p, allottee_status: e.target.value }))}
-                  >
-                    <option value="in_service">in service</option>
-                    <option value="retired">retired</option>
-                    <option value="cancelled">cancelled</option>
-                  </select>
-                </label>
-
-                <label>Notes
-                  <input
-                    value={editTarget.notes}
-                    onChange={e => setEditTarget(p => ({ ...p, notes: e.target.value }))}
-                  />
-                </label>
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <button type="button" onClick={() => setEditTarget(null)}>Cancel</button>{' '}
-                <button type="submit" disabled={updating}>{updating ? 'Saving…' : 'Save changes'}</button>
-              </div>
-            </form>
-          </div>
-          <style>{`
-            .modal-backdrop {
-              position: fixed; inset: 0; background: rgba(0,0,0,.25);
-              display: flex; align-items: flex-start; justify-content: center; z-index: 50;
-            }
-          `}</style>
-        </div>
-      ) : null}
     </div>
   )
 }
