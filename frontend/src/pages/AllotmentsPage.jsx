@@ -4,8 +4,8 @@ import {
   listHouses,
   createAllotment,
   endAllotment,
-  updateAllotment,   // NEW
-  deleteAllotment,   // NEW
+  updateAllotment,
+  deleteAllotment,
 } from '../api'
 
 export default function AllotmentsPage() {
@@ -21,30 +21,28 @@ export default function AllotmentsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-const [form, setForm] = useState({
-  house_id: '',
-  person_name: '',
-  designation: '',
-  directorate: '',
-  cnic: '',
-  pool: '',
-  medium: '',
-  bps: '',
-  allotment_date: '',
-  occupation_date: '',
-  vacation_date: '',
-  dob: '',
-  dor: '',
-  retention_until: '',
-  retention_last: '',
-  qtr_status: 'active',
-  allotment_medium: '',
-  allottee_status: 'in_service',
-  notes: ''
-})
+  // ----- ADD FORM STATE (only allowed fields) -----
+  const [form, setForm] = useState({
+    house_id: '',
+    person_name: '',
+    designation: '',
+    directorate: '',
+    cnic: '',
+    pool: '',
+    medium: '',                // dropdown
+    bps: '',
+    allotment_date: '',
+    occupation_date: '',
+    vacation_date: '',
+    dob: '',
+    dor: '',
+    retention: 'No',           // UI: "Yes" / "No" -> boolean on submit
+    retention_last: '',
+    notes: ''
+  })
   const onChange = (k, v) => setForm(s => ({ ...s, [k]: v }))
 
-  // END popover/modal
+  // END modal
   const [endTarget, setEndTarget] = useState(null)
   const [endForm, setEndForm] = useState({ notes: '', vacation_date: '' })
   const openEnd = (row) => { setError(''); setEndTarget(row); setEndForm({ notes: '', vacation_date: '' }) }
@@ -52,8 +50,26 @@ const [form, setForm] = useState({
 
   // EDIT modal
   const [editTarget, setEditTarget] = useState(null)
-  const [editForm, setEditForm] = useState({ ...form })
+  const [editForm, setEditForm] = useState({
+    house_id: '',
+    person_name: '',
+    designation: '',
+    directorate: '',
+    cnic: '',
+    pool: '',
+    medium: '',
+    bps: '',
+    allotment_date: '',
+    occupation_date: '',
+    vacation_date: '',
+    dob: '',
+    dor: '',
+    retention: 'No',
+    retention_last: '',
+    notes: ''
+  })
   const [forceEndOnEdit, setForceEndOnEdit] = useState(false)
+
   const openEdit = (row) => {
     setError('')
     setEditTarget(row)
@@ -74,7 +90,6 @@ const [form, setForm] = useState({
       dor: row.dor || '',
       retention: row.retention ? 'Yes' : 'No',
       retention_last: row.retention_last || '',
-      allotment_medium: row.allotment_medium || '',
       notes: row.notes || '',
     })
   }
@@ -94,7 +109,6 @@ const [form, setForm] = useState({
 
   useEffect(() => {
     listHouses().then(r => setHouses(r.data || r))
-    // initial load
     search()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -115,14 +129,28 @@ const [form, setForm] = useState({
     }
   }
 
+  // --------- ADD SUBMIT (only allowed fields) ----------
   async function onSave(e) {
     e.preventDefault()
     try {
       setSaving(true); setError('')
       const payload = {
-        ...form,
+        house_id: form.house_id || null,
+        person_name: form.person_name || null,
+        designation: form.designation || null,
+        directorate: form.directorate || null,
+        cnic: form.cnic || null,
+        pool: form.pool || null,
+        medium: form.medium || null,
         bps: form.bps === '' ? null : Number(form.bps),
-        retention: (form.retention || '').toLowerCase() === 'yes'
+        allotment_date: form.allotment_date || null,
+        occupation_date: form.occupation_date || null,
+        vacation_date: form.vacation_date || null,
+        dob: form.dob || null,
+        dor: form.dor || null,
+        retention: (form.retention || '').toLowerCase() === 'yes',
+        retention_last: form.retention_last || null,
+        notes: form.notes || null,
       }
       await createAllotment(payload)
       setShowForm(false)
@@ -163,6 +191,7 @@ const [form, setForm] = useState({
     }
   }
 
+  // --------- EDIT SUBMIT (only allowed fields) ----------
   async function onEditSave(e) {
     e.preventDefault()
     try {
@@ -174,7 +203,7 @@ const [form, setForm] = useState({
         directorate: editForm.directorate || null,
         cnic: editForm.cnic || null,
         pool: editForm.pool || null,
-        medium: editForm.medium || null,
+        medium: editForm.medium || null,       // <-- from editForm
         bps: editForm.bps === '' ? null : Number(editForm.bps),
         allotment_date: editForm.allotment_date || null,
         occupation_date: editForm.occupation_date || null,
@@ -183,7 +212,6 @@ const [form, setForm] = useState({
         dor: editForm.dor || null,
         retention: (editForm.retention || '').toLowerCase() === 'yes',
         retention_last: editForm.retention_last || null,
-        medium: form.medium || null,
         notes: editForm.notes || null,
       }
       await updateAllotment(editTarget.id, payload, forceEndOnEdit)
@@ -234,7 +262,7 @@ const [form, setForm] = useState({
       {showForm && (
         <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
           <div className="grid">
-            {/* House (locked) */}
+            {/* ADD: House selector */}
             <label>House
               <select
                 value={form.house_id}
@@ -249,21 +277,27 @@ const [form, setForm] = useState({
                 ))}
               </select>
             </label>
+
             <label>Allottee
               <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
             </label>
+
             <label>Designation
               <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
             </label>
+
             <label>Directorate
               <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
             </label>
+
             <label>CNIC
               <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} />
             </label>
+
             <label>Pool
               <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
             </label>
+
             <label>Medium
               <select
                 value={form.medium}
@@ -276,45 +310,42 @@ const [form, setForm] = useState({
                 <option value="gwl">GWL</option>
               </select>
             </label>
+
             <label>BPS
               <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
             </label>
+
             <label>Allotment Date
               <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
             </label>
+
             <label>Occupation Date
               <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
             </label>
+
             <label>Vacation Date
               <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
             </label>
+
             <label>DOB
               <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
             </label>
+
             <label>DOR
               <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
             </label>
+
             <label>Retention
               <select value={form.retention} onChange={e => onChange('retention', e.target.value)}>
                 <option>No</option>
                 <option>Yes</option>
               </select>
             </label>
+
             <label>Retention Last
               <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
             </label>
-            <label>Allotment Medium
-              <select
-                value={editForm.allotment_medium}
-                onChange={e => setEditForm({ ...editForm, allotment_medium: e.target.value })}
-              >
-                <option value="">Select medium</option>
-                <option value="family transfer">Family Transfer</option>
-                <option value="mutual">Mutual</option>
-                <option value="changes">Changes</option>
-                <option value="gwl">GWL</option>
-              </select>
-            </label>
+
             <label>Notes
               <input value={form.notes} onChange={e => onChange('notes', e.target.value)} />
             </label>
@@ -395,9 +426,9 @@ const [form, setForm] = useState({
         <div className="modal">
           <div className="modal-body">
             <h3>Edit Allotment</h3>
-            <form className="panel" onSubmit={onSave} style={{ margin: '1rem 0' }}>
+            <form className="panel" onSubmit={onEditSave} style={{ margin: '1rem 0' }}>
               <div className="grid">
-                {/* EDIT: House (locked / read-only) */}
+                {/* EDIT: House locked */}
                 <label>House
                   <div style={{ padding: '8px 10px', border: '1px solid #ccc', borderRadius: 4, background: '#f8f8f8' }}>
                     {editTarget?.house_file_no ?? '-'} — Qtr {editTarget?.house_qtr_no ?? '-'}
@@ -406,99 +437,95 @@ const [form, setForm] = useState({
                 </label>
 
                 <label>Allottee
-                  <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} required />
+                  <input value={editForm.person_name} onChange={e => setEditForm({ ...editForm, person_name: e.target.value })} />
                 </label>
 
                 <label>Designation
-                  <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
+                  <input value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
                 </label>
 
                 <label>Directorate
-                  <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
+                  <input value={editForm.directorate} onChange={e => setEditForm({ ...editForm, directorate: e.target.value })} />
                 </label>
 
                 <label>CNIC
-                  <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} placeholder="xxxxx-xxxxxxx-x" />
+                  <input value={editForm.cnic} onChange={e => setEditForm({ ...editForm, cnic: e.target.value })} />
                 </label>
 
                 <label>Pool
-                  <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
+                  <input value={editForm.pool} onChange={e => setEditForm({ ...editForm, pool: e.target.value })} />
                 </label>
 
                 <label>Medium
-                <select
-                  value={editForm.medium}
-                  onChange={e => setEditForm({ ...editForm, medium: e.target.value })}
-                >
-                  <option value="">Select medium</option>
-                  <option value="family transfer">Family Transfer</option>
-                  <option value="mutual">Mutual</option>
-                  <option value="changes">Changes</option>
-                  <option value="gwl">GWL</option>
-                </select>
-              </label>
+                  <select
+                    value={editForm.medium}
+                    onChange={e => setEditForm({ ...editForm, medium: e.target.value })}
+                  >
+                    <option value="">Select medium</option>
+                    <option value="family transfer">Family Transfer</option>
+                    <option value="mutual">Mutual</option>
+                    <option value="changes">Changes</option>
+                    <option value="gwl">GWL</option>
+                  </select>
+                </label>
 
                 <label>BPS
-                  <input type="number" value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+                  <input type="number" value={editForm.bps} onChange={e => setEditForm({ ...editForm, bps: e.target.value })} />
                 </label>
 
                 <label>Allotment Date
-                  <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
+                  <input type="date" value={editForm.allotment_date} onChange={e => setEditForm({ ...editForm, allotment_date: e.target.value })} />
                 </label>
 
                 <label>Occupation Date
-                  <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
+                  <input type="date" value={editForm.occupation_date} onChange={e => setEditForm({ ...editForm, occupation_date: e.target.value })} />
                 </label>
 
                 <label>Vacation Date
-                  <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
+                  <input type="date" value={editForm.vacation_date} onChange={e => setEditForm({ ...editForm, vacation_date: e.target.value })} />
                 </label>
 
                 <label>DOB
-                  <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
+                  <input type="date" value={editForm.dob} onChange={e => setEditForm({ ...editForm, dob: e.target.value })} />
                 </label>
 
                 <label>DOR
-                  <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
+                  <input type="date" value={editForm.dor} onChange={e => setEditForm({ ...editForm, dor: e.target.value })} />
                 </label>
 
-                <label>Retention Until
-                  <input type="date" value={form.retention_until} onChange={e => onChange('retention_until', e.target.value)} />
+                <label>Retention
+                  <select value={editForm.retention} onChange={e => setEditForm({ ...editForm, retention: e.target.value })}>
+                    <option>No</option>
+                    <option>Yes</option>
+                  </select>
                 </label>
 
                 <label>Retention Last
-                  <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
-                </label>
-
-                <label>Quarter Status
-                  <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
-                    <option value="active">active</option>
-                    <option value="ended">ended</option>
-                  </select>
-                </label>
-
-                <label>Allottee Status
-                  <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
-                    <option value="in_service">in service</option>
-                    <option value="retired">retired</option>
-                    <option value="cancelled">cancelled</option>
-                  </select>
+                  <input type="date" value={editForm.retention_last} onChange={e => setEditForm({ ...editForm, retention_last: e.target.value })} />
                 </label>
 
                 <label>Notes
-                  <textarea value={form.notes} onChange={e => onChange('notes', e.target.value)} />
+                  <input value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} />
                 </label>
               </div>
 
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={forceEndOnEdit}
+                  onChange={e => setForceEndOnEdit(e.target.checked)}
+                />{' '}
+                End any existing active allotment automatically (force)
+              </label>
+
               <div>
-                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Allotment'}</button>
+                <button type="button" onClick={closeEdit}>Cancel</button>{' '}
+                <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
               </div>
             </form>
-
           </div>
         </div>
       )}
-      {/* ------------------------------------ */}
     </div>
   )
 }
