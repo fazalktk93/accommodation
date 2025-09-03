@@ -47,7 +47,10 @@ const emptyAllotment = {
 };
 
 export default function HouseAllotmentHistory() {
-  const { houseId } = useParams();
+  // ✅ accept both :houseId and :id from route
+  const { houseId, id } = useParams();
+  const resolvedHouseId = houseId ?? id;
+
   const [house, setHouse] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,29 +66,24 @@ export default function HouseAllotmentHistory() {
 
   const api = useMemo(() => ({
     async getHouse(id) {
-      // FastAPI route is /houses/{id} (NO trailing slash)
       const r = await fetch(`${API}/houses/${id}`);
       if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
       return r.json();
     },
     async listAllotmentsByHouseId(house_id) {
-      // List endpoint is defined at /allotments/ (with trailing slash)
       const u = new URL(`${API}/allotments/`);
       u.searchParams.set("house_id", house_id);
-      // optional: u.searchParams.set("limit", "500");
       const r = await fetch(u.toString());
       if (!r.ok) throw new Error(`Failed to load allotments: ${r.status}`);
       const data = await r.json();
       return asList(data);
     },
     async listAllotmentsByFileNo(file_no) {
-      // Backend route exists at /allotments/history/by-file/{file_no}
       const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(file_no)}`);
       if (!r.ok) throw new Error(`Failed to load allotments (by file): ${r.status}`);
       return r.json();
     },
     async patchHouseStatus(id, status) {
-      // PATCH to /houses/{id} (NO trailing slash)
       const r = await fetch(`${API}/houses/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -95,7 +93,7 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async createAllotment(payload, forceEnd) {
-      const u = new URL(`${API}/allotments/`); // list/create endpoint keeps trailing slash
+      const u = new URL(`${API}/allotments/`);
       if (forceEnd) u.searchParams.set("force_end_previous", "true");
       const r = await fetch(u.toString(), {
         method: "POST",
@@ -112,7 +110,6 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async updateAllotment(id, payload, forceEnd) {
-      // Item route: /allotments/{id} (NO trailing slash)
       const u = new URL(`${API}/allotments/${id}`);
       if (forceEnd) u.searchParams.set("force_end_previous", "true");
       const r = await fetch(u.toString(), {
@@ -130,7 +127,6 @@ export default function HouseAllotmentHistory() {
       return r.json();
     },
     async endAllotment(id) {
-      // Action route: /allotments/{id}/end (NO trailing slash)
       const r = await fetch(`${API}/allotments/${id}/end`, { method: "POST" });
       if (!r.ok) throw new Error(`End failed: ${r.status}`);
       return r.json();
@@ -141,10 +137,9 @@ export default function HouseAllotmentHistory() {
     try {
       setLoading(true);
       setErr("");
-      const h = await api.getHouse(houseId);
+      const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
 
-      // Try the dedicated by-file route first; if it returns empty, fall back to house_id filter.
       const list = h?.file_no
         ? await api.listAllotmentsByFileNo(h.file_no)
         : [];
@@ -157,7 +152,8 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [houseId]);
+  // ✅ depend on resolvedHouseId
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [resolvedHouseId]);
 
   async function submitAdd() {
     try {
