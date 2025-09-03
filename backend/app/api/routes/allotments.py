@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from app.core.security import require_permissions
 from datetime import date
 from typing import Optional, List
 
@@ -171,6 +171,6 @@ def end_allotment(
     })
 
 @router.delete("/{allotment_id}", status_code=204)
-def delete_allotment(allotment_id: int, db: Session = Depends(get_db)):
+def delete_allotment(allotment_id: int, db: Session = Depends(get_db), user=Depends(require_permissions('allotments:delete'))):
     crud.delete(db, allotment_id)
     return None

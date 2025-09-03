@@ -8,3 +8,5 @@ pydantic==1.10.15
 gunicorn==22.0.0
 python-dateutil==2.9.0.post0
 sqlmodel==0.0.7
+passlib[bcrypt]==1.7.4
+PyJWT==2.9.0

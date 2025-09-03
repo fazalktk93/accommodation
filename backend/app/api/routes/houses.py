@@ -1,5 +1,6 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends
+from app.core.security import get_current_user, require_permissions
 from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.schemas import house as s
@@ -22,14 +23,14 @@ def get_by_file(file_no: str, db: Session = Depends(get_db)):
     return crud.get_by_file(db, file_no)
 
 @router.post("/", response_model=s.HouseOut, status_code=201)
-def create_house(payload: s.HouseCreate, db: Session = Depends(get_db)):
+def create_house(payload: s.HouseCreate, db: Session = Depends(get_db), user=Depends(require_permissions('houses:create'))):
     return crud.create(db, payload)
 
 @router.patch("/{house_id}", response_model=s.HouseOut)
-def update_house(house_id: int, payload: s.HouseUpdate, db: Session = Depends(get_db)):
+def update_house(house_id: int, payload: s.HouseUpdate, db: Session = Depends(get_db), user=Depends(require_permissions('houses:update'))):
     return crud.update(db, house_id, payload)
 
 @router.delete("/{house_id}", status_code=204)
-def delete_house(house_id: int, db: Session = Depends(get_db)):
+def delete_house(house_id: int, db: Session = Depends(get_db), user=Depends(require_permissions('houses:delete'))):
     crud.delete(db, house_id)
     return None
