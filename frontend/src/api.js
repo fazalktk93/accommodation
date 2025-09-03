@@ -1,20 +1,23 @@
 // frontend/src/api.js
 import axios from 'axios'
 
-// ---- SAFE env read + startup log (will not crash)
-const viteEnv =
-  (typeof import !== 'undefined' && typeof import.meta !== 'undefined' && import.meta && import.meta.env)
-    ? import.meta.env
-    : {}
-
+// ---- SAFE env read (no "typeof import"!)
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
-const baseURL = viteEnv.VITE_API_BASE_URL || defaultApiBase
+let baseURL = defaultApiBase
+try {
+  // this is valid: we only ever reference import.meta, not "import"
+  if (typeof import.meta !== 'undefined' && import.meta && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
+    baseURL = import.meta.env.VITE_API_BASE_URL
+  }
+} catch (e) {
+  // ignore – fall back to defaultApiBase
+}
 
 console.log('[api] baseURL =', baseURL)
 
 export const api = axios.create({ baseURL, timeout: 10000 })
 
-// Log requests/responses so you can see traffic
+// Log requests/responses to help debug
 api.interceptors.request.use(cfg => {
   try { console.log('[api req]', (cfg.method || 'get').toUpperCase(), cfg.url, { params: cfg.params, data: cfg.data }) } catch (_) {}
   return cfg
