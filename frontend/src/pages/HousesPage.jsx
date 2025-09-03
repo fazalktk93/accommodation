@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listHouses, createHouse, deleteHouse, updateHouse } from '../api'
 import { useNavigate } from 'react-router-dom'
-
+import { api } from '../api'   // ✅ added: to resolve id from file_no when needed
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
@@ -9,10 +9,28 @@ export default function HousesPage(){
   const [filters, setFilters] = useState({ status:'', type_code:'' })
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ file_no:'', qtr_no:'', street:'', sector:'', type_code:'A', status:'available' })
-  const gotoAllotmentHistory = (id) =>navigate(`/houses/${id}/allotments`)
   const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+
+  // ✅ smarter navigation: accepts id or the full item; resolves by file_no if needed
+  const gotoAllotmentHistory = async (target) => {
+    try {
+      // target can be an id or the item itself
+      let hid = typeof target === 'object' && target !== null ? target.id : target
+      if (!hid || Number.isNaN(Number(hid))) {
+        // try resolving by file_no (robust when callers passed file_no or wrong id)
+        const fileNo = typeof target === 'object' && target ? target.file_no : undefined
+        if (fileNo) {
+          const { data } = await api.get(`/houses/by-file/${encodeURIComponent(fileNo)}`)
+          hid = data?.id
+        }
+      }
+      if (hid) navigate(`/houses/${hid}/allotments`)
+    } catch (e) {
+      console.error(e)
+    }
+  }
 
   const load = () => listHouses({
     q: q || undefined,
@@ -98,7 +116,8 @@ export default function HousesPage(){
             <tr key={it.id}>
               <td>{it.id}</td>
               <td>
-                <a href="#" onClick={(e)=>{e.preventDefault(); gotoAllotmentHistory(it.id)}}>
+                {/* ✅ pass the whole item; helper will use id or resolve by file_no */}
+                <a href="#" onClick={(e)=>{e.preventDefault(); gotoAllotmentHistory(it)}}>
                   {it.file_no}
                 </a>
               </td>
