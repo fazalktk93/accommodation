@@ -184,18 +184,18 @@ class UserAdmin(ModelView, model=User):
     form_excluded_columns = ["hashed_password"]
     name_plural = "Users"
 
-    # write-only password field
+    # explicitly include a write-only password field
     form_extra_fields = {"password": PasswordField("Password")}
 
-    # ✅ robust to SQLAdmin version differences (no super() call)
+    # make sure it's shown in the form
+    form_columns = ["username", "full_name", "email", "is_active", "role", "permissions", "password"]
+
     def on_model_change(self, form, model, is_created, *args, **kwargs):
         pwd = getattr(form, "password", None)
         if pwd and getattr(pwd, "data", None):
             model.hashed_password = get_password_hash(pwd.data)
         elif is_created:
-            # prevent NULL hashed_password on create
             raise ValueError("Password is required when creating a user.")
-        # No return & no super(): base implementation is a no-op, avoids arg mismatch
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
