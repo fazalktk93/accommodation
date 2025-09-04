@@ -71,7 +71,7 @@ export default function HousesPage(){
           <h3>{editing ? 'Edit House' : 'Add House'}</h3>
           <div className="grid">
             <label>File No<input value={form.file_no} onChange={e=>setForm({...form, file_no:e.target.value})} required/></label>
-            + <label>Quarter No
+            <label>Quarter No
               <input
                 /* allow letters/dashes like 12-A */
                 type="text"
