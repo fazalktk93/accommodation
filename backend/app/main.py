@@ -183,12 +183,18 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
-    # Hide the DB column so it never shows
+    # hide hashed_password from form
     form_excluded_columns = ["hashed_password"]
 
-    # Force a password field to appear
-    form_extra_fields = {
-        "password": PasswordField("Password")
+    # explicitly declare a WTForms field for password
+    form_overrides = {"password": PasswordField}
+
+    # label and requirements
+    form_args = {
+        "password": {
+            "label": "Password",
+            "validators": [],
+        }
     }
 
     async def on_model_change(self, form, model, is_created, request, db_session):
