@@ -63,6 +63,23 @@ function PieChart({ title, data, size = 220, onSliceClick }) {
   );
 }
 
+/** ---------- helpers ---------- */
+function toYMD(val) {
+  if (!val) return "";
+  const d = typeof val === "string" ? new Date(val) : val;
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+function isOnOrAfterToday(dateStr) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime() >= today.getTime();
+}
+
 /** ---------- Dashboard page ---------- */
 export default function Dashboard() {
   const [houses, setHouses] = useState([]);
@@ -79,7 +96,7 @@ export default function Dashboard() {
         setLoading(true);
         const [h, a] = await Promise.all([
           listHouses(), // expects GET /api/houses/
-          listAllotments({ active: "true" }), // active allotments for medium
+          listAllotments({ active: "true" }), // active allotments for medium/retention
         ]);
         if (!alive) return;
         setHouses(Array.isArray(h) ? h : h?.data ?? []);
@@ -96,7 +113,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ----- Tiles -----
+  // ----- Tiles: base totals -----
   const totals = useMemo(() => {
     const total = houses.length;
     const occupied = houses.filter((h) => (h.status || "").toLowerCase() === "occupied").length;
@@ -107,6 +124,15 @@ export default function Dashboard() {
     const other = Math.max(total - occupied - vacant, 0);
     return { total, occupied, vacant, other };
   }, [houses]);
+
+  // ----- Additional tiles you requested -----
+  const extraCounts = useMemo(() => {
+    const issuesInRecord = houses.filter((h) => (h.status || "").toLowerCase() === "issue_in_record").length;
+    const missing = houses.filter((h) => (h.status || "").toLowerCase() === "missing").length;
+    const onRetention = allotments.filter((a) => isOnOrAfterToday(a.retention_last)).length;
+    const transit = allotments.filter((a) => (a.medium || "").trim().toLowerCase() === "transit").length;
+    return { issuesInRecord, missing, onRetention, transit };
+  }, [houses, allotments]);
 
   // ----- Pie: Quarter status -----
   const qtrData = useMemo(() => {
@@ -225,6 +251,26 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Requested tiles: Issues/Missing/Retention/Transit */}
+          <div className="tile-row" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginTop: 12 }}>
+            <div className="tile card" style={{ padding: 12 }}>
+              <div className="tile-label">Issues in Record</div>
+              <div className="tile-value" style={{ fontSize: 24, fontWeight: 600 }}>{extraCounts.issuesInRecord}</div>
+            </div>
+            <div className="tile card" style={{ padding: 12 }}>
+              <div className="tile-label">Missing Files</div>
+              <div className="tile-value" style={{ fontSize: 24, fontWeight: 600 }}>{extraCounts.missing}</div>
+            </div>
+            <div className="tile card" style={{ padding: 12 }}>
+              <div className="tile-label">On Retention</div>
+              <div className="tile-value" style={{ fontSize: 24, fontWeight: 600 }}>{extraCounts.onRetention}</div>
+            </div>
+            <div className="tile card" style={{ padding: 12 }}>
+              <div className="tile-label">Transit (Active)</div>
+              <div className="tile-value" style={{ fontSize: 24, fontWeight: 600 }}>{extraCounts.transit}</div>
+            </div>
+          </div>
+
           {/* Charts */}
           <div className="charts-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 12, marginTop: 16 }}>
             <PieChart
@@ -300,8 +346,8 @@ export default function Dashboard() {
                         <td>{a.house_qtr_no ?? "-"}</td>
                         <td>{a.person_name}</td>
                         <td>{a.medium || "-"}</td>
-                        <td>{a.allotment_date || "-"}</td>
-                        <td>{a.occupation_date || "-"}</td>
+                        <td>{toYMD(a.allotment_date) || "-"}</td>
+                        <td>{toYMD(a.occupation_date) || "-"}</td>
                       </tr>
                     ))}
                   </tbody>
