@@ -38,6 +38,9 @@ export default function AllotmentsPage() {
   const [error, setError] = useState('')
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
+  const [page, setPage] = useState(1)
+  const [limit] = useState(50) // page size; change if you like
+  const [hasNext, setHasNext] = useState(false)
 
   // houses for selects / fallback rendering
   const [houses, setHouses] = useState([])
@@ -84,16 +87,26 @@ export default function AllotmentsPage() {
   }, [])
 
   // Initial search
-  useEffect(() => { search() }, []) // eslint-disable-line
+  useEffect(() => { search(page) }, []) // eslint-disable-line
 
-  async function search() {
+  async function search(nextPage = 1) {
     try {
       setLoading(true); setError('')
-      const resp = await searchAllotments(q && q.trim() ? q.trim() : undefined)
-      setRows(normalizeList(resp))
+      const params = {
+        q: q && q.trim() ? q.trim() : undefined,
+        limit,
+        offset: (nextPage - 1) * limit,
+      }
+      const resp = await searchAllotments(params)
+      const list = normalizeList(resp)
+      setRows(list)
+      setPage(nextPage)
+      // If the API doesn't return total, we infer "has next" by page length
+      setHasNext(list.length === limit)
     } catch (e) {
       setError(e?.message || 'Failed to load')
       setRows([])
+      setHasNext(false)
     } finally {
       setLoading(false)
     }

@@ -87,9 +87,15 @@ export const listAllotments = async (params = {}) => {
   return asList(r.data)
 }
 
-export const searchAllotments = async (params = {}) => {
-  const r = await api.get('/allotments/', { params })
-  return asList(r.data)
+ // Backward-compatible: can pass a string (q) OR an object { q, limit, offset, ... }
+export async function searchAllotments(arg) {
+  if (typeof arg === 'string') {
+    const qs = arg ? `?q=${encodeURIComponent(arg)}` : '';
+    return http.get(`/allotments${qs}`);
+  }
+  const params = arg || {};
+  const qs = new URLSearchParams(params).toString();
+  return http.get(`/allotments${qs ? `?${qs}` : ''}`);
 }
 
 export const createAllotment = async (payload) => {
