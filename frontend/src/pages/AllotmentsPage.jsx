@@ -11,7 +11,7 @@ import {
 function resolveApiBase() {
   // Prefer Vite env var if present and non-empty
   const viteBase =
-    typeof import !== 'undefined' &&
+    typeof import.meta !== 'undefined' &&
     import.meta &&
     import.meta.env &&
     import.meta.env.VITE_API_BASE
@@ -416,7 +416,7 @@ export default function AllotmentsPage() {
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
 
-                    {/* separate house fields */}
+                  {/* separate house fields */}
                   <td>{h.file_no ?? '-'}</td>
                   <td>{h.sector ?? '-'}</td>
                   <td>{h.street ?? '-'}</td>
