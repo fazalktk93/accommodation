@@ -8,11 +8,27 @@ import {
 } from '../api'
 
 // ---- LOCAL: safe GET without trailing slash to avoid redirect/CORS issues
-const API_BASE = (
-  (import.meta.env?.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim() !== ''
-    ? String(import.meta.env.VITE_API_BASE)
-    : `${window.location.origin}/api`) // no hard-coded host; uses current origin
-).replace(/\/+$/, '') // strip trailing slash
+function resolveApiBase() {
+  // Prefer Vite env var if present and non-empty
+  const viteBase =
+    typeof import !== 'undefined' &&
+    import.meta &&
+    import.meta.env &&
+    import.meta.env.VITE_API_BASE
+      ? String(import.meta.env.VITE_API_BASE).trim()
+      : ''
+
+  if (viteBase) return viteBase.replace(/\/+$/, '')
+
+  // Fallback to current origin + '/api' if window exists (browser)
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin}/api`.replace(/\/+$/, '')
+  }
+
+  // Last-resort fallback for non-browser contexts
+  return '/api'
+}
+const API_BASE = resolveApiBase()
 
 function getToken() {
   return (
@@ -400,7 +416,7 @@ export default function AllotmentsPage() {
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
 
-                  {/* separate house fields */}
+                    {/* separate house fields */}
                   <td>{h.file_no ?? '-'}</td>
                   <td>{h.sector ?? '-'}</td>
                   <td>{h.street ?? '-'}</td>
