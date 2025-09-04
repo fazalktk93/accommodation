@@ -10,7 +10,7 @@ Key features:
 - Failure log + status histogram.
 """
 
-import os, sys, csv, time, json, hashlib, random
+import os, sys, csv, time, json, random
 from collections import Counter
 import requests
 from requests.adapters import HTTPAdapter
@@ -48,6 +48,34 @@ def norm(v):
 
 def bool_yes(v):
     return (v or "").strip().lower() in {"y", "yes", "true", "1"}
+
+def norm_status(v: str) -> str:
+    """
+    Normalize status values. Requirements:
+      - fix 'vacnt' -> 'vacant'
+      - do NOT force 'occupied' anywhere
+      - if empty, return "" (leave blank)
+    """
+    s = (v or "").strip().lower()
+    if not s:
+        return ""  # leave blank exactly as requested
+
+    mapping = {
+        # vacant typos/variants
+        "vacnt": "vacant",
+        "vacent": "vacant",
+        "vacn": "vacant",
+        "vac": "vacant",
+        "vacant": "vacant",
+
+        # occupied variants (kept as 'occupied' only if explicitly provided)
+        "occupied": "occupied",
+        "occuppied": "occupied",
+        "occ": "occupied",
+        "active": "occupied",    # if your API expects 'active' instead, change this line
+        "allocated": "occupied", # optional; remove if not desired
+    }
+    return mapping.get(s, s)  # unknown strings pass through unchanged
 
 def make_session():
     s = requests.Session()
@@ -127,8 +155,8 @@ def import_csv(csv_path):
                 "street": norm(row.get("street")),
                 "sector": norm(row.get("sector")),
                 "pool": norm(row.get("pool")),
-                # keep empty strings so backend won't auto-default
-                "status": norm(row.get("status")),
+                # STATUS: normalize, fix 'vacnt' -> 'vacant', leave blank if empty
+                "status": norm_status(row.get("status")),
                 "medium": norm(row.get("medium")),
                 "type_code": norm(row.get("type_code")),
                 "on_retention": bool_yes(row.get("retention")),
@@ -209,7 +237,7 @@ def import_csv(csv_path):
 
     # Post-import peek past default page size
     try:
-        r = sess.get(f"{API_BASE}/houses?limit=1000", headers=auth_headers(), timeout=TIMEOUT)
+        r = requests.get(f"{API_BASE}/houses?limit=1000", headers=auth_headers(), timeout=TIMEOUT)
         if r.status_code < 300:
             data = r.json()
             if isinstance(data, list):
