@@ -71,7 +71,15 @@ export default function HousesPage(){
           <h3>{editing ? 'Edit House' : 'Add House'}</h3>
           <div className="grid">
             <label>File No<input value={form.file_no} onChange={e=>setForm({...form, file_no:e.target.value})} required/></label>
-            <label>Quarter No<input type="number" value={form.qtr_no} onChange={e=>setForm({...form, qtr_no:Number(e.target.value)})} required/></label>
+            + <label>Quarter No
+              <input
+                /* allow letters/dashes like 12-A */
+                type="text"
+                value={form.qtr_no ?? ''}
+                onChange={e => setForm({ ...form, qtr_no: e.target.value })}
+                required
+              />
+            </label>
             <label>Street<input value={form.street} onChange={e=>setForm({...form, street:e.target.value})} required/></label>
             <label>Sector<input value={form.sector} onChange={e=>setForm({...form, sector:e.target.value})} required/></label>
             <label>Type
