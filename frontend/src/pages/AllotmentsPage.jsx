@@ -245,7 +245,11 @@ export default function AllotmentsPage() {
             </label>
 
             <label>Pool
-              <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
+              <select value={form.pool} onChange={e => onChange('pool', e.target.value)}>
+                <option value="">Select pool</option>
+                <option value="CDA">CDA</option>
+                <option value="Estate Office">Estate Office</option>
+              </select>
             </label>
 
             <label>Medium
@@ -255,6 +259,7 @@ export default function AllotmentsPage() {
                 <option value="mutual">Mutual</option>
                 <option value="changes">Changes</option>
                 <option value="fresh">Fresh</option>
+                <option value="Transit">Transit</option>
               </select>
             </label>
 
@@ -353,7 +358,12 @@ export default function AllotmentsPage() {
                   <td>{h.qtr_no ?? h.number ?? '-'}</td>
 
                   <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
-                  <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    {r.medium || ''}
+                    {r.medium === 'Transit' && (
+                      <span className="chip chip-accent" style={{ marginLeft: 6 }}>Transit</span>
+                    )}
+                  </td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
                   <td style={{ textAlign: 'center' }}>
@@ -385,6 +395,8 @@ export default function AllotmentsPage() {
         label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
         button { height: 32px; padding: 0 12px; }
         .page { padding: 12px; }
+        .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
+        .chip-accent { background: #f5e1ff; }
       `}</style>
     </div>
   )

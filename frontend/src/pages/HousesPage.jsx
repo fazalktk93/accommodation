@@ -60,7 +60,7 @@ export default function HousesPage(){
         </select>
         <select value={filters.status} onChange={e=>setFilters({...filters, status:e.target.value})}>
           <option value="">Any Status</option>
-          {["available","vacant","occupied","reserved","maintenance","other"].map(s => <option key={s} value={s}>{s}</option>)}
+          {["available","vacant","occupied","reserved","maintenance","other","issue_in_record","missing"].map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <button type="submit">Search</button>
         <button type="button" onClick={()=>setShowAdd(s=>!s)}>Add House</button>
@@ -81,7 +81,12 @@ export default function HousesPage(){
               />
             </label>
             <label>Street<input value={form.street} onChange={e=>setForm({...form, street:e.target.value})} required/></label>
-            <label>Sector<input value={form.sector} onChange={e=>setForm({...form, sector:e.target.value})} required/></label>
+              <label>Sector
+                <select value={form.sector || ''} onChange={e=>setForm({...form, sector:e.target.value})} required>
+                  <option value="" disabled>Select Sector</option>
+                  {["A","B","C","D","E","F","G","H","Site"].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
             <label>Type
               <select value={form.type_code} onChange={e=>setForm({...form, type_code:e.target.value})} required>
                 {"ABCDEFGH".split("").map(t => <option key={t} value={t}>{t}</option>)}
@@ -89,7 +94,7 @@ export default function HousesPage(){
             </label>
             <label>Status
               <select value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
-                {["available","vacant","occupied","reserved","maintenance","other"].map(s => <option key={s} value={s}>{s}</option>)}
+                {["available","vacant","occupied","reserved","maintenance","other","issue_in_record","missing"].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
           </div>
