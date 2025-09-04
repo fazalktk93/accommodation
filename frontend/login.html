@@ -14,43 +14,49 @@
     input { width: 100%; padding: 10px 12px; border: 1px solid #d9dbe1; border-radius: 8px; font-size: 14px; }
     button { width: 100%; margin-top: 16px; padding: 10px 12px; font-size: 15px; border: 0; border-radius: 8px;
              cursor: pointer; background: black; color: #fff; }
-    .error { margin-top: 10px; color: #b00020; font-size: 13px; min-height: 16px; }
-    .muted { margin-top: 10px; color: #666; font-size: 12px; text-align: center; }
+    .error { color: #b00020; font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .muted { color: #666; font-size: 12px; margin-top: 12px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <h1>Sign in</h1>
-      <form id="loginForm">
+      <form id="loginForm" autocomplete="on">
         <label>Username</label>
-        <input id="username" autocomplete="username" required />
+        <input id="username" name="username" autocomplete="username" required />
         <label>Password</label>
-        <input id="password" type="password" autocomplete="current-password" required />
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
         <button type="submit">Login</button>
         <div class="error" id="error"></div>
-        <div class="muted">Use your API credentials.</div>
+        <div class="muted">Posts JSON to <code>/api/auth/token</code>.</div>
       </form>
     </div>
   </div>
 
-  <!-- Load the auth helper -->
+  <!-- Optional: override backend base if not :8000 -->
+  <!-- <script>window.API_BASE_URL = "http://192.168.0.102:8000/api";</script> -->
+
+  <!-- IMPORTANT: import using absolute path to /src/... so Vite resolves it -->
   <script type="module">
-    import { auth } from "./auth.js";
-    // If already logged in, go to dashboard
-    if (auth.isLoggedIn()) {
-      window.location.href = "/web/dashboard.html";
+    import auth, { isLoggedIn, login } from "/src/auth.js";
+
+    if (isLoggedIn()) {
+      // route wherever you want after login
+      window.location.href = "/dashboard.html";
     }
+
     const form = document.getElementById("loginForm");
-    const err = document.getElementById("error");
+    const err  = document.getElementById("error");
+
     form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+      e.preventDefault();           // prevent default form POST (avoids /admin/login)
       err.textContent = "";
       const username = document.getElementById("username").value.trim();
       const password = document.getElementById("password").value;
       try {
-        await auth.login(username, password);
-        window.location.href = "/web/dashboard.html";
+        await login(username, password);
+        window.location.href = "/dashboard.html";
       } catch (ex) {
         err.textContent = ex.message || "Login failed";
       }

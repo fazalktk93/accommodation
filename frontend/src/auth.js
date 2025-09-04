@@ -2,66 +2,86 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-// Default API base (backend runs on :8000 with /api prefix)
+// Default to same host on :8000 with /api prefix
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`;
-
 let API_BASE = defaultApiBase;
 
-// Vite allows overrides via env
-if (import.meta.env?.VITE_API_BASE_URL) {
+// Vite env override: VITE_API_BASE_URL
+if (import.meta?.env?.VITE_API_BASE_URL) {
   API_BASE = import.meta.env.VITE_API_BASE_URL;
 }
-// Or override in browser console: window.API_BASE_URL = "http://server:8000/api";
+// Runtime override if you set it before loading this file
 if (typeof window !== "undefined" && window.API_BASE_URL) {
   API_BASE = window.API_BASE_URL;
 }
 
+export function getToken() {
+  return localStorage.getItem(AUTH_STORAGE_KEY);
+}
+
+export function setToken(value) {
+  if (value) localStorage.setItem(AUTH_STORAGE_KEY, value);
+  else localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+export function isLoggedIn() {
+  return !!getToken();
+}
+
+export function logout() {
+  setToken(null);
+  if (typeof window !== "undefined") {
+    // adjust if your router uses a different login route
+    window.location.href = "/login.html";
+  }
+}
+
+/** JSON login against /api/auth/token */
+export async function login(username, password) {
+  const res = await fetch(`${API_BASE}/auth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    let msg = "Login failed";
+    try {
+      const data = await res.json();
+      msg = data?.detail || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  if (!data?.access_token) throw new Error("Invalid response from server");
+  setToken(data.access_token);
+  return data;
+}
+
+/** Build full API URL */
+export function api(path) {
+  return path.startsWith("http") ? path : `${API_BASE}${path}`;
+}
+
+/** Fetch wrapper with Authorization header */
+export async function authFetch(pathOrUrl, options = {}) {
+  const url = pathOrUrl.startsWith("http") ? pathOrUrl : api(pathOrUrl);
+  const headers = new Headers(options.headers || {});
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) logout();
+  return res;
+}
+
+/** Optional convenience object */
 export const auth = {
-  get token() {
-    return localStorage.getItem(AUTH_STORAGE_KEY);
-  },
-  set token(value) {
-    if (value) localStorage.setItem(AUTH_STORAGE_KEY, value);
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
-  },
-  isLoggedIn() {
-    return !!auth.token;
-  },
-  logout() {
-    auth.token = null;
-    if (typeof window !== "undefined") {
-      window.location.href = "/login.html";
-    }
-  },
-
-  /** JSON login: POST /api/auth/token */
-  async login(username, password) {
-    const res = await fetch(`${API_BASE}/auth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (!res.ok) {
-      let msg = "Login failed";
-      try {
-        const data = await res.json();
-        if (data?.detail) msg = data.detail;
-      } catch {}
-      throw new Error(msg);
-    }
-    const data = await res.json();
-    if (!data?.access_token) throw new Error("Invalid response from server");
-    auth.token = data.access_token;
-    return data;
-  },
-
-  /** Fetch wrapper with Authorization header */
-  async fetch(path, options = {}) {
-    const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-    const headers = new Headers(options.headers || {});
-    if (auth.token) headers.set("Authorization", `Bearer ${auth.token}`);
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401) auth.logout();
-    return res;
-  },
+  get token() { return getToken(); },
+  set token(v) { setToken(v); },
+  isLoggedIn,
+  logout,
+  login,
+  fetch: authFetch,
+  api,
 };
+
+export default auth;
