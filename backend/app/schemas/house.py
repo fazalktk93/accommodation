@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class HouseCreate(BaseModel):
     file_no: str
-    qtr_no: Optional[int] = None
+    qtr_no: Optional[str] = None
     street: Optional[str] = None
     sector: Optional[str] = None
     type_code: Optional[str] = None
@@ -12,7 +12,7 @@ class HouseCreate(BaseModel):
 
 class HouseUpdate(BaseModel):
     file_no: Optional[str] = None
-    qtr_no: Optional[int] = None
+    qtr_no: Optional[str] = None
     street: Optional[str] = None
     sector: Optional[str] = None
     type_code: Optional[str] = None
@@ -22,7 +22,7 @@ class HouseUpdate(BaseModel):
 class HouseOut(BaseModel):
     id: int
     file_no: Optional[str] = None
-    qtr_no: Optional[int] = None
+    qtr_no: Optional[str] = None
     street: Optional[str] = None
     sector: Optional[str] = None
     type_code: Optional[str] = None

@@ -21,7 +21,7 @@ class House(Base):
 
     # Canonical identifiers
     file_no: Mapped[str] = mapped_column(String, index=True, unique=True)
-    qtr_no: Mapped[Optional[int]] = mapped_column(Integer, index=True, nullable=True)
+    qtr_no: Mapped[Optional[int]] = mapped_column(String, index=True, nullable=True)
     street: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     sector: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     type_code: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
