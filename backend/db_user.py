@@ -1,17 +1,23 @@
 # create_admin.py
-# Usage example:
+# Usage:
 #   PYTHONPATH=backend/app python create_admin.py \
-#       --username admin \
-#       --password 'YourStrongPassword' \
-#       --email admin@example.com \
-#       --full-name 'Administrator'
+#       --username admin --password 'YourStrongPassword' \
+#       --email admin@example.com --full-name 'Administrator'
 
 import argparse
 from sqlalchemy import select
-from app.db.session import SessionLocal
+from sqlalchemy import inspect
+from app.db.session import SessionLocal, engine
+from app.models.base import Base  # declarative base for all models
 from app.models.user import User, Role
 from app.core.security import get_password_hash
 
+def ensure_tables():
+    """Create tables if they don't exist (useful for fresh SQLite DBs)."""
+    insp = inspect(engine)
+    if "user" not in insp.get_table_names():
+        # Create all mapped tables
+        Base.metadata.create_all(bind=engine)
 
 def main():
     parser = argparse.ArgumentParser(description="Create or update an admin user.")
@@ -21,12 +27,12 @@ def main():
     parser.add_argument("--full-name", dest="full_name", default=None)
     args = parser.parse_args()
 
+    ensure_tables()
+
     db = SessionLocal()
     try:
-        # Check if user exists
         user = db.scalar(select(User).where(User.username == args.username))
         if user:
-            # Update existing user
             user.hashed_password = get_password_hash(args.password)
             user.role = Role.admin.value
             if args.email is not None:
@@ -39,7 +45,6 @@ def main():
             db.refresh(user)
             print(f"✅ Updated existing user '{user.username}' to admin.")
         else:
-            # Create new admin user
             user = User(
                 username=args.username,
                 full_name=args.full_name,
@@ -55,7 +60,6 @@ def main():
             print(f"✅ Created new admin user '{user.username}'.")
     finally:
         db.close()
-
 
 if __name__ == "__main__":
     main()
