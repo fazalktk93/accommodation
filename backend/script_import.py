@@ -8,7 +8,7 @@ Expected CSV columns:
 Usage:
     pip install requests pandas
     export API_BASE="http://localhost:8000/api"   # or your prod URL
-    export API_TOKEN="..."                        # if you use auth
+    export API_TOKEN="046b647b2f812a1efcbfc16690446bc299dfee1a9011cb89b359ca378b3bbec3"                        # if you use auth
     python import_houses.py "Quarter's Details.csv"
 """
 
