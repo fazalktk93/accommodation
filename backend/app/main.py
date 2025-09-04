@@ -181,21 +181,23 @@ from wtforms import PasswordField
 # Register models
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
-    form_excluded_columns = ["hashed_password"]
     name_plural = "Users"
 
-    # explicitly include a write-only password field
-    form_extra_fields = {"password": PasswordField("Password")}
-
-    # make sure it's shown in the form
+    # show exactly these in the form (no hashed_password here)
     form_columns = ["username", "full_name", "email", "is_active", "role", "permissions", "password"]
 
+    # write-only password field
+    form_extra_fields = {"password": PasswordField("Password")}
+
+    # robust signature; don't call super() to avoid version arg mismatches
     def on_model_change(self, form, model, is_created, *args, **kwargs):
         pwd = getattr(form, "password", None)
         if pwd and getattr(pwd, "data", None):
             model.hashed_password = get_password_hash(pwd.data)
         elif is_created:
+            # prevent NULL hashed_password on create
             raise ValueError("Password is required when creating a user.")
+        # no return needed
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
