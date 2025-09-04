@@ -11,6 +11,13 @@ class Settings(BaseSettings):
         r"172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$"
     )
 
+    # 🔑 Required for SessionMiddleware & JWT
+    SECRET_KEY: str = "change-this-to-a-long-random-string"
+
+    # 👤 Default SQLAdmin login user/pass (can override in .env)
+    ADMIN_USER: str = "admin"
+    ADMIN_PASS: str = "admin123"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

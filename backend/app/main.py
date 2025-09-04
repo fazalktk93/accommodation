@@ -10,13 +10,13 @@ from app.api.routes import auth, users
 from app.models import Base
 
 # -----------------------------------------------------------------------------
-# App & logging
+// App & logging
 # -----------------------------------------------------------------------------
 setup_logging()
 app = FastAPI()
 
 # -----------------------------------------------------------------------------
-# CORS
+// CORS
 # -----------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # -----------------------------------------------------------------------------
-# Routers (all under /api)
+// Routers (all under /api)
 # -----------------------------------------------------------------------------
 app.include_router(houses.router, prefix="/api")
 app.include_router(allotments.router, prefix="/api")
@@ -38,7 +38,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 
 # -----------------------------------------------------------------------------
-# Request logging middleware
+// Request logging middleware
 # -----------------------------------------------------------------------------
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -51,7 +51,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 # -----------------------------------------------------------------------------
-# Startup: ensure DB schema
+// Startup: ensure DB schema
 # -----------------------------------------------------------------------------
 @app.on_event("startup")
 def on_startup():
@@ -60,7 +60,7 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
 
 # -----------------------------------------------------------------------------
-# SQLAdmin: admin panel at /admin
+// SQLAdmin: admin panel at /admin
 # -----------------------------------------------------------------------------
 # --- SQLAdmin (Admin panel at /admin) ---
 from sqladmin import Admin, ModelView
@@ -68,37 +68,84 @@ from sqladmin.authentication import AuthenticationBackend  # <-- correct base cl
 import jwt
 from sqlalchemy import select
 
-from app.core.security import SECRET_KEY, ALGORITHM
+# ⬇️ add verify_password; we’ll keep using your SECRET_KEY/ALGORITHM
+from app.core.security import SECRET_KEY, ALGORITHM, verify_password
 from app.db.session import get_session
 from app.models.user import User, Role
 from app.models.house import House
 from app.models.allotment import Allotment
 from app.models.file_movement import FileMovement
 
+# ⬇️ add SessionMiddleware so SQLAdmin can persist auth state
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    same_site="lax",
+    https_only=False,            # set True if strictly HTTPS
+    max_age=60 * 60 * 8,         # 8h session
+)
+
 class AdminAuth(AuthenticationBackend):
-    """SQLAdmin auth that reuses our JWT and requires role=admin."""
+    """SQLAdmin auth that reuses our JWT and supports form login; requires role=admin."""
 
     def __init__(self, secret_key: str):
-        # SQLAdmin uses this for its own session cookie if you ever use its login form
+        # SQLAdmin uses this for its own session cookie / CSRF
         super().__init__(secret_key=secret_key)
 
     async def login(self, request):
         """
-        Optional: if you want /admin/login form-based auth, implement this.
-        We're using JWT in headers/cookies, so just return False to disable.
+        Handle POST /admin/login (form-encoded).
+        Validates username/password from DB, requires active admin.
+        On success, mark session so authenticate() passes.
         """
-        return False
+        try:
+            form = await request.form()
+            username = (form.get("username") or "").strip()
+            password = form.get("password") or ""
+
+            if not username or not password:
+                return False
+
+            # DB lookup
+            with next(get_session()) as db:
+                user = db.scalar(select(User).where(User.username == username))
+
+                if not user or not user.is_active:
+                    return False
+
+                # verify password against stored hash
+                if not verify_password(password, user.hashed_password):
+                    return False
+
+                # must be admin role
+                role_val = user.role if isinstance(user.role, str) else user.role.value
+                if role_val != Role.admin.value:
+                    return False
+
+            # success: set session flags for SQLAdmin
+            request.session["sqladmin_auth"] = True
+            request.session["sqladmin_user"] = username
+            return True
+        except Exception:
+            return False
 
     async def logout(self, request):
-        """Optional cleanup if you set cookies. We don't, so just return True."""
+        request.session.pop("sqladmin_auth", None)
+        request.session.pop("sqladmin_user", None)
         return True
 
     async def authenticate(self, request):
         """
-        Return True if authenticated (admin), else False.
-        We accept the token either from Authorization: Bearer <JWT> or from a
-        cookie named 'access_token' if you decide to set it on login.
+        Accept either:
+        - session flag set by our form login (preferred for /admin UI), or
+        - a valid Bearer JWT for an active admin (your existing behavior).
         """
+        # 1) session-based auth (after /admin/login)
+        if request.session.get("sqladmin_auth"):
+            return True
+
+        # 2) Bearer JWT (fallback)
         token = None
         auth = request.headers.get("authorization") or ""
         if auth.lower().startswith("bearer "):
@@ -122,7 +169,8 @@ class AdminAuth(AuthenticationBackend):
             user = db.scalar(select(User).where(User.username == username))
             if not user or not user.is_active:
                 return False
-            if (user.role if isinstance(user.role, str) else user.role.value) != Role.admin.value:
+            role_val = user.role if isinstance(user.role, str) else user.role.value
+            if role_val != Role.admin.value:
                 return False
 
         return True
