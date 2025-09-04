@@ -180,9 +180,13 @@ class UserForm(Form):
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
-    form_excluded_columns = ["hashed_password"]
-    form = UserForm  # your custom WTForms Form with `password = PasswordField("Password")`
 
+    # Hide the DB column from the form
+    form_excluded_columns = ["hashed_password"]
+    # Use our custom WTForms form so Password renders
+    form = UserForm
+
+    # Accept both old/new SQLAdmin hook signatures
     async def on_model_change(
         self,
         form,
@@ -191,26 +195,36 @@ class UserAdmin(ModelView, model=User):
         request=None,
         db_session=None,
         *args,
-        **kwargs,
+        **kwargs
     ):
-        # Get password from either .data or .raw_data (some SQLAdmin/WTForms combos only populate raw_data)
         pwd_value = None
+
+        # 1) Try WTForms-bound value
         if hasattr(form, "password"):
-            # try normal bound value
             if getattr(form.password, "data", None):
                 pwd_value = form.password.data
-            # fallback to raw_data list
             elif getattr(form.password, "raw_data", None):
                 raw = form.password.raw_data
                 if isinstance(raw, (list, tuple)) and raw:
                     pwd_value = (raw[0] or "").strip()
 
+        # 2) Fallback: read directly from Starlette request form
+        if not pwd_value and request is not None:
+            try:
+                formdata = await request.form()  # cached by Starlette; safe to call
+                candidate = formdata.get("password") or ""
+                if candidate.strip():
+                    pwd_value = candidate.strip()
+            except Exception:
+                pass
+
+        # 3) Apply hashing / validation
         if pwd_value:
             model.hashed_password = get_password_hash(pwd_value)
         elif is_created:
-            # prevent NULL hashed_password on create
+            # still nothing → prevent NULL in DB
             raise ValueError("Password is required when creating a user.")
-        # don't call super(); base impl is a no-op and avoids signature issues
+        # do not call super(); base impl is a no-op and avoids signature mismatches
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
