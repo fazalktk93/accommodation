@@ -180,14 +180,9 @@ class UserForm(Form):
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
-
-    # keep the DB column hidden from the form
     form_excluded_columns = ["hashed_password"]
+    form = UserForm  # your custom WTForms Form with `password = PasswordField("Password")`
 
-    # use our custom WTForms form so Password shows up
-    form = UserForm
-
-    # ✅ works with BOTH old & new SQLAdmin signatures
     async def on_model_change(
         self,
         form,
@@ -198,13 +193,24 @@ class UserAdmin(ModelView, model=User):
         *args,
         **kwargs,
     ):
-        # Hash if provided; require on create
-        pwd = getattr(form, "password", None)
-        if pwd and getattr(pwd, "data", None):
-            model.hashed_password = get_password_hash(pwd.data)
+        # Get password from either .data or .raw_data (some SQLAdmin/WTForms combos only populate raw_data)
+        pwd_value = None
+        if hasattr(form, "password"):
+            # try normal bound value
+            if getattr(form.password, "data", None):
+                pwd_value = form.password.data
+            # fallback to raw_data list
+            elif getattr(form.password, "raw_data", None):
+                raw = form.password.raw_data
+                if isinstance(raw, (list, tuple)) and raw:
+                    pwd_value = (raw[0] or "").strip()
+
+        if pwd_value:
+            model.hashed_password = get_password_hash(pwd_value)
         elif is_created:
+            # prevent NULL hashed_password on create
             raise ValueError("Password is required when creating a user.")
-        # no super() call → avoids signature mismatches
+        # don't call super(); base impl is a no-op and avoids signature issues
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
