@@ -10,13 +10,13 @@ from app.api.routes import auth, users
 from app.models import Base
 
 # -----------------------------------------------------------------------------
-// App & logging
+# App & logging
 # -----------------------------------------------------------------------------
 setup_logging()
 app = FastAPI()
 
 # -----------------------------------------------------------------------------
-// CORS
+# CORS
 # -----------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # -----------------------------------------------------------------------------
-// Routers (all under /api)
+# Routers (all under /api)
 # -----------------------------------------------------------------------------
 app.include_router(houses.router, prefix="/api")
 app.include_router(allotments.router, prefix="/api")
@@ -38,7 +38,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 
 # -----------------------------------------------------------------------------
-// Request logging middleware
+# Request logging middleware
 # -----------------------------------------------------------------------------
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -51,7 +51,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 # -----------------------------------------------------------------------------
-// Startup: ensure DB schema
+# Startup: ensure DB schema
 # -----------------------------------------------------------------------------
 @app.on_event("startup")
 def on_startup():
@@ -60,7 +60,7 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
 
 # -----------------------------------------------------------------------------
-// SQLAdmin: admin panel at /admin
+# SQLAdmin: admin panel at /admin
 # -----------------------------------------------------------------------------
 # --- SQLAdmin (Admin panel at /admin) ---
 from sqladmin import Admin, ModelView
