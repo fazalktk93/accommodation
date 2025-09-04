@@ -183,16 +183,16 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
-    # hide hashed_password from the form
+    # Hide the DB column so it never shows
     form_excluded_columns = ["hashed_password"]
 
-    # add a write-only password field
-    form_extra_fields = {"password": PasswordField("Password")}
+    # Force a password field to appear
+    form_extra_fields = {
+        "password": PasswordField("Password")
+    }
 
-    # explicitly tell SQLAdmin to render it
-    form_include_columns = ["username", "full_name", "email", "is_active", "role", "permissions", "password"]
-
-    def on_model_change(self, form, model, is_created, *args, **kwargs):
+    async def on_model_change(self, form, model, is_created, request, db_session):
+        """Hash password before saving."""
         pwd = getattr(form, "password", None)
         if pwd and getattr(pwd, "data", None):
             model.hashed_password = get_password_hash(pwd.data)
