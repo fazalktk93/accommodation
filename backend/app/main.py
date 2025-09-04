@@ -56,7 +56,7 @@ async def log_requests(request: Request, call_next):
 @app.on_event("startup")
 def on_startup():
     ensure_sqlite_schema(engine)
-    from app import models
+    from app import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
 # -----------------------------------------------------------------------------
@@ -74,27 +74,31 @@ from app.models.house import House
 from app.models.allotment import Allotment
 from app.models.file_movement import FileMovement
 
+# Sessions for SQLAdmin login
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     same_site="lax",
-    https_only=False,
-    max_age=60 * 60 * 8,
+    https_only=False,       # set True if strictly HTTPS
+    max_age=60 * 60 * 8,    # 8h
 )
 
 class AdminAuth(AuthenticationBackend):
-    """SQLAdmin auth that reuses our JWT and supports form login; requires role=admin."""
+    """SQLAdmin auth supporting form login & JWT; requires admin role."""
 
     def __init__(self, secret_key: str):
         super().__init__(secret_key=secret_key)
 
     async def login(self, request):
+        """
+        Handle POST /admin/login (form-encoded).
+        Validates username/password from DB; requires active admin.
+        """
         try:
             form = await request.form()
             username = (form.get("username") or "").strip()
             password = form.get("password") or ""
-
             if not username or not password:
                 return False
 
@@ -104,10 +108,12 @@ class AdminAuth(AuthenticationBackend):
                     return False
                 if not verify_password(password, user.hashed_password):
                     return False
+
                 role_val = user.role if isinstance(user.role, str) else user.role.value
                 if role_val != Role.admin.value:
                     return False
 
+            # success: mark session authenticated
             request.session["sqladmin_auth"] = True
             request.session["sqladmin_user"] = username
             return True
@@ -120,9 +126,11 @@ class AdminAuth(AuthenticationBackend):
         return True
 
     async def authenticate(self, request):
+        # session-based (after /admin/login)
         if request.session.get("sqladmin_auth"):
             return True
 
+        # JWT fallback (Authorization: Bearer <token> or access_token cookie)
         token = None
         auth = request.headers.get("authorization") or ""
         if auth.lower().startswith("bearer "):
@@ -151,19 +159,22 @@ class AdminAuth(AuthenticationBackend):
         return True
 
 # -----------------------------------------------------------------------------
-# Custom User Form for Admin
+# Custom User Form (WTForms) so "Password" shows in UI
 # -----------------------------------------------------------------------------
-from wtforms import StringField, BooleanField, PasswordField
+from wtforms import Form, StringField, BooleanField, PasswordField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Email, Optional
 
-class UserForm:
+# Build choices from Role enum (admin/viewer, etc.)
+ROLE_CHOICES = [(r.value if hasattr(r, "value") else str(r), (r.value if hasattr(r, "value") else str(r))) for r in Role]
+
+class UserForm(Form):
     username = StringField("Username", validators=[DataRequired()])
     full_name = StringField("Full Name", validators=[Optional()])
-    email = StringField("Email", validators=[Email()])
+    email = StringField("Email", validators=[Optional(), Email()])
     is_active = BooleanField("Is Active")
-    role = StringField("Role", validators=[DataRequired()])
-    permissions = StringField("Permissions", validators=[Optional()])
-    password = PasswordField("Password")  # <-- visible password field
+    role = SelectField("Role", choices=ROLE_CHOICES, validators=[DataRequired()])
+    permissions = TextAreaField("Permissions", validators=[Optional()])
+    password = PasswordField("Password")  # <-- visible in the admin form
 
 # -----------------------------------------------------------------------------
 # Model Views
@@ -172,9 +183,13 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
+    # hide the DB hashed password field from the form
     form_excluded_columns = ["hashed_password"]
-    form = UserForm  # <-- use our custom form
 
+    # use our custom WTForms form so "Password" renders
+    form = UserForm
+
+    # hash password before saving; require on create
     async def on_model_change(self, form, model, is_created, request, db_session):
         if form.password.data:
             model.hashed_password = get_password_hash(form.password.data)
