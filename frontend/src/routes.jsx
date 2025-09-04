@@ -1,25 +1,37 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import HouseDetail from './pages/HouseDetail'
-import AllotmentEdit from './pages/AllotmentEdit'
-import HouseAllotmentHistory from './pages/HouseAllotmentHistory' // ✅ add this
+// frontend/src/routes.jsx
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import HouseDetail from "./pages/HouseDetail";
+import AllotmentEdit from "./pages/AllotmentEdit";
+import HouseAllotmentHistory from "./pages/HouseAllotmentHistory";
+import Login from "./pages/Login";
 
 export default function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* House details page (keep if you use it elsewhere) */}
+        {/* login page */}
+        <Route path="/login" element={<Login />} />
+
+        {/* House details */}
         <Route path="/houses/:id" element={<HouseDetail />} />
 
-        {/* ✅ history should render HouseAllotmentHistory */}
-        <Route path="/houses/:houseId/allotments" element={<HouseAllotmentHistory />} />
-        {/* ✅ legacy alias (if somewhere still links with :id) */}
-        <Route path="/houses/:id/allotments" element={<HouseAllotmentHistory />} />
+        {/* House allotment history */}
+        <Route
+          path="/houses/:houseId/allotments"
+          element={<HouseAllotmentHistory />}
+        />
+        {/* legacy alias */}
+        <Route
+          path="/houses/:id/allotments"
+          element={<HouseAllotmentHistory />}
+        />
 
-        {/* edit allotment */}
+        {/* Allotment edit */}
         <Route path="/allotments/:id/edit" element={<AllotmentEdit />} />
 
-        {/* add a fallback as needed */}
+        {/* you can add a default fallback route if needed */}
+        {/* <Route path="*" element={<NotFound />} /> */}
       </Routes>
     </BrowserRouter>
-  )
+  );
 }

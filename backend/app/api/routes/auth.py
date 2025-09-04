@@ -20,8 +20,8 @@ def get_db():
 def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db)):
     """
     JSON login:
-      POST /auth/token
-      Body: {"username": "...", "password": "..."}
+    POST /auth/token
+    Body: {"username": "...", "password": "..."}
     """
     user = db.scalar(select(User).where(User.username == payload.username))
     if not user or not verify_password(payload.password, user.hashed_password):
@@ -40,9 +40,9 @@ def login_alias(
 ):
     """
     Form login (useful for HTML forms):
-      POST /auth/login
-      Content-Type: application/x-www-form-urlencoded
-      Body: username=...&password=...
+    POST /auth/login
+    Content-Type: application/x-www-form-urlencoded
+    Body: username=...&password=...
     """
     user = db.scalar(select(User).where(User.username == username))
     if not user or not verify_password(password, user.hashed_password):
