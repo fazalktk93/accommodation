@@ -1,36 +1,69 @@
 // frontend/src/routes.jsx
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+
 import HouseDetail from "./pages/HouseDetail";
 import AllotmentEdit from "./pages/AllotmentEdit";
 import HouseAllotmentHistory from "./pages/HouseAllotmentHistory";
+
 import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* login page */}
+        {/* Public */}
         <Route path="/login" element={<Login />} />
 
-        {/* House details */}
-        <Route path="/houses/:id" element={<HouseDetail />} />
+        {/* Protected */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* House allotment history */}
+        <Route
+          path="/houses/:id"
+          element={
+            <ProtectedRoute>
+              <HouseDetail />
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/houses/:houseId/allotments"
-          element={<HouseAllotmentHistory />}
+          element={
+            <ProtectedRoute>
+              <HouseAllotmentHistory />
+            </ProtectedRoute>
+          }
         />
         {/* legacy alias */}
         <Route
           path="/houses/:id/allotments"
-          element={<HouseAllotmentHistory />}
+          element={
+            <ProtectedRoute>
+              <HouseAllotmentHistory />
+            </ProtectedRoute>
+          }
         />
 
-        {/* Allotment edit */}
-        <Route path="/allotments/:id/edit" element={<AllotmentEdit />} />
+        <Route
+          path="/allotments/:id/edit"
+          element={
+            <ProtectedRoute>
+              <AllotmentEdit />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* you can add a default fallback route if needed */}
-        {/* <Route path="*" element={<NotFound />} /> */}
+        {/* Optional fallback:
+        <Route path="*" element={<Navigate to="/dashboard" replace />} /> */}
       </Routes>
     </BrowserRouter>
   );

@@ -2,18 +2,20 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-// Default to same host on :8000 with /api prefix
+// Default API base (backend on :8000 with /api prefix)
 const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`;
 let API_BASE = defaultApiBase;
 
-// Vite env override: VITE_API_BASE_URL
+// Vite env override
 if (import.meta?.env?.VITE_API_BASE_URL) {
   API_BASE = import.meta.env.VITE_API_BASE_URL;
 }
-// Runtime override if you set it before loading this file
+// Runtime override (if you define window.API_BASE_URL before this loads)
 if (typeof window !== "undefined" && window.API_BASE_URL) {
   API_BASE = window.API_BASE_URL;
 }
+
+/* ===== Named exports expected elsewhere (e.g., api.js) ===== */
 
 export function getToken() {
   return localStorage.getItem(AUTH_STORAGE_KEY);
@@ -31,12 +33,11 @@ export function isLoggedIn() {
 export function logout() {
   setToken(null);
   if (typeof window !== "undefined") {
-    // adjust if your router uses a different login route
-    window.location.href = "/login.html";
+    window.location.href = "/login"; // SPA route
   }
 }
 
-/** JSON login against /api/auth/token */
+/** JSON login: POST /api/auth/token */
 export async function login(username, password) {
   const res = await fetch(`${API_BASE}/auth/token`, {
     method: "POST",
@@ -73,7 +74,7 @@ export async function authFetch(pathOrUrl, options = {}) {
   return res;
 }
 
-/** Optional convenience object */
+/* Optional convenience object */
 export const auth = {
   get token() { return getToken(); },
   set token(v) { setToken(v); },
