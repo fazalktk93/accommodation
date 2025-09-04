@@ -8,25 +8,23 @@ import {
 } from '../api'
 
 // ---- LOCAL: safe GET without trailing slash to avoid redirect/CORS issues
-const API_BASE =
-  (import.meta?.env?.VITE_API_BASE || process.env?.VITE_API_BASE || 'http://192.168.0.102:8000/api')
-    .replace(/\/+$/,'') // strip any trailing slash on base
+const API_BASE = import.meta.env.VITE_API_BASE.replace(/\/+$/, '') // strip trailing slash
 
 function getToken() {
-  // try a few common places; if you already centralize this, it's fine—undefined header is ignored
   return (
-    (typeof localStorage !== 'undefined' && (localStorage.getItem('token') || localStorage.getItem('authToken'))) ||
-    (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('token') || sessionStorage.getItem('authToken')))
-  );
+    localStorage.getItem('token') ||
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('token') ||
+    sessionStorage.getItem('authToken')
+  )
 }
 
-async function searchAllotments(params = {}) {
-  const url = new URL(`${API_BASE}/allotments`) // ← NO trailing slash
-  const { q, limit, offset } = params || {}
-  if (q != null && String(q).trim() !== '') url.searchParams.set('q', String(q).trim())
-  if (limit != null) url.searchParams.set('limit', String(limit))
-  if (offset != null) url.searchParams.set('offset', String(offset))
-  // keep behavior that previously added ?active=true on list
+export async function searchAllotments(params = {}) {
+  const url = new URL(`${API_BASE}/allotments`)
+  const { q, limit, offset } = params
+  if (q) url.searchParams.set('q', q)
+  if (limit != null) url.searchParams.set('limit', limit)
+  if (offset != null) url.searchParams.set('offset', offset)
   url.searchParams.set('active', 'true')
 
   const headers = {}
@@ -35,7 +33,6 @@ async function searchAllotments(params = {}) {
 
   const r = await fetch(url.toString(), { method: 'GET', headers })
   if (!r.ok) {
-    // Surface the server message (useful if this was actually a 401/403/etc.)
     const text = await r.text().catch(() => '')
     throw new Error(`${r.status} ${r.statusText}${text ? ` - ${text}` : ''}`)
   }
