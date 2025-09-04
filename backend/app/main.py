@@ -179,29 +179,30 @@ class AdminAuth(AuthenticationBackend):
 from wtforms import PasswordField
 
 # Register models
+class UserForm:
+    username = StringField("Username", validators=[DataRequired()])
+    full_name = StringField("Full Name", validators=[Optional()])
+    email = StringField("Email", validators=[Email()])
+    is_active = BooleanField("Is Active")
+    role = StringField("Role", validators=[DataRequired()])
+    permissions = StringField("Permissions", validators=[Optional()])
+    password = PasswordField("Password")  # ✅ this will show in the form
+
+
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
-    # hide hashed_password from form
+    # Hide hashed_password
     form_excluded_columns = ["hashed_password"]
 
-    # explicitly declare a WTForms field for password
-    form_overrides = {"password": PasswordField}
-
-    # label and requirements
-    form_args = {
-        "password": {
-            "label": "Password",
-            "validators": [],
-        }
-    }
+    # Tell SQLAdmin to use our custom form
+    form = UserForm
 
     async def on_model_change(self, form, model, is_created, request, db_session):
         """Hash password before saving."""
-        pwd = getattr(form, "password", None)
-        if pwd and getattr(pwd, "data", None):
-            model.hashed_password = get_password_hash(pwd.data)
+        if form.password.data:
+            model.hashed_password = get_password_hash(form.password.data)
         elif is_created:
             raise ValueError("Password is required when creating a user.")
 
