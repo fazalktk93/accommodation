@@ -165,7 +165,8 @@ from wtforms import Form, StringField, BooleanField, PasswordField, TextAreaFiel
 from wtforms.validators import DataRequired, Email, Optional
 
 # Build choices from Role enum (admin/viewer, etc.)
-ROLE_CHOICES = [(r.value if hasattr(r, "value") else str(r), (r.value if hasattr(r, "value") else str(r))) for r in Role]
+ROLE_CHOICES = [(r.value if hasattr(r, "value") else str(r),
+                r.value if hasattr(r, "value") else str(r)) for r in Role]
 
 class UserForm(Form):
     username = StringField("Username", validators=[DataRequired()])
@@ -174,27 +175,36 @@ class UserForm(Form):
     is_active = BooleanField("Is Active")
     role = SelectField("Role", choices=ROLE_CHOICES, validators=[DataRequired()])
     permissions = TextAreaField("Permissions", validators=[Optional()])
-    password = PasswordField("Password")  # <-- visible in the admin form
+    password = PasswordField("Password")  # <-- visible field
 
-# -----------------------------------------------------------------------------
-# Model Views
-# -----------------------------------------------------------------------------
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
-    # hide the DB hashed password field from the form
+    # keep the DB column hidden from the form
     form_excluded_columns = ["hashed_password"]
 
-    # use our custom WTForms form so "Password" renders
+    # use our custom WTForms form so Password shows up
     form = UserForm
 
-    # hash password before saving; require on create
-    async def on_model_change(self, form, model, is_created, request, db_session):
-        if form.password.data:
-            model.hashed_password = get_password_hash(form.password.data)
+    # ✅ works with BOTH old & new SQLAdmin signatures
+    async def on_model_change(
+        self,
+        form,
+        model,
+        is_created,
+        request=None,
+        db_session=None,
+        *args,
+        **kwargs,
+    ):
+        # Hash if provided; require on create
+        pwd = getattr(form, "password", None)
+        if pwd and getattr(pwd, "data", None):
+            model.hashed_password = get_password_hash(pwd.data)
         elif is_created:
             raise ValueError("Password is required when creating a user.")
+        # no super() call → avoids signature mismatches
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
