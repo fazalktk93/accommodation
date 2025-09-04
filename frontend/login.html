@@ -29,39 +29,21 @@
         <input id="password" name="password" type="password" autocomplete="current-password" required />
         <button type="submit">Login</button>
         <div class="error" id="error"></div>
-        <!-- updated note so it matches the actual JSON endpoint used below -->
-        <div class="muted">Posts JSON to <code>/api/auth/login</code>.</div>
+        <div class="muted">Posts JSON to <code>/api/auth/token</code>.</div>
       </form>
     </div>
   </div>
 
   <!-- Optional: override backend base if not :8000 -->
   <!-- <script>window.API_BASE_URL = "http://192.168.0.102:8000/api";</script> -->
-<script>
-  // keep this helper; it posts JSON to /api/auth/login (not /admin/login)
-  async function login(username, password) {
-    const base = `${location.protocol}//${location.hostname}:8000/api`;
-    const r = await fetch(`${base}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (!r.ok) {
-      let msg = "Login failed";
-      try { msg = (await r.json()).detail || msg; } catch {}
-      throw new Error(msg);
-    }
-    const data = await r.json();
-    localStorage.setItem("auth_token", data.access_token);
-  }
-</script>
+
   <!-- IMPORTANT: import using absolute path to /src/... so Vite resolves it -->
   <script type="module">
     import auth, { isLoggedIn, login } from "/src/auth.js";
 
     if (isLoggedIn()) {
       // route wherever you want after login
-      window.location.href = "/dashboard";
+      window.location.href = "/dashboard"; // SPA route (no .html)
     }
 
     const form = document.getElementById("loginForm");
@@ -73,9 +55,8 @@
       const username = document.getElementById("username").value.trim();
       const password = document.getElementById("password").value;
       try {
-        // uses the imported SPA login which should also call /api/auth/login
-        await login(username, password);
-        window.location.href = "/dashboard";   // make sure we hit /dashboard, not /dashboard.html
+        await login(username, password); // this calls /api/auth/token with JSON
+        window.location.href = "/dashboard";   // <— fixed
       } catch (ex) {
         err.textContent = ex.message || "Login failed";
       }
