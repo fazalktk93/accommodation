@@ -8,7 +8,11 @@ import {
 } from '../api'
 
 // ---- LOCAL: safe GET without trailing slash to avoid redirect/CORS issues
-const API_BASE = import.meta.env.VITE_API_BASE.replace(/\/+$/, '') // strip trailing slash
+const API_BASE = (
+  (import.meta.env?.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim() !== ''
+    ? String(import.meta.env.VITE_API_BASE)
+    : `${window.location.origin}/api`) // no hard-coded host; uses current origin
+).replace(/\/+$/, '') // strip trailing slash
 
 function getToken() {
   return (
@@ -20,7 +24,7 @@ function getToken() {
 }
 
 export async function searchAllotments(params = {}) {
-  const url = new URL(`${API_BASE}/allotments`)
+  const url = new URL(`${API_BASE}/allotments`) // ← NO trailing slash
   const { q, limit, offset } = params
   if (q) url.searchParams.set('q', q)
   if (limit != null) url.searchParams.set('limit', limit)
