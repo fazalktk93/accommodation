@@ -183,13 +183,13 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
     name_plural = "Users"
 
-    # show exactly these in the form (no hashed_password here)
-    form_columns = ["username", "full_name", "email", "is_active", "role", "permissions", "password"]
+    # hide the real DB column from the form
+    form_excluded_columns = ["hashed_password"]
 
-    # write-only password field
+    # add a write-only password field (NOT a model column)
     form_extra_fields = {"password": PasswordField("Password")}
 
-    # robust signature; don't call super() to avoid version arg mismatches
+    # robust to SQLAdmin version differences; no super() call
     def on_model_change(self, form, model, is_created, *args, **kwargs):
         pwd = getattr(form, "password", None)
         if pwd and getattr(pwd, "data", None):
