@@ -187,16 +187,14 @@ class UserAdmin(ModelView, model=User):
     # write-only password field
     form_extra_fields = {"password": PasswordField("Password")}
 
-    # fix: accept 5 arguments
     def on_model_change(self, form, model, is_created, request, db_session):
         pwd = getattr(form, "password", None)
         if pwd and pwd.data:
             model.hashed_password = get_password_hash(pwd.data)
         elif is_created:
-            # prevent NULL hashed_password on create
             raise ValueError("Password is required when creating a user.")
 
-        # call parent implementation with correct args
+        # ✅ forward all required args to parent
         return super().on_model_change(form, model, is_created, request, db_session)
 
 class HouseAdmin(ModelView, model=House):
