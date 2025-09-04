@@ -62,90 +62,53 @@ def on_startup():
 # -----------------------------------------------------------------------------
 # SQLAdmin: admin panel at /admin
 # -----------------------------------------------------------------------------
-# --- SQLAdmin (Admin panel at /admin) ---
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend  # <-- correct base class
 import jwt
 from sqlalchemy import select
 
-# ⬇️ add verify_password; we’ll keep using your SECRET_KEY/ALGORITHM
-from app.core.security import SECRET_KEY, ALGORITHM, verify_password
+# ⬇️ added: get_password_hash (we already used verify_password elsewhere)
+from app.core.security import SECRET_KEY, ALGORITHM, verify_password, get_password_hash
 from app.db.session import get_session
 from app.models.user import User, Role
 from app.models.house import House
 from app.models.allotment import Allotment
 from app.models.file_movement import FileMovement
 
-# ⬇️ add SessionMiddleware so SQLAdmin can persist auth state
-from starlette.middleware.sessions import SessionMiddleware
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=SECRET_KEY,
-    same_site="lax",
-    https_only=False,            # set True if strictly HTTPS
-    max_age=60 * 60 * 8,         # 8h session
-)
+# ⬇️ if you already added SessionMiddleware earlier, keep it; otherwise you can add it here
+# from starlette.middleware.sessions import SessionMiddleware
+# app.add_middleware(
+#     SessionMiddleware,
+#     secret_key=SECRET_KEY,
+#     same_site="lax",
+#     https_only=False,
+#     max_age=60 * 60 * 8,
+# )
 
 class AdminAuth(AuthenticationBackend):
-    """SQLAdmin auth that reuses our JWT and supports form login; requires role=admin."""
+    """SQLAdmin auth that reuses our JWT and requires role=admin."""
 
     def __init__(self, secret_key: str):
-        # SQLAdmin uses this for its own session cookie / CSRF
+        # SQLAdmin uses this for its own session cookie if you ever use its login form
         super().__init__(secret_key=secret_key)
 
     async def login(self, request):
         """
-        Handle POST /admin/login (form-encoded).
-        Validates username/password from DB, requires active admin.
-        On success, mark session so authenticate() passes.
+        Optional: if you want /admin/login form-based auth, implement this.
+        We're using JWT in headers/cookies, so just return False to disable.
         """
-        try:
-            form = await request.form()
-            username = (form.get("username") or "").strip()
-            password = form.get("password") or ""
-
-            if not username or not password:
-                return False
-
-            # DB lookup
-            with next(get_session()) as db:
-                user = db.scalar(select(User).where(User.username == username))
-
-                if not user or not user.is_active:
-                    return False
-
-                # verify password against stored hash
-                if not verify_password(password, user.hashed_password):
-                    return False
-
-                # must be admin role
-                role_val = user.role if isinstance(user.role, str) else user.role.value
-                if role_val != Role.admin.value:
-                    return False
-
-            # success: set session flags for SQLAdmin
-            request.session["sqladmin_auth"] = True
-            request.session["sqladmin_user"] = username
-            return True
-        except Exception:
-            return False
+        return False
 
     async def logout(self, request):
-        request.session.pop("sqladmin_auth", None)
-        request.session.pop("sqladmin_user", None)
+        """Optional cleanup if you set cookies. We don't, so just return True."""
         return True
 
     async def authenticate(self, request):
         """
-        Accept either:
-        - session flag set by our form login (preferred for /admin UI), or
-        - a valid Bearer JWT for an active admin (your existing behavior).
+        Return True if authenticated (admin), else False.
+        We accept the token either from Authorization: Bearer <JWT> or from a
+        cookie named 'access_token' if you decide to set it on login.
         """
-        # 1) session-based auth (after /admin/login)
-        if request.session.get("sqladmin_auth"):
-            return True
-
-        # 2) Bearer JWT (fallback)
         token = None
         auth = request.headers.get("authorization") or ""
         if auth.lower().startswith("bearer "):
@@ -169,20 +132,37 @@ class AdminAuth(AuthenticationBackend):
             user = db.scalar(select(User).where(User.username == username))
             if not user or not user.is_active:
                 return False
-            role_val = user.role if isinstance(user.role, str) else user.role.value
-            if role_val != Role.admin.value:
+            if (user.role if isinstance(user.role, str) else user.role.value) != Role.admin.value:
                 return False
 
         return True
 
-# Instantiate admin with our backend
-admin = Admin(app, engine, authentication_backend=AdminAuth(secret_key=SECRET_KEY))
+# ⬇️ added: PasswordField for write-only password input in admin form
+from wtforms import PasswordField
 
 # Register models
 class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.role, User.is_active, User.email]
+    # keep hashed_password hidden from the form
     form_excluded_columns = ["hashed_password"]
+    # ⬇️ add a write-only password field
+    form_extra_fields = {"password": PasswordField("Password")}
+
     name_plural = "Users"
+
+    # ⬇️ hash the provided password before insert/update
+    def on_model_change(self, form, model, is_created):
+        """
+        If a password is supplied, hash it into model.hashed_password.
+        Require a password when creating a new user to avoid NULL constraint errors.
+        """
+        pwd = getattr(form, "password", None)
+        if pwd and pwd.data:
+            model.hashed_password = get_password_hash(pwd.data)
+        elif is_created:
+            # prevent NULL hashed_password on create
+            raise ValueError("Password is required when creating a user.")
+        return super().on_model_change(form, model, is_created)
 
 class HouseAdmin(ModelView, model=House):
     column_list = [House.id, House.file_no, House.qtr_no, House.sector, House.type_code, House.status]
@@ -196,6 +176,8 @@ class FileMovementAdmin(ModelView, model=FileMovement):
         FileMovement.issue_date, FileMovement.due_date, FileMovement.returned_date
     ]
 
+# Instantiate admin with our backend
+admin = Admin(app, engine, authentication_backend=AdminAuth(secret_key=SECRET_KEY))
 admin.add_view(UserAdmin)
 admin.add_view(HouseAdmin)
 admin.add_view(AllotmentAdmin)
