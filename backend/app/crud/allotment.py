@@ -41,7 +41,7 @@ def get(db: Session, allotment_id: int) -> Allotment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allotment not found")
     return obj
 
-def list(db: Session, skip=0, limit=50, house_id: Optional[int] = None,
+def list(db: Session, skip=0, limit=5000, house_id: Optional[int] = None,
          active: Optional[bool] = None, person_name: Optional[str] = None,
          file_no: Optional[str] = None, qtr_no: Optional[int] = None) -> List[Allotment]:
     from app.models import House as H

@@ -17,7 +17,7 @@ def get_by_file(db: Session, file_no: str) -> House:
         raise HTTPException(status_code=404, detail="House not found")
     return row
 
-def list(db: Session, skip=0, limit=50, q: Optional[str] = None,
+def list(db: Session, skip=0, limit=5000, q: Optional[str] = None,
          status: Optional[str] = None, type_code: Optional[str] = None) -> List[House]:
     stmt = select(House)
     conds = []

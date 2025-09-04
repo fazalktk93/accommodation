@@ -23,7 +23,7 @@ def _period(occ: date | None, vac: date | None) -> int | None:
 @router.get("/", response_model=List[s.AllotmentOut])
 def list_allotments(
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 5000,
     house_id: Optional[int] = None,
     active: Optional[bool] = None,
     person_name: Optional[str] = None,

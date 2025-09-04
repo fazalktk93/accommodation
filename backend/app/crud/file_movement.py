@@ -15,7 +15,7 @@ def get(db: Session, file_id: int) -> FileMovement:
 def list(
     db: Session,
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 5000,
     file_no: Optional[str] = None,
     outstanding: Optional[bool] = None,
     missing: Optional[bool] = None,

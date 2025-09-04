@@ -9,7 +9,7 @@ from app.crud import house as crud
 router = APIRouter(prefix="/houses", tags=["houses"])
 
 @router.get("/", response_model=List[s.HouseOut])
-def list_houses(skip: int = 0, limit: int = 50, q: Optional[str] = None,
+def list_houses(skip: int = 0, limit: int = 5000, q: Optional[str] = None,
                 status: Optional[str] = None, type_code: Optional[str] = None,
                 db: Session = Depends(get_db)):
     return crud.list(db, skip=skip, limit=limit, q=q, status=status, type_code=type_code)
