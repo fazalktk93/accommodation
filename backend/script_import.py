@@ -9,7 +9,7 @@ Usage:
     pip install requests pandas
     export API_BASE="http://localhost:8000/api"   # or your prod URL
     export API_TOKEN="..."                        # if you use auth
-    python import_houses.py houses_min_import.csv
+    python import_houses.py "Quarter's Details.csv"
 """
 
 import os
