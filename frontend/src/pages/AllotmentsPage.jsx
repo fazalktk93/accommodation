@@ -91,7 +91,7 @@ export default function AllotmentsPage() {
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
-  const [limit] = useState(50000) // page size; change if you like
+  const [limit] = useState(5000) // page size; change if you like
   const [hasNext, setHasNext] = useState(false)
 
   // houses for selects / fallback rendering
