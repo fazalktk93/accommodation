@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 """
-Clean/normalize data in the 'houses' table safely.
+Clean/normalize data in the 'house' (or 'houses') table safely.
 
-- Creates a backup table first: houses_backup_YYYYMMDDHHMMSS (unless --no-backup)
-- Normalizes: file_no, qtr_no, sector, street, type_code, status
-- Converts blanks to NULL
-- Maps common status variants (e.g., "issue in record" -> "issue_in_record", "active" -> "occupied", "ended" -> "vacant")
-- Coerces type_code to one letter A..H (else NULL)
-- Idempotent; batch updates; logs errors but keeps going
+Usage example:
+  python flush.py --db "sqlite:////home/accommodation/backend/accommodation.db" --table house --batch 500 --dry
+  python flush.py --db "sqlite:////home/accommodation/backend/accommodation.db" --table house --batch 500
 """
 
-from ast import arg
-import argparse, csv, os, re, time, datetime as dt
-from typing import Any, Dict, Optional, Tuple, List
+import argparse, csv, os, re, datetime as dt
+from typing import Any, Dict, Optional, List
 
-# Optional .env
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -28,7 +23,6 @@ from sqlalchemy.exc import SQLAlchemyError
 STATUS_MAP = {
     "available":"available","vacant":"vacant","occupied":"occupied","reserved":"reserved",
     "maintenance":"maintenance","other":"other","issue_in_record":"issue_in_record","missing":"missing",
-    # common variants
     "issue in record":"issue_in_record","issue-in-record":"issue_in_record","issues in record":"issue_in_record",
     "ended":"vacant","active":"occupied","null":None,"none":None,"":""
 }
@@ -68,10 +62,7 @@ def norm_status(v: Any) -> Optional[str]:
     return STATUS_MAP.get(key, key)
 
 def blanks_to_none(d: Dict[str, Any]) -> Dict[str, Any]:
-    out = {}
-    for k, v in d.items():
-        out[k] = None if (isinstance(v, str) and v.strip()=="") else v
-    return out
+    return {k: (None if (isinstance(v, str) and v.strip()=="") else v) for k,v in d.items()}
 
 def reflect_table(engine: Engine, name: str) -> Table:
     meta = MetaData()
@@ -88,42 +79,42 @@ def backup_table(engine: Engine, table_name: str) -> str:
     return backup
 
 def main():
-    ap = argparse.ArgumentParser(description="Clean/normalize 'houses' table safely")
-    ap.add_argument("--db", default=None, help='DB URL (e.g., sqlite:////abs/path/app.db). Defaults to env DATABASE_URL/SQLALCHEMY_DATABASE_URI or sqlite:///./app.db')
-    ap.add_argument("--table", default="houses", help="Table name (default: houses)")
-    ap.add_argument("--batch", type=int, default=500, help="Update batch size (default 500)")
+    ap = argparse.ArgumentParser(description="Clean/normalize a houses table safely")
+    ap.add_argument("--db", default=None, help='DB URL (e.g., sqlite:////abs/path/app.db)')
+    ap.add_argument("--table", default="house", help="Table name (default: house)")
+    ap.add_argument("--batch", type=int, default=500, help="Update batch size")
     ap.add_argument("--dry", action="store_true", help="Dry run (no writes)")
-    ap.add_argument("--no-backup", action="store_true", help="Skip creating backup table")
+    ap.add_argument("--no-backup", dest="no_backup", action="store_true", help="Skip creating backup table")
     args = ap.parse_args()
+
+    # Debug: show parsed args (helps verify you're running THIS file)
+    # print("ARGS:", vars(args))
 
     engine = create_engine(env_url(args.db), future=True)
 
-    # ensure table exists
     try:
         table = reflect_table(engine, args.table)
     except RuntimeError as e:
         print(f"[FATAL] {e}")
         return
 
-# backup (unless skipped or dry)
-if not arg.no_backup and not args.dry:
-    try:
-        name = backup_table(engine, args.table)
-        print(f"[OK] backup created: {name}")
-    except SQLAlchemyError as e:
-        print(f"[WARN] backup failed: {e}")
+    # NOTE: argparse stores --no-backup in args.no_backup (underscore)
+    if not args.no_backup and not args.dry:
+        try:
+            name = backup_table(engine, args.table)
+            print(f"[OK] backup created: {name}")
+        except SQLAlchemyError as e:
+            print(f"[WARN] backup failed: {e}")
 
-    # which columns exist
     need = ["file_no","qtr_no","sector","street","type_code","status"]
     have = {c: (c in table.c) for c in need}
-
     select_cols = [table.c.id] + [getattr(table.c, c) for c in need if have[c]]
 
     with engine.connect() as conn:
         rows = conn.execute(select(*select_cols)).fetchall()
 
-    def cleaned(rd: Dict[str, Any]) -> Dict[str, Any]:
-        d: Dict[str, Any] = {}
+    def cleaned(rd: Dict[str, any]) -> Dict[str, any]:
+        d: Dict[str, any] = {}
         if have["file_no"]:   d["file_no"]   = norm_str(rd.get("file_no"))
         if have["qtr_no"]:    d["qtr_no"]    = norm_qtr_no(rd.get("qtr_no"))
         if have["sector"]:    d["sector"]    = norm_sector(rd.get("sector"))
@@ -147,7 +138,6 @@ if not arg.no_backup and not args.dry:
         for k,v in want.items():
             if k not in rd: continue
             old = rd[k]
-            # normalize old for comparison
             old = None if (old is None or (isinstance(old, str) and old.strip()=="")) else old
             if old != v:
                 diff[k] = v
