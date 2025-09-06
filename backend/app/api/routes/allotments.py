@@ -82,32 +82,39 @@ def list_allotments(
         for a in rows
     ]
 
-@router.get("/history/by-file/{file_no:str}", response_model=List[s.AllotmentOut])
-def history_by_file(file_no: str, db: Session = Depends(get_db)):
-    rows = (
-        db.execute(
-            select(Allotment)
-            .join(House)
-            .where(House.file_no == file_no)
-            .order_by(
-                Allotment.occupation_date.is_(None),
-                desc(Allotment.occupation_date),
-                desc(Allotment.id),
-            )
-        )
-        .scalars()
-        .all()
+@router.get("/history/by-file/{file_no}", response_model=List[s.AllotmentOut])
+def history_by_file(
+    file_no: str,
+    skip: int = Query(0, alias="offset", ge=0),
+    limit: int = Query(5000, ge=1, le=50000),
+    db: Session = Depends(get_db),
+):
+    house = crud_house.get_by_file(db, file_no)
+    if not house:
+        raise HTTPException(status_code=404, detail=f"House with file_no '{file_no}' not found")
+
+    rows = crud_allot.list(
+        db,
+        skip=skip,
+        limit=limit,
+        house_id=house.id,
+        # do NOT force any status filter here—frontend can choose
     )
-    return [
-        s.AllotmentOut.from_orm(a).copy(
-            update={
-                "period_of_stay": _period(a.occupation_date, a.vacation_date),
-                "house_file_no": a.house.file_no if a.house else None,
-                "house_qtr_no": a.house.qtr_no if a.house else None,
-            }
-        )
-        for a in rows
-    ]
+
+    def to_out(a):
+        # ensure quarter number renders as string
+        qtr_str = None
+        if a.house:
+            q = getattr(a.house, "qtr_no", None)
+            qtr_str = None if q is None else str(q)
+
+        return s.AllotmentOut.from_orm(a).copy(update={
+            "period_of_stay": _period(a.occupation_date, a.vacation_date),
+            "house_file_no": house.file_no,
+            "house_qtr_no": qtr_str,
+        })
+
+    return [to_out(a) for a in rows]
 
 @router.get("/{allotment_id}", response_model=s.AllotmentOut)
 def get_allotment(allotment_id: int, db: Session = Depends(get_db)):
