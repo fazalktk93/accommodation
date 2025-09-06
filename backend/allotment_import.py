@@ -158,7 +158,7 @@ def main():
     ap.add_argument("--batch", type=int, default=1000)
     ap.add_argument("--dry", action="store_true")
     # headerless support
-    ap.add_argument("--no-header", action="true", default=False)  # use --no-header to enable
+    ap.add_argument("--no-header", action="store_true", default=False)  # use --no-header to enable
     ap.add_argument("--order", default="", help="Order when --no-header (e.g., file_no,qtr_no,person_name,designation,directorate,cnic,pool,medium,bps,allotment_date,occupation_date,vacation_date,dob,dor,retention_last,qtr_status,allottee_status,notes,sector,street)")
     # how to treat blanks for statuses
     ap.add_argument("--keep-empty-statuses", action="store_true", help="Keep '' for qtr_status/allottee_status instead of NULL")
