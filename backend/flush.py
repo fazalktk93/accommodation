@@ -10,6 +10,7 @@ Clean/normalize data in the 'houses' table safely.
 - Idempotent; batch updates; logs errors but keeps going
 """
 
+from ast import arg
 import argparse, csv, os, re, time, datetime as dt
 from typing import Any, Dict, Optional, Tuple, List
 
@@ -105,7 +106,7 @@ def main():
         return
 
 # backup (unless skipped or dry)
-if not args.no_backup and not args.dry:
+if not arg.no_backup and not args.dry:
     try:
         name = backup_table(engine, args.table)
         print(f"[OK] backup created: {name}")
