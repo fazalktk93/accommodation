@@ -10,6 +10,7 @@ from fastapi import Query
 from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.crud import allotment as crud
+from app.crud import house as crud_house
 from app.models import House, Allotment, QtrStatus
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
