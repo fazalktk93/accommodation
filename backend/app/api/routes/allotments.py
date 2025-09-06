@@ -6,7 +6,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, desc
 from sqlalchemy.orm import Session
-
+from fastapi import Query
 from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.crud import allotment as crud
