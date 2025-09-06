@@ -6,9 +6,10 @@ export default defineConfig({
   server: {
     host: true,                 // expose to LAN
     proxy: {
-      '/api': {
+      '/app-api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/app-api/, "/api"),
       },
     },
   },
