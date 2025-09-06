@@ -82,12 +82,14 @@ def _norm_allottee_status(s: Any, keep_empty: bool) -> Optional[str]:
     return x
 
 # --------- DB helpers ---------
-def reflect(engine: Engine, name: str) -> Table:
+def reflect(engine, name):
     meta = MetaData()
-    meta.reflect(bind=engine, only=[name])
-    if name not in meta.tables:
-        raise RuntimeError(f"Table '{name}' not found.")
-    return meta.tables[name]
+    # avoid loading FK target tables (like house_old)
+    try:
+        return Table(name, meta, autoload_with=engine, resolve_fks=False)
+    except TypeError:
+        # older SQLAlchemy (no resolve_fks) – this still avoids traversing targets
+        return Table(name, meta, autoload_with=engine)
 
 def preload_house_maps(conn, house_table: Table):
     # Build quick lookups
@@ -152,7 +154,7 @@ def main():
     ap.add_argument("--csv", required=True)
     ap.add_argument("--db", default=None)
     ap.add_argument("--table", default="allotment")
-    ap.add_argument("--houses-table", default="house")
+    ap.add_argument("--houses-table", default="house")  
     # natural upsert key; default works well in most datasets
     ap.add_argument("--unique", nargs="+", default=["house_id","occupation_date","person_name"])
     ap.add_argument("--batch", type=int, default=1000)
@@ -172,8 +174,10 @@ def main():
 
     # enable FKs (SQLite)
     with engine.begin() as c:
-        try: c.execute(text("PRAGMA foreign_keys=ON;"))
-        except: pass
+            try:
+                c.execute(text("PRAGMA foreign_keys=OFF;"))
+            except:
+                pass
 
     allot_tbl = reflect(engine, args.table)
     house_tbl  = reflect(engine, args.houses_table)
