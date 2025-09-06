@@ -477,10 +477,17 @@ export default function AllotmentsPage() {
       <style>{`
         .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
         .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
-        /* allow header + cell text to wrap instead of clipping */
-        .table th, .table td { white-space: normal; word-break: break-word; }
+
+        /* allow wrapping, but don't break inside words */
+        .table th, .table td { 
+          white-space: normal; 
+          word-break: keep-all; 
+          overflow-wrap: anywhere; 
+        }
+
         /* give the Allottee column extra room so long names can wrap across lines */
         .col-allottee { width: 28ch; max-width: 32ch; }
+
         input, select { width: 100%; height: 34px; box-sizing: border-box; }
         input[readonly] { background: #f8f8f8; }
         label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
