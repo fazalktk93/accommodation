@@ -8,21 +8,22 @@ from app.crud import house as crud
 
 router = APIRouter(prefix="/houses", tags=["houses"])
 
-const resp = await searchHouses({ q, limit: 100, offset: 0, type, status });
 
 @router.get("/", response_model=List[s.HouseOut])
 def list_houses(
-    # accept offset from UI but keep your internal "skip"
+    # accept ?offset= from UI while using "skip" internally
     skip: int = Query(0, alias="offset", ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    # existing filters (keep whatever you already had)
+
+    # existing filters
     type: Optional[str] = None,
     status: Optional[str] = None,
     sector: Optional[str] = None,
     street: Optional[str] = None,
-    qtr_no: Optional[str] = None,   # qtr is alphanumeric like "465-B" → string
+    qtr_no: Optional[str] = None,   # qtr like "465-B" → string
     file_no: Optional[str] = None,
-    # NEW: generic search term the UI sends
+
+    # NEW generic search
     q: Optional[str] = Query(None, description="Search across file_no, qtr_no, sector, street, type, status"),
     db: Session = Depends(get_db),
 ):
@@ -38,24 +39,16 @@ def list_houses(
         file_no=file_no,
     )
 
-    # Apply generic search if provided (simple, Python-side; fast to implement)
+    # simple Python-side search
     if q:
         needle = q.strip().lower()
         if needle:
-            def _has(h):
+            def _match(h):
                 return any(
-                    needle in str(val).lower()
-                    for val in [
-                        getattr(h, "file_no", None),
-                        getattr(h, "qtr_no", None),
-                        getattr(h, "sector", None),
-                        getattr(h, "street", None),
-                        getattr(h, "type", None),
-                        getattr(h, "status", None),
-                        getattr(h, "id", None),
-                    ]
+                    needle in (str(getattr(h, attr, "")) or "").lower()
+                    for attr in ("file_no", "qtr_no", "sector", "street", "type", "status", "id")
                 )
-            rows = [h for h in rows if _has(h)]
+            rows = [h for h in rows if _match(h)]
 
     return rows
 
