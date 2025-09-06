@@ -411,11 +411,24 @@ export default function AllotmentsPage() {
 
       {/* table */}
       <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
-        <table className="table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <table className="table allotments" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          {/* control column widths */}
+          <colgroup>
+            <col className="col-equal col-allottee" /> {/* Allottee (a bit wider via CSS below) */}
+            <col className="col-small" />               {/* Sector */}
+            <col className="col-small" />               {/* Street */}
+            <col className="col-equal" />               {/* Qtr */}
+            <col className="col-small" />               {/* BPS */}
+            <col className="col-equal" />               {/* Medium */}
+            <col className="col-equal" />               {/* Allotment */}
+            <col className="col-equal" />               {/* Occupation */}
+            <col className="col-equal" />               {/* Status */}
+            <col className="col-small" />               {/* Action */}
+          </colgroup>
+
           <thead>
             <tr>
-              <th className="col-allottee" style={{ textAlign: 'left' }}>Allottee</th>
-              <th style={{ textAlign: 'left' }}>File No</th>
+              <th style={{ textAlign: 'left' }}>Allottee</th>
               <th style={{ textAlign: 'left' }}>Sector</th>
               <th style={{ textAlign: 'left' }}>Street</th>
               <th style={{ textAlign: 'left' }}>Qtr</th>
@@ -427,19 +440,19 @@ export default function AllotmentsPage() {
               <th></th>
             </tr>
           </thead>
+
           <tbody>
             {(Array.isArray(rows) ? rows : []).map(r => {
               const h = houseFromRow(r) || {}
               return (
                 <tr key={r.id}>
-                  <td className="col-allottee" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                  <td className="col-allottee" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
                     <div><strong>{r.person_name || '-'}</strong></div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
                     <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
 
-                  {/* separate house fields */}
-                  <td>{h.file_no ?? '-'}</td>
+                  {/* REMOVED File No column */}
                   <td>{h.sector ?? '-'}</td>
                   <td>{h.street ?? '-'}</td>
                   <td>{h.qtr_no ?? h.number ?? '-'}</td>
@@ -465,37 +478,41 @@ export default function AllotmentsPage() {
               )
             })}
             {!loading && (!rows || rows.length === 0) ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
+              <tr><td colSpan={10} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
             ) : null}
             {loading ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
+              <tr><td colSpan={10} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
             ) : null}
           </tbody>
         </table>
       </div>
+        <style>{`
+          .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+          .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
 
-      <style>{`
-        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
+          /* wrap text cleanly (no mid-word splits) */
+          .table th, .table td {
+            white-space: normal;
+            word-break: keep-all;       /* don't split inside words */
+            overflow-wrap: anywhere;    /* but break long unspaced tokens if needed */
+          }
 
-        /* allow wrapping, but don't break inside words */
-        .table th, .table td { 
-          white-space: normal; 
-          word-break: keep-all; 
-          overflow-wrap: anywhere; 
-        }
+          /* column sizing: equal for most, smaller for Sector/Street/BPS + Action */
+          .allotments col.col-equal { width: 11%; }
+          .allotments col.col-small { width: 8%; }
 
-        /* give the Allottee column extra room so long names can wrap across lines */
-        .col-allottee { width: 28ch; max-width: 32ch; }
+          /* give Allottee a bit more room for names */
+          .allotments col.col-allottee { width: 16%; }
+          .col-allottee { max-width: 32ch; }
 
-        input, select { width: 100%; height: 34px; box-sizing: border-box; }
-        input[readonly] { background: #f8f8f8; }
-        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
-        button { height: 32px; padding: 0 12px; }
-        .page { padding: 12px; }
-        .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
-        .chip-accent { background: #f5e1ff; }
-      `}</style>
+          input, select { width: 100%; height: 34px; box-sizing: border-box; }
+          input[readonly] { background: #f8f8f8; }
+          label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+          button { height: 32px; padding: 0 12px; }
+          .page { padding: 12px; }
+          .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
+          .chip-accent { background: #f5e1ff; }
+        `}</style>
     </div>
   )
 }
