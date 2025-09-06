@@ -488,28 +488,40 @@ export default function AllotmentsPage() {
       </div>
         <style>{`
           .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+          .page { padding: 12px; }
+
+          /* let the table size to content; wrapper already has overflow:auto for horizontal scroll */
+          .table { width: 100%; border-collapse: collapse; table-layout: auto; }
+
           .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
 
-          /* wrap text cleanly (no mid-word splits) */
-          .table th, .table td {
-            white-space: normal;
-            word-break: keep-all;       /* don't split inside words */
-            overflow-wrap: anywhere;    /* but break long unspaced tokens if needed */
+          /* HEADERS: never wrap or split words */
+          .table thead th {
+            white-space: nowrap;
+            word-break: normal;
+            overflow-wrap: normal;
           }
 
-          /* column sizing: equal for most, smaller for Sector/Street/BPS + Action */
-          .allotments col.col-equal { width: 11%; }
-          .allotments col.col-small { width: 8%; }
+          /* BODY CELLS: wrap nicely */
+          .table tbody td {
+            white-space: normal;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
 
-          /* give Allottee a bit more room for names */
-          .allotments col.col-allottee { width: 16%; }
-          .col-allottee { max-width: 32ch; }
+          /* give a bit of guaranteed space to the two longer header labels */
+          .table thead th:nth-child(7), /* Allotment */
+          .table thead th:nth-child(8)  /* Occupation */ {
+            min-width: 120px;
+          }
+
+          /* optional: make Allottee column a little wider */
+          .table thead th:first-child { min-width: 160px; }
 
           input, select { width: 100%; height: 34px; box-sizing: border-box; }
           input[readonly] { background: #f8f8f8; }
           label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
           button { height: 32px; padding: 0 12px; }
-          .page { padding: 12px; }
           .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
           .chip-accent { background: #f5e1ff; }
         `}</style>
