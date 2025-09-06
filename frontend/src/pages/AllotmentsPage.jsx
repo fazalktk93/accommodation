@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   listHouses,
-  // searchAllotments,   // ← replaced by local no-trailing-slash version below
+  listAllotments,   // ← replaced by local no-trailing-slash version below
   createAllotment,
   updateAllotment,
 } from '../api'
@@ -40,23 +40,39 @@ function getToken() {
 }
 
 export async function searchAllotments(params = {}) {
-  const url = new URL(`${API_BASE}/allotments`) // ← NO trailing slash
-  const { q, limit, offset } = params
-  if (q) url.searchParams.set('q', q)
-  if (limit != null) url.searchParams.set('limit', limit)
-  if (offset != null) url.searchParams.set('offset', offset)
-  url.searchParams.set('active', 'true')
+  // Robust base handling: supports absolute ("http://.../api") or relative ("/api")
+  const base = (typeof API_BASE === 'string' && API_BASE.trim()) ? API_BASE.trim() : '/api';
+  const isAbsolute = /^https?:\/\//i.test(base);
+  const baseNoTrail = base.replace(/\/+$/, ''); // drop trailing slash(s)
 
-  const headers = {}
-  const t = getToken()
-  if (t) headers['Authorization'] = t.startsWith('Bearer ') ? t : `Bearer ${t}`
+  // Ensure trailing slash on the resource to match backend route `/api/allotments/`
+  const path = `${baseNoTrail}/allotments/`;
 
-  const r = await fetch(url.toString(), { method: 'GET', headers })
+  // If base is absolute, new URL(path) is fine; if relative, give a base (window.location.origin)
+  const url = isAbsolute ? new URL(path) : new URL(path, window.location.origin);
+
+  const { q, limit, offset, active = true } = params;
+  if (q) url.searchParams.set('q', q);
+  if (limit != null) url.searchParams.set('limit', String(limit));
+  if (offset != null) url.searchParams.set('offset', String(offset));
+  url.searchParams.set('active', String(active));
+
+  const headers = {};
+  const t = getToken();
+  if (t) headers['Authorization'] = t.startsWith('Bearer ') ? t : `Bearer ${t}`;
+
+  const r = await fetch(url.toString(), {
+    method: 'GET',
+    headers,
+    // optional but helps in dev to avoid cached empties:
+    cache: 'no-store',
+  });
+
   if (!r.ok) {
-    const text = await r.text().catch(() => '')
-    throw new Error(`${r.status} ${r.statusText}${text ? ` - ${text}` : ''}`)
+    const text = await r.text().catch(() => '');
+    throw new Error(`${r.status} ${r.statusText}${text ? ` - ${text}` : ''}`);
   }
-  return r.json()
+  return r.json();
 }
 
 // ---------- helpers
