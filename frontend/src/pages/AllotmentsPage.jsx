@@ -434,8 +434,8 @@ export default function AllotmentsPage() {
               <th style={{ textAlign: 'left' }}>Qtr</th>
               <th>BPS</th>
               <th>Medium</th>
-              <th>Allotment</th>
-              <th>Occupation</th>
+              <th>Allotment Date</th>
+              <th>Occupation Date</th>
               <th>Status</th>
               <th></th>
             </tr>
