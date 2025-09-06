@@ -8,6 +8,8 @@ from app.crud import house as crud
 
 router = APIRouter(prefix="/houses", tags=["houses"])
 
+const resp = await searchHouses({ q, limit: 100, offset: 0, type, status });
+
 @router.get("/", response_model=List[s.HouseOut])
 def list_houses(
     # accept offset from UI but keep your internal "skip"

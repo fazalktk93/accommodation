@@ -89,14 +89,21 @@ export const listAllotments = async (params = {}) => {
 }
 
  // Backward-compatible: can pass a string (q) OR an object { q, limit, offset, ... }
-export async function searchAllotments(arg) {
-  if (typeof arg === 'string') {
-    const qs = arg ? `?q=${encodeURIComponent(arg)}` : '';
-    return http.get(`/allotments${qs}`);
-  }
-  const params = arg || {};
-  const qs = new URLSearchParams(params).toString();
-  return http.get(`/allotments${qs ? `?${qs}` : ''}`);
+export async function searchHouses(params = {}) {
+  const { q, limit = 100, offset = 0, type, status } = params;
+
+  const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
+  const url = new URL(`${base}/houses/`, window.location.origin);
+
+  if (q && String(q).trim()) url.searchParams.set('q', String(q).trim());
+  url.searchParams.set('limit', String(Math.min(Math.max(Number(limit) || 100, 1), 1000)));
+  url.searchParams.set('offset', String(Math.max(Number(offset) || 0, 0)));
+  if (type) url.searchParams.set('type', type);
+  if (status) url.searchParams.set('status', status);
+
+  const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
 }
 
 export const createAllotment = async (payload) => {
