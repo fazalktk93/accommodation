@@ -22,13 +22,17 @@ def _period(occ: date | None, vac: date | None) -> int | None:
 
 @router.get("/", response_model=List[s.AllotmentOut])
 def list_allotments(
-    skip: int = 0,
-    limit: int = 5000,
+    # accept `offset` from frontend but keep your internal name `skip`
+    skip: int = Query(0, alias="offset", ge=0),
+    limit: int = Query(100, ge=1, le=1000),
     house_id: Optional[int] = None,
     active: Optional[bool] = None,
     person_name: Optional[str] = None,
     file_no: Optional[str] = None,
-    qtr_no: Optional[int] = None,
+    # qtr no is actually a string (e.g., "465-B")
+    qtr_no: Optional[str] = None,
+    # NEW: generic search term used by the UI
+    q: Optional[str] = Query(None, description="Generic search (name, file_no, qtr_no, etc.)"),
     db: Session = Depends(get_db),
 ):
     rows = crud.list(
@@ -41,11 +45,37 @@ def list_allotments(
         file_no=file_no,
         qtr_no=qtr_no,
     )
+
+    # Apply generic `q` filtering if provided (in-Python filter; simple and safe)
+    if q:
+        ql = q.strip().lower()
+        if ql:
+            def _match(a):
+                # allotment fields
+                if a.person_name and ql in a.person_name.lower():
+                    return True
+                # related house fields
+                h = getattr(a, "house", None)
+                if not h:
+                    return False
+                if getattr(h, "file_no", None) and ql in str(h.file_no).lower():
+                    return True
+                if getattr(h, "qtr_no", None) and ql in str(h.qtr_no).lower():
+                    return True
+                if getattr(h, "sector", None) and ql in str(h.sector).lower():
+                    return True
+                if getattr(h, "street", None) and ql in str(h.street).lower():
+                    return True
+                return False
+
+            rows = [a for a in rows if _match(a)]
+
     return [
         s.AllotmentOut.from_orm(a).copy(
             update={
                 "period_of_stay": _period(a.occupation_date, a.vacation_date),
                 "house_file_no": a.house.file_no if a.house else None,
+                # house_qtr_no is a STRING now
                 "house_qtr_no": a.house.qtr_no if a.house else None,
             }
         )
