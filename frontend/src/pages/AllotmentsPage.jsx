@@ -40,21 +40,33 @@ function getToken() {
 }
 
 export async function searchAllotments(params = {}) {
-  // Accept common aliases and normalize to `q`
-  const { q, search, term, query, limit, offset, active = true } = params;
-  const qValue =
-    q ?? search ?? term ?? query ?? null; // <- any of these will work now
+  // normalize inputs
+  const {
+    q, search, term, query,
+    limit: rawLimit,
+    offset: rawOffset,
+    active = true,
+  } = params;
 
+  // accept aliases; trim; ignore empty or just a hyphen
+  const rawQ = (q ?? search ?? term ?? query ?? '').toString().trim();
+  const qValue = (rawQ && rawQ !== '-') ? rawQ : null;
+
+  // coerce numbers and clamp
+  const limNum = Number(rawLimit);
+  const offNum = Number(rawOffset);
+  const limit = Number.isFinite(limNum) ? Math.min(Math.max(limNum, 1), 1000) : 100;
+  const offset = Number.isFinite(offNum) ? Math.max(offNum, 0) : 0;
+
+  // support absolute or relative API_BASE
   const base = (typeof API_BASE === 'string' && API_BASE.trim()) ? API_BASE.trim() : '/api';
   const isAbsolute = /^https?:\/\//i.test(base);
-  const path = `${base.replace(/\/+$/, '')}/allotments/`; // ensure trailing slash
+  const path = `${base.replace(/\/+$/, '')}/allotments/`; // trailing slash to avoid 307
   const url = isAbsolute ? new URL(path) : new URL(path, window.location.origin);
 
-  if (qValue != null && String(qValue).trim() !== '') {
-    url.searchParams.set('q', String(qValue).trim());
-  }
-  if (limit != null) url.searchParams.set('limit', String(limit));
-  if (offset != null) url.searchParams.set('offset', String(offset));
+  if (qValue) url.searchParams.set('q', qValue);
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('offset', String(offset));
   url.searchParams.set('active', String(active));
 
   const headers = {};
