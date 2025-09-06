@@ -411,20 +411,7 @@ export default function AllotmentsPage() {
 
       {/* table */}
       <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
-        <table className="table allotments" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-          {/* control column widths */}
-          <colgroup>
-            <col className="col-equal col-allottee" /> {/* Allottee (a bit wider via CSS below) */}
-            <col className="col-small" />               {/* Sector */}
-            <col className="col-small" />               {/* Street */}
-            <col className="col-equal" />               {/* Qtr */}
-            <col className="col-small" />               {/* BPS */}
-            <col className="col-equal" />               {/* Medium */}
-            <col className="col-equal" />               {/* Allotment */}
-            <col className="col-equal" />               {/* Occupation */}
-            <col className="col-equal" />               {/* Status */}
-            <col className="col-small" />               {/* Action */}
-          </colgroup>
+        <table className="table" style={{ borderCollapse: 'collapse', width: 'auto' }}>
 
           <thead>
             <tr>
@@ -486,45 +473,39 @@ export default function AllotmentsPage() {
           </tbody>
         </table>
       </div>
-        <style>{`
-          .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-          .page { padding: 12px; }
+      <style>{`
+        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+        .page { padding: 12px; }
 
-          /* let the table size to content; wrapper already has overflow:auto for horizontal scroll */
-          .table { width: 100%; border-collapse: collapse; table-layout: auto; }
+        /* Table sizes to content; parent div already has overflow:auto for horizontal scroll */
+        .table { border-collapse: collapse; width: auto; table-layout: auto; }
 
-          .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
+        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
 
-          /* HEADERS: never wrap or split words */
-          .table thead th {
-            white-space: nowrap;
-            word-break: normal;
-            overflow-wrap: normal;
-          }
+        /* HEADERS: show fully, single line, never split words */
+        .table thead th {
+          white-space: nowrap;
+          word-break: normal;
+          overflow-wrap: normal;
+        }
 
-          /* BODY CELLS: wrap nicely */
-          .table tbody td {
-            white-space: normal;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-          }
+        /* BODY: wrap nicely so data is readable */
+        .table tbody td {
+          white-space: normal;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
 
-          /* give a bit of guaranteed space to the two longer header labels */
-          .table thead th:nth-child(7), /* Allotment */
-          .table thead th:nth-child(8)  /* Occupation */ {
-            min-width: 120px;
-          }
+        /* Optional: give Allottee a little room */
+        .table thead th:first-child { min-width: 160px; }
 
-          /* optional: make Allottee column a little wider */
-          .table thead th:first-child { min-width: 160px; }
-
-          input, select { width: 100%; height: 34px; box-sizing: border-box; }
-          input[readonly] { background: #f8f8f8; }
-          label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
-          button { height: 32px; padding: 0 12px; }
-          .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
-          .chip-accent { background: #f5e1ff; }
-        `}</style>
+        input, select { width: 100%; height: 34px; box-sizing: border-box; }
+        input[readonly] { background: #f8f8f8; }
+        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+        button { height: 32px; padding: 0 12px; }
+        .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
+        .chip-accent { background: #f5e1ff; }
+      `}</style>
     </div>
   )
 }
