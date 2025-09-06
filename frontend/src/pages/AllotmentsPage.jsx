@@ -40,34 +40,28 @@ function getToken() {
 }
 
 export async function searchAllotments(params = {}) {
-  // Robust base handling: supports absolute ("http://.../api") or relative ("/api")
+  // Accept common aliases and normalize to `q`
+  const { q, search, term, query, limit, offset, active = true } = params;
+  const qValue =
+    q ?? search ?? term ?? query ?? null; // <- any of these will work now
+
   const base = (typeof API_BASE === 'string' && API_BASE.trim()) ? API_BASE.trim() : '/api';
   const isAbsolute = /^https?:\/\//i.test(base);
-  const baseNoTrail = base.replace(/\/+$/, ''); // drop trailing slash(s)
-
-  // Ensure trailing slash on the resource to match backend route `/api/allotments/`
-  const path = `${baseNoTrail}/allotments/`;
-
-  // If base is absolute, new URL(path) is fine; if relative, give a base (window.location.origin)
+  const path = `${base.replace(/\/+$/, '')}/allotments/`; // ensure trailing slash
   const url = isAbsolute ? new URL(path) : new URL(path, window.location.origin);
 
-  const { q, limit, offset, active = true } = params;
-  if (q) url.searchParams.set('q', q);
+  if (qValue != null && String(qValue).trim() !== '') {
+    url.searchParams.set('q', String(qValue).trim());
+  }
   if (limit != null) url.searchParams.set('limit', String(limit));
   if (offset != null) url.searchParams.set('offset', String(offset));
   url.searchParams.set('active', String(active));
 
   const headers = {};
-  const t = getToken();
+  const t = getToken?.();
   if (t) headers['Authorization'] = t.startsWith('Bearer ') ? t : `Bearer ${t}`;
 
-  const r = await fetch(url.toString(), {
-    method: 'GET',
-    headers,
-    // optional but helps in dev to avoid cached empties:
-    cache: 'no-store',
-  });
-
+  const r = await fetch(url.toString(), { method: 'GET', headers, cache: 'no-store' });
   if (!r.ok) {
     const text = await r.text().catch(() => '');
     throw new Error(`${r.status} ${r.statusText}${text ? ` - ${text}` : ''}`);
