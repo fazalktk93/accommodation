@@ -105,7 +105,7 @@ def main():
         return
 
     # backup (unless skipped or dry)
-    if not args.no-backup and not args.dry:
+   if not args.no_backup and not args.dry:
         try:
             name = backup_table(engine, args.table)
             print(f"[OK] backup created: {name}")
