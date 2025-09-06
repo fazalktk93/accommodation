@@ -94,7 +94,7 @@ def history_by_file(
     if not house:
         raise HTTPException(status_code=404, detail=f"House with file_no '{file_no}' not found")
 
-    rows = crud_allot.list(
+    rows = crud.list(
         db,
         skip=skip,
         limit=limit,
