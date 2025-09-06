@@ -27,7 +27,7 @@ def list_houses(
     q: Optional[str] = Query(None, description="Search across file_no, qtr_no, sector, street, type, status"),
     db: Session = Depends(get_db),
 ):
-    rows = crud.list_houses(
+    rows = crud.list(
         db,
         skip=skip,
         limit=limit,
