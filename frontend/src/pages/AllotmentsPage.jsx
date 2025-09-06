@@ -423,6 +423,7 @@ export default function AllotmentsPage() {
               <th>Medium</th>
               <th>Allotment Date</th>
               <th>Occupation Date</th>
+              <th>DOR</th>
               <th>Status</th>
               <th></th>
             </tr>
@@ -454,6 +455,9 @@ export default function AllotmentsPage() {
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
                   <td style={{ textAlign: 'center' }}>
+                    {toDateInput(r.dor || (r.dob ? computeDOR(r.dob) : ''))}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
                     <span title={'Quarter: ' + (r.qtr_status || '-') + ' | Allottee: ' + (r.allottee_status || '-')}>
                       {r.qtr_status || '-'}
                     </span>
@@ -465,10 +469,10 @@ export default function AllotmentsPage() {
               )
             })}
             {!loading && (!rows || rows.length === 0) ? (
-              <tr><td colSpan={10} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
             ) : null}
             {loading ? (
-              <tr><td colSpan={10} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
             ) : null}
           </tbody>
         </table>
