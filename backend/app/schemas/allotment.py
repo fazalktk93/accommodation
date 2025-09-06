@@ -214,6 +214,7 @@ class AllotmentOut(AllotmentBase):
     period_of_stay: Optional[int] = None
     house_file_no: Optional[str] = None
     house_qtr_no: Optional[int] = None
+    house_qtr_no: Optional[str] = None
 
     class Config:
         orm_mode = True

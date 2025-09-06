@@ -3,7 +3,8 @@ import axios from 'axios'
 import { getToken, logout } from './auth'
 
 // Default base = http://HOST:8000/api (matches your .env.sample)
-const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`
+ // Use relative path in dev so Vite proxy handles it (avoids CORS entirely)
+const defaultApiBase = '/api'
 let baseURL = defaultApiBase
 try {
   if (
