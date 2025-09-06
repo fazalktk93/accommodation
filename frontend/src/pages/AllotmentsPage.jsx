@@ -113,7 +113,7 @@ export default function AllotmentsPage() {
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
-  const [limit] = useState(5000) // page size; change if you like
+  const [limit] = useState(50) // page size; change if you like
   const [hasNext, setHasNext] = useState(false)
 
   // houses for selects / fallback rendering
@@ -476,6 +476,27 @@ export default function AllotmentsPage() {
             ) : null}
           </tbody>
         </table>
+        <div className="pager">
+  <button
+    className="btn"
+    disabled={loading || page <= 1}
+    onClick={() => search(page - 1)}
+    aria-label="Previous page"
+  >
+    « Prev
+  </button>
+
+  <span className="pager-info">Page {page}</span>
+
+  <button
+    className="btn"
+    disabled={loading || !hasNext}
+    onClick={() => search(page + 1)}
+    aria-label="Next page"
+  >
+    Next »
+  </button>
+</div>
       </div>
       <style>{`
         .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
@@ -509,7 +530,25 @@ export default function AllotmentsPage() {
         button { height: 32px; padding: 0 12px; }
         .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
         .chip-accent { background: #f5e1ff; }
-      `}</style>
+        /* pagination */
+        .pager {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 6px;
+        }
+        .pager .btn {
+          height: 32px;
+          padding: 0 12px;
+        }
+        .pager-info {
+          min-width: 80px;
+          text-align: center;
+          font-weight: 600;
+        }
+              `}
+      </style>
     </div>
   )
 }
