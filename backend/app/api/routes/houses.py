@@ -13,7 +13,7 @@ router = APIRouter(prefix="/houses", tags=["houses"])
 def list_houses(
     # UI sends ?offset= — map it to skip internally
     skip: int = Query(0, alias="offset", ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(3000, ge=1, le=1000),
 
     # optional filters coming from the UI
     type:  Optional[str] = None,
