@@ -104,13 +104,13 @@ def main():
         print(f"[FATAL] {e}")
         return
 
-    # backup (unless skipped or dry)
-   if not args.no_backup and not args.dry:
-        try:
-            name = backup_table(engine, args.table)
-            print(f"[OK] backup created: {name}")
-        except SQLAlchemyError as e:
-            print(f"[WARN] backup failed: {e}")
+# backup (unless skipped or dry)
+if not args.no_backup and not args.dry:
+    try:
+        name = backup_table(engine, args.table)
+        print(f"[OK] backup created: {name}")
+    except SQLAlchemyError as e:
+        print(f"[WARN] backup failed: {e}")
 
     # which columns exist
     need = ["file_no","qtr_no","sector","street","type_code","status"]
