@@ -2,28 +2,19 @@
 import axios from 'axios'
 import { getToken, logout } from './auth'
 
-// Default base = http://HOST:8000/api (matches your .env.sample)
-// Use relative path in dev so Vite proxy handles it (avoids CORS entirely)
+// Use relative base by default so the Vite proxy handles CORS in dev
 const defaultApiBase = '/api'
 let baseURL = defaultApiBase
 try {
-  if (
-    typeof import.meta !== 'undefined' &&
-    import.meta &&
-    import.meta.env &&
-    import.meta.env.VITE_API_BASE_URL
-  ) {
+  if (import.meta?.env?.VITE_API_BASE_URL) {
     baseURL = import.meta.env.VITE_API_BASE_URL
   }
 } catch (_) {}
 
-/** Axios instance with auth + error handling */
+/** Single axios instance */
 const api = axios.create({
   baseURL,
-  withCredentials: false,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 })
 
 /** Attach token if present */
@@ -36,7 +27,7 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-/** Handle 401 globally */
+/** Global 401 → logout */
 api.interceptors.response.use(
   (r) => r,
   (e) => {
@@ -47,14 +38,20 @@ api.interceptors.response.use(
   }
 )
 
-/** Normalize API list responses (array or {data:[...]}) */
+/** Normalize list responses (array or {data:[...]}) */
 function asList(res) {
   if (Array.isArray(res)) return res
   if (res && Array.isArray(res.data)) return res.data
   return []
 }
 
-// ----------------- Houses -----------------
+/* -------------------- Houses -------------------- */
+
+export const listHouses = async (params = {}) => {
+  const r = await api.get('/houses/', { params })
+  return asList(r.data)
+}
+
 export const createHouse = async (payload) => {
   const r = await api.post('/houses/', payload)
   return r.data
@@ -69,34 +66,20 @@ export const deleteHouse = async (houseId) => {
   await api.delete(`/houses/${houseId}`)
 }
 
-// ----------------- Allotments -----------------
-export const listAllotments = async (params = {}) => {
-  const r = await api.get('/allotments/', { params })
-  return asList(r.data)
-}
-
-/** admin-only in practice (server enforces permission) */
-export const deleteAllotment = async (allotmentId) => {
-  await api.delete(`/allotments/${allotmentId}`)
-}
-
-// Backward-compatible search for Houses (used by pages)
+/** Also keep the fetch-based search used elsewhere (back-compat) */
 export async function searchHouses(params = {}) {
   const { q, limit = 100, offset = 0, type, status } = params
-
   const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
   const url = new URL(`${base}/houses/`, window.location.origin)
-
   if (q) url.searchParams.set('q', q)
   if (type) url.searchParams.set('type_code', type)
   if (status) url.searchParams.set('status', status)
   url.searchParams.set('limit', String(limit))
   url.searchParams.set('offset', String(offset))
-
   const res = await fetch(url.toString(), {
     headers: {
-      'Accept': 'application/json',
-      ...(getToken?.() ? { 'Authorization': `Bearer ${getToken()}` } : {}),
+      Accept: 'application/json',
+      ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
   })
   if (!res.ok) throw new Error(`Failed to load houses (${res.status})`)
@@ -104,16 +87,39 @@ export async function searchHouses(params = {}) {
   return Array.isArray(data) ? data : data?.data ?? []
 }
 
-// ----------------- Allotments by house -----------------
-export const listAllotmentsByHouse = async (house, params = {}) => {
-  if (!house) return []
-  const r = await api.get('/allotments/', {
-    params: { house_id: house.id, ...params },
-  })
+/* -------------------- Allotments -------------------- */
+
+export const listAllotments = async (params = {}) => {
+  const r = await api.get('/allotments/', { params })
   return asList(r.data)
 }
 
-// ----------------- File Movements -----------------
+/** CREATE allotment (backend typically accepts JSON body with fields you already send) */
+export const createAllotment = async (payload) => {
+  const r = await api.post('/allotments/', payload)
+  return r.data
+}
+
+/** UPDATE allotment */
+export const updateAllotment = async (id, payload) => {
+  const r = await api.patch(`/allotments/${id}`, payload)
+  return r.data
+}
+
+/** DELETE allotment (admin-only enforced by backend) */
+export const deleteAllotment = async (id) => {
+  await api.delete(`/allotments/${id}`)
+}
+
+/** Convenience: list by house */
+export const listAllotmentsByHouse = async (house, params = {}) => {
+  if (!house) return []
+  const r = await api.get('/allotments/', { params: { house_id: house.id, ...params } })
+  return asList(r.data)
+}
+
+/* -------------------- File Movements -------------------- */
+
 export const listMovements = async (params = {}) => {
   const r = await api.get('/files/', { params })
   return asList(r.data)
