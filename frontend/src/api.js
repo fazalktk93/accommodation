@@ -18,7 +18,7 @@ try {
 } catch (_) {}
 
 /** Axios instance with auth + error handling */
-export const api = axios.create({
+const api = axios.create({
   baseURL,
   withCredentials: false,
   headers: {
@@ -75,7 +75,7 @@ export const listAllotments = async (params = {}) => {
   return asList(r.data)
 }
 
-/** NEW: admin-only in practice (server enforces permission) */
+/** admin-only in practice (server enforces permission) */
 export const deleteAllotment = async (allotmentId) => {
   await api.delete(`/allotments/${allotmentId}`)
 }
@@ -104,7 +104,7 @@ export async function searchHouses(params = {}) {
   return Array.isArray(data) ? data : data?.data ?? []
 }
 
-// ----------------- Helper: Allotments by house (used in HouseAllotmentsPage) -----------------
+// ----------------- Allotments by house -----------------
 export const listAllotmentsByHouse = async (house, params = {}) => {
   if (!house) return []
   const r = await api.get('/allotments/', {
@@ -113,7 +113,7 @@ export const listAllotmentsByHouse = async (house, params = {}) => {
   return asList(r.data)
 }
 
-// ----------------- File Movements (FilesPage.jsx) -----------------
+// ----------------- File Movements -----------------
 export const listMovements = async (params = {}) => {
   const r = await api.get('/files/', { params })
   return asList(r.data)
