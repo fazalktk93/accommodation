@@ -2,35 +2,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   listHouses,
-  listAllotments,   // existing
+  listAllotments,
   createAllotment,
   updateAllotment,
+  deleteAllotment,
 } from '../api'
-import { deleteAllotment } from '../api' // NEW
 
-// ---- LOCAL: safe GET without trailing slash to avoid redirect/CORS issues
-function resolveApiBase() {
-  const viteBase =
-    typeof import.meta !== 'undefined' &&
-    import.meta &&
-    import.meta.env &&
-    (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE) ||
-    ''
-  const runtimeBase = (typeof window !== 'undefined' && window.API_BASE_URL) || ''
-  return String(viteBase || runtimeBase || '/api').trim().replace(/\/+$/, '')
-}
-const API_BASE = resolveApiBase()
-
-function getToken() {
-  return (
-    localStorage.getItem('token') ||
-    localStorage.getItem('authToken') ||
-    sessionStorage.getItem('token') ||
-    sessionStorage.getItem('authToken')
-  )
-}
-
-// Safe date helpers
+// ---- Helpers ----------------------------------------------------
 function pad(n) { return String(n).padStart(2, '0') }
 function toDateInput(d) {
   if (!d) return ''
@@ -51,6 +29,23 @@ function numOrNull(v) {
   return isFinite(n) ? n : null
 }
 
+/** Normalize house fields coming from API with different key names */
+function getHouseFields(h = {}) {
+  // Qtr number may be qtr_no, quarter_no, house_no, number, qtr
+  const qtr =
+    h.qtr_no ?? h.quarter_no ?? h.house_no ?? h.number ?? h.qtr ?? '-'
+
+  // Street may be street, street_no, st_no, road
+  const street =
+    h.street ?? h.street_no ?? h.st_no ?? h.road ?? '-'
+
+  // Sector may be sector, sector_code, sector_name, block
+  const sector =
+    h.sector ?? h.sector_code ?? h.sector_name ?? h.block ?? '-'
+
+  return { qtr, street, sector }
+}
+
 export default function AllotmentsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -63,7 +58,6 @@ export default function AllotmentsPage() {
   const [houses, setHouses] = useState([])
   const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
 
-  // Subform state
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -107,7 +101,6 @@ export default function AllotmentsPage() {
     return () => { alive = false }
   }, [limit])
 
-  // Search/pagination
   async function search(nextPage = 1) {
     try {
       setLoading(true)
@@ -127,8 +120,6 @@ export default function AllotmentsPage() {
       setLoading(false)
     }
   }
-
-  const houseFromRow = (r) => r?.house || r // tolerate both shapes
 
   function onChange(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -162,7 +153,7 @@ export default function AllotmentsPage() {
         await updateAllotment(editingId, payload)
       } else {
         payload.force_end_previous = true
-        await createAllotment(payload, { forceEndPrevious: true })
+        await createAllotment(payload)
       }
 
       setShowForm(false)
@@ -204,7 +195,6 @@ export default function AllotmentsPage() {
     setShowForm(true)
   }
 
-  /** NEW: Delete (admin only – server will 403 otherwise) */
   async function onDelete(row) {
     const name = row?.person_name ? ` "${row.person_name}"` : ''
     if (!confirm(`Delete allotment${name}? This cannot be undone.`)) return
@@ -214,7 +204,6 @@ export default function AllotmentsPage() {
       await deleteAllotment(row.id)
       await search(page)
     } catch (e) {
-      // Typical: 403 if not admin or missing permission
       const msg = e?.response?.data?.detail || e?.message || 'Delete failed'
       setError(`Cannot delete: ${msg}`)
     } finally {
@@ -222,7 +211,7 @@ export default function AllotmentsPage() {
     }
   }
 
-  // --- UI ---
+  // --- UI ---------------------------------------------------------
   return (
     <div className="page">
       <h2>Allotments</h2>
@@ -249,11 +238,14 @@ export default function AllotmentsPage() {
             <label>House
               <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)}>
                 <option value="">Select house</option>
-                {safeHouses.map(h => (
-                  <option key={h.id} value={h.id}>
-                    {h.sector || '-'} / {h.street || '-'} / {h.qtr_no || h.number || '-'}
-                  </option>
-                ))}
+                {safeHouses.map(h => {
+                  const f = getHouseFields(h)
+                  return (
+                    <option key={h.id} value={h.id}>
+                      {`${f.qtr} / ${f.street} / ${f.sector}`}
+                    </option>
+                  )
+                })}
               </select>
             </label>
 
@@ -330,21 +322,22 @@ export default function AllotmentsPage() {
               Cancel
             </button>{' '}
             <button type="submit" disabled={saving}>
-              {saving ? (editingId ? 'Saving…' : 'Saving…') : (editingId ? 'Save changes' : 'Save')}
+              {editingId ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Saving…' : 'Save')}
             </button>
           </div>
         </form>
       ) : null}
 
-      {/* table */}
+      {/* Table */}
       <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
-        <table className="table" style={{ borderCollapse: 'collapse', width: 'auto' }}>
+        <table className="table" style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Allottee</th>
-              <th style={{ textAlign: 'left' }}>Sector</th>
-              <th style={{ textAlign: 'left' }}>Street</th>
+              {/* order changed: Qtr, Street, Sector */}
               <th style={{ textAlign: 'left' }}>Qtr</th>
+              <th style={{ textAlign: 'left' }}>Street</th>
+              <th style={{ textAlign: 'left' }}>Sector</th>
               <th>BPS</th>
               <th>Medium</th>
               <th>Allotment Date</th>
@@ -356,25 +349,24 @@ export default function AllotmentsPage() {
           </thead>
           <tbody>
             {(Array.isArray(rows) ? rows : []).map(r => {
-              const h = houseFromRow(r) || {}
+              const h = r?.house || {}          // tolerate {house:{...}} or flat
+              const { qtr, street, sector } = getHouseFields(h)
               return (
                 <tr key={r.id}>
-                  <td className="col-allottee" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
+                  <td className="col-allottee" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                     <div><strong>{r.person_name || '-'}</strong></div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>{r.designation || ''}</div>
                     <div style={{ fontSize: 12, opacity: 0.8 }}>{r.cnic || ''}</div>
                   </td>
 
-                  <td>{h.sector ?? '-'}</td>
-                  <td>{h.street ?? '-'}</td>
-                  <td>{h.qtr_no ?? h.number ?? '-'}</td>
+                  <td>{qtr}</td>
+                  <td>{street}</td>
+                  <td>{sector}</td>
 
                   <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
                   <td style={{ textAlign: 'center' }}>
                     {r.medium || ''}
-                    {r.medium === 'Transit' && (
-                      <span className="chip chip-accent" style={{ marginLeft: 6 }}>Transit</span>
-                    )}
+                    {r.medium === 'Transit' && <span className="chip chip-accent" style={{ marginLeft: 6 }}>Transit</span>}
                   </td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
@@ -388,7 +380,6 @@ export default function AllotmentsPage() {
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn" onClick={() => openEdit(r)} style={{ marginRight: 8 }}>Edit</button>
-                    {/* NEW: Delete – allowed only if server grants permission */}
                     <button className="btn danger" onClick={() => onDelete(r)}>Delete</button>
                   </td>
                 </tr>
@@ -404,23 +395,9 @@ export default function AllotmentsPage() {
         </table>
 
         <div className="pager">
-          <button
-            className="btn"
-            disabled={loading || page <= 1}
-            onClick={() => search(page - 1)}
-            aria-label="Previous page"
-          >
-            « Prev
-          </button>
+          <button className="btn" disabled={loading || page <= 1} onClick={() => search(page - 1)} aria-label="Previous page">« Prev</button>
           <span className="pager-info">{page}</span>
-          <button
-            className="btn"
-            disabled={loading || !hasNext}
-            onClick={() => search(page + 1)}
-            aria-label="Next page"
-          >
-            Next »
-          </button>
+          <button className="btn" disabled={loading || !hasNext} onClick={() => search(page + 1)} aria-label="Next page">Next »</button>
         </div>
       </div>
 
@@ -430,32 +407,12 @@ export default function AllotmentsPage() {
 
         .table { border-collapse: collapse; width: auto; table-layout: auto; }
         .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
-
-        .table thead th {
-          white-space: nowrap;
-          word-break: normal;
-          overflow-wrap: normal;
-        }
-
-        .table tbody td {
-          white-space: normal;
-          word-break: break-word;
-          overflow-wrap: anywhere;
-        }
-
-        .grid2 {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0,1fr));
-          gap: 12px;
-        }
-
+        .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
         .chip { display:inline-block; font-size:12px; padding:2px 6px; border-radius:999px; border:1px solid #cfe9dc; }
         .chip-accent { background:#e7f5ef; }
-
         .pager { display:flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px; }
         .pager .btn { height: 32px; padding: 0 12px; }
         .pager-info { min-width: 80px; text-align: center; font-weight: 600; }
-
         .btn.danger { background: var(--danger); }
         .btn.danger:hover { filter: brightness(0.95); }
       `}</style>
