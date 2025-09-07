@@ -3,7 +3,7 @@ import axios from 'axios'
 import { getToken, logout } from './auth'
 
 // Default base = http://HOST:8000/api (matches your .env.sample)
- // Use relative path in dev so Vite proxy handles it (avoids CORS entirely)
+// Use relative path in dev so Vite proxy handles it (avoids CORS entirely)
 const defaultApiBase = '/api'
 let baseURL = defaultApiBase
 try {
@@ -15,59 +15,46 @@ try {
   ) {
     baseURL = import.meta.env.VITE_API_BASE_URL
   }
-} catch { /* noop */ }
+} catch (_) {}
 
-const api = axios.create({
+/** Axios instance with auth + error handling */
+export const api = axios.create({
   baseURL,
-  timeout: 30000,
+  withCredentials: false,
+  headers: {
+    'Content-Type': 'application/json',
+  },
 })
 
-// Attach Authorization on every request if we have a token
+/** Attach token if present */
 api.interceptors.request.use((config) => {
-  const token = getToken()
-  if (token) {
+  const tok = getToken?.()
+  if (tok) {
     config.headers = config.headers || {}
-    config.headers.Authorization = `Bearer ${token}`
+    config.headers.Authorization = `Bearer ${tok}`
   }
   return config
 })
 
-// If the server says 401, force logout → /login
+/** Handle 401 globally */
 api.interceptors.response.use(
-  (resp) => resp,
-  (err) => {
-    if (err?.response?.status === 401) {
-      logout()
-      return Promise.reject(new Error('Unauthorized'))
+  (r) => r,
+  (e) => {
+    if (e?.response?.status === 401) {
+      try { logout?.() } catch {}
     }
-    return Promise.reject(err)
+    throw e
   }
 )
 
-// Reusable helper for list responses
-const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []))
+/** Normalize API list responses (array or {data:[...]}) */
+function asList(res) {
+  if (Array.isArray(res)) return res
+  if (res && Array.isArray(res.data)) return res.data
+  return []
+}
 
 // ----------------- Houses -----------------
-export const listHouses = async (params = {}) => {
-  const r = await api.get('/houses/', { params })
-  return asList(r.data)
-}
-
-export const getHouse = async (houseId) => {
-  const r = await api.get(`/houses/${houseId}`)
-  return r.data
-}
-
-export const getHouseByFile = async (fileNo) => {
-  try {
-    const r = await api.get(`/houses/by-file/${encodeURIComponent(fileNo)}`)
-    return r.data
-  } catch (e) {
-    if (e?.response?.status === 404) return null
-    throw e
-  }
-}
-
 export const createHouse = async (payload) => {
   const r = await api.post('/houses/', payload)
   return r.data
@@ -88,46 +75,37 @@ export const listAllotments = async (params = {}) => {
   return asList(r.data)
 }
 
- // Backward-compatible: can pass a string (q) OR an object { q, limit, offset, ... }
+/** NEW: admin-only in practice (server enforces permission) */
+export const deleteAllotment = async (allotmentId) => {
+  await api.delete(`/allotments/${allotmentId}`)
+}
+
+// Backward-compatible search for Houses (used by pages)
 export async function searchHouses(params = {}) {
-  const { q, limit = 100, offset = 0, type, status } = params;
+  const { q, limit = 100, offset = 0, type, status } = params
 
-  const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
-  const url = new URL(`${base}/houses/`, window.location.origin);
+  const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
+  const url = new URL(`${base}/houses/`, window.location.origin)
 
-  if (q && String(q).trim()) url.searchParams.set('q', String(q).trim());
-  url.searchParams.set('limit', String(Math.min(Math.max(Number(limit) || 100, 1), 1000)));
-  url.searchParams.set('offset', String(Math.max(Number(offset) || 0, 0)));
-  if (type) url.searchParams.set('type', type);
-  if (status) url.searchParams.set('status', status);
+  if (q) url.searchParams.set('q', q)
+  if (type) url.searchParams.set('type_code', type)
+  if (status) url.searchParams.set('status', status)
+  url.searchParams.set('limit', String(limit))
+  url.searchParams.set('offset', String(offset))
 
-  const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
+  const res = await fetch(url.toString(), {
+    headers: {
+      'Accept': 'application/json',
+      ...(getToken?.() ? { 'Authorization': `Bearer ${getToken()}` } : {}),
+    },
+  })
+  if (!res.ok) throw new Error(`Failed to load houses (${res.status})`)
+  const data = await res.json()
+  return Array.isArray(data) ? data : data?.data ?? []
 }
 
-export const createAllotment = async (payload) => {
-  // payload should match backend schema (house_id, person_name, etc.)
-  const r = await api.post('/allotments/', payload)
-  return r.data
-}
-
-export const getAllotment = async (id) => {
-  const r = await api.get(`/allotments/${id}`)
-  return r.data
-}
-
-export const updateAllotment = async (id, payload) => {
-  const r = await api.patch(`/allotments/${id}`, payload)
-  return r.data
-}
-
-export const deleteAllotment = async (id) => {
-  await api.delete(`/allotments/${id}`)
-}
-
-export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
-  const house = await getHouseByFile(fileNo)
+// ----------------- Helper: Allotments by house (used in HouseAllotmentsPage) -----------------
+export const listAllotmentsByHouse = async (house, params = {}) => {
   if (!house) return []
   const r = await api.get('/allotments/', {
     params: { house_id: house.id, ...params },
@@ -137,23 +115,19 @@ export const listAllotmentHistoryByFile = async (fileNo, params = {}) => {
 
 // ----------------- File Movements (FilesPage.jsx) -----------------
 export const listMovements = async (params = {}) => {
-  // params: { outstanding, missing, file_no, ... }
   const r = await api.get('/files/', { params })
   return asList(r.data)
 }
 
 export const issueFile = async (payload) => {
-  // payload: { file_no, subject?, issued_to?, department?, due_date?, remarks? }
   const r = await api.post('/files/', payload)
   return r.data
 }
 
 export const returnFile = async (id, returned_date = null) => {
-  // backend: POST /files/{id}/return with optional returned_date
   const r = await api.post(`/files/${id}/return`, { returned_date })
   return r.data
 }
 
-// Export both default AND named so `import { api }` works
 export { api }
 export default api

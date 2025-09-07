@@ -15,22 +15,23 @@ export default function App() {
   return (
     <div>
       <nav className="nav">
-        <div className="container" style={{display:'flex',gap:12,alignItems:'center',justifyContent:'space-between'}}>
-          <div style={{display:'flex',gap:12}}>
+        <div className="container nav-inner">
+          <div className="nav-left">
             <NavLink to="/dashboard">Dashboard</NavLink>
             <NavLink to="/">Houses</NavLink>
             <NavLink to="/allotments">Allotments</NavLink>
             <NavLink to="/files">File Movement</NavLink>
           </div>
-          <div>
+          <div className="nav-right">
             {loggedIn ? (
-              <button onClick={logout} style={{border:'1px solid #ddd',background:'#fafafa',borderRadius:6,padding:'6px 10px',cursor:'pointer'}}>Logout</button>
+              <button className="btn btn-logout" onClick={logout} title="Sign out">Logout</button>
             ) : (
               <NavLink to="/login">Login</NavLink>
             )}
           </div>
         </div>
       </nav>
+
       <div className="container">
         <Routes>
           {/* public */}

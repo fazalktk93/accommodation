@@ -2,31 +2,22 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   listHouses,
-  listAllotments,   // ← replaced by local no-trailing-slash version below
+  listAllotments,   // existing
   createAllotment,
   updateAllotment,
 } from '../api'
+import { deleteAllotment } from '../api' // NEW
 
 // ---- LOCAL: safe GET without trailing slash to avoid redirect/CORS issues
 function resolveApiBase() {
-  // Prefer Vite env var if present and non-empty
   const viteBase =
     typeof import.meta !== 'undefined' &&
     import.meta &&
     import.meta.env &&
-    import.meta.env.VITE_API_BASE
-      ? String(import.meta.env.VITE_API_BASE).trim()
-      : ''
-
-  if (viteBase) return viteBase.replace(/\/+$/, '')
-
-  // Fallback to current origin + '/api' if window exists (browser)
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return `${window.location.origin}/api`.replace(/\/+$/, '')
-  }
-
-  // Last-resort fallback for non-browser contexts
-  return '/api'
+    (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE) ||
+    ''
+  const runtimeBase = (typeof window !== 'undefined' && window.API_BASE_URL) || ''
+  return String(viteBase || runtimeBase || '/api').trim().replace(/\/+$/, '')
 }
 const API_BASE = resolveApiBase()
 
@@ -39,60 +30,13 @@ function getToken() {
   )
 }
 
-export async function searchAllotments(params = {}) {
-  // normalize inputs
-  const {
-    q, search, term, query,
-    limit: rawLimit,
-    offset: rawOffset,
-    active = true,
-  } = params;
-
-  // accept aliases; trim; ignore empty or just a hyphen
-  const rawQ = (q ?? search ?? term ?? query ?? '').toString().trim();
-  const qValue = (rawQ && rawQ !== '-') ? rawQ : null;
-
-  // coerce numbers and clamp
-  const limNum = Number(rawLimit);
-  const offNum = Number(rawOffset);
-  const limit = Number.isFinite(limNum) ? Math.min(Math.max(limNum, 1), 1000) : 100;
-  const offset = Number.isFinite(offNum) ? Math.max(offNum, 0) : 0;
-
-  // support absolute or relative API_BASE
-  const base = (typeof API_BASE === 'string' && API_BASE.trim()) ? API_BASE.trim() : '/api';
-  const isAbsolute = /^https?:\/\//i.test(base);
-  const path = `${base.replace(/\/+$/, '')}/allotments/`; // trailing slash to avoid 307
-  const url = isAbsolute ? new URL(path) : new URL(path, window.location.origin);
-
-  if (qValue) url.searchParams.set('q', qValue);
-  url.searchParams.set('limit', String(limit));
-  url.searchParams.set('offset', String(offset));
-  url.searchParams.set('active', String(active));
-
-  const headers = {};
-  const t = getToken?.();
-  if (t) headers['Authorization'] = t.startsWith('Bearer ') ? t : `Bearer ${t}`;
-
-  const r = await fetch(url.toString(), { method: 'GET', headers, cache: 'no-store' });
-  if (!r.ok) {
-    const text = await r.text().catch(() => '');
-    throw new Error(`${r.status} ${r.statusText}${text ? ` - ${text}` : ''}`);
-  }
-  return r.json();
-}
-
-// ---------- helpers
-function normalizeList(resp) {
-  if (!resp) return []
-  if (Array.isArray(resp)) return resp
-  if (resp && Array.isArray(resp.results)) return resp.results
-  return []
-}
-function toDateInput(val) {
-  if (!val) return ''
-  const d = typeof val === 'string' ? new Date(val) : val
-  if (isNaN(d.getTime())) return ''
-  return d.toISOString().slice(0, 10)
+// Safe date helpers
+function pad(n) { return String(n).padStart(2, '0') }
+function toDateInput(d) {
+  if (!d) return ''
+  const x = new Date(d)
+  if (isNaN(x.getTime())) return ''
+  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`
 }
 function computeDOR(dob) {
   if (!dob) return ''
@@ -113,14 +57,13 @@ export default function AllotmentsPage() {
   const [rows, setRows] = useState([])
   const [q, setQ] = useState('')
   const [page, setPage] = useState(1)
-  const [limit] = useState(50) // page size; change if you like
+  const [limit] = useState(50)
   const [hasNext, setHasNext] = useState(false)
 
-  // houses for selects / fallback rendering
   const [houses, setHouses] = useState([])
   const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
 
-  // Subform state: used for both Add and Edit
+  // Subform state
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -132,75 +75,73 @@ export default function AllotmentsPage() {
     bps: '',
     allotment_date: '',
     occupation_date: '',
-    vacation_date: '',
     dob: '',
     dor: '',
-    retention_last: '',
     qtr_status: 'active',
     allottee_status: 'in_service',
     notes: '',
   }
-  const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(emptyForm)
+  const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [editingId, setEditingId] = useState(null) // null => add, number => edit
+  const [editingId, setEditingId] = useState(null)
 
-  // Load houses once
+  // Initial fetch
   useEffect(() => {
-    let mounted = true
+    let alive = true
     ;(async () => {
       try {
-        const hs = await listHouses()
-        const arr = Array.isArray(hs) ? hs : (hs && hs.results ? hs.results : [])
-        if (mounted) setHouses(arr)
+        setLoading(true)
+        const [hs, al] = await Promise.all([listHouses(), listAllotments({ limit, offset: 0 })])
+        if (!alive) return
+        setHouses(hs || [])
+        setRows(al || [])
+        setHasNext((al || []).length === limit)
       } catch (e) {
-        console.warn('listHouses failed:', e)
+        if (!alive) return
+        setError(e?.message || 'Failed to load')
+      } finally {
+        if (alive) setLoading(false)
       }
     })()
-    return () => { mounted = false }
-  }, [])
+    return () => { alive = false }
+  }, [limit])
 
-  // Initial search
-  useEffect(() => { search(page) }, []) // eslint-disable-line
-
+  // Search/pagination
   async function search(nextPage = 1) {
     try {
-      setLoading(true); setError('')
+      setLoading(true)
+      setError('')
       const params = {
-        q: q && q.trim() ? q.trim() : undefined,
+        q: q?.trim() || undefined,
         limit,
         offset: (nextPage - 1) * limit,
       }
-      const resp = await searchAllotments(params) // ← uses local no-slashed endpoint
-      const list = normalizeList(resp)
-      setRows(list)
+      const res = await listAllotments(params)
+      setRows(res || [])
       setPage(nextPage)
-      // If the API doesn't return total, we infer "has next" by page length
-      setHasNext(list.length === limit)
+      setHasNext((res || []).length === limit)
     } catch (e) {
       setError(e?.message || 'Failed to load')
-      setRows([])
-      setHasNext(false)
     } finally {
       setLoading(false)
     }
   }
 
-  function onChange(key, val) {
-    // keep DOR auto-calculated from DOB in the subform
-    if (key === 'dob') {
-      setForm(prev => ({ ...prev, dob: val, dor: val ? computeDOR(val) : '' }))
-    } else {
-      setForm(prev => ({ ...prev, [key]: val }))
-    }
+  const houseFromRow = (r) => r?.house || r // tolerate both shapes
+
+  function onChange(field, value) {
+    setForm((f) => ({ ...f, [field]: value }))
   }
 
   async function onSubmit(e) {
-    if (e?.preventDefault) e.preventDefault()
+    e.preventDefault()
     try {
-      setSaving(true); setError('')
+      setSaving(true)
+      setError('')
+
       const payload = {
-        house_id: form.house_id || null,
+        house_id: numOrNull(form.house_id),
         person_name: form.person_name || null,
         designation: form.designation || null,
         directorate: form.directorate || null,
@@ -210,10 +151,8 @@ export default function AllotmentsPage() {
         bps: numOrNull(form.bps),
         allotment_date: form.allotment_date || null,
         occupation_date: form.occupation_date || null,
-        vacation_date: form.vacation_date || null,
         dob: form.dob || null,
-        dor: form.dob ? computeDOR(form.dob) : (form.dor || null),
-        retention_last: form.retention_last || null,
+        dor: form.dor || null,
         qtr_status: form.qtr_status || 'active',
         allottee_status: form.allottee_status || 'in_service',
         notes: form.notes || null,
@@ -229,7 +168,7 @@ export default function AllotmentsPage() {
       setShowForm(false)
       setForm(emptyForm)
       setEditingId(null)
-      await search()
+      await search(page)
     } catch (e) {
       setError(e?.message || 'Failed to save')
     } finally {
@@ -244,23 +183,20 @@ export default function AllotmentsPage() {
   }
 
   function openEdit(row) {
-    if (!row) return
     setEditingId(row.id)
     setForm({
-      house_id: row.house_id || '',
-      person_name: row.person_name || '',
-      designation: row.designation || '',
-      directorate: row.directorate || '',
-      cnic: row.cnic || '',
-      pool: row.pool || '',
-      medium: row.medium || '',
-      bps: (row.bps === 0 || row.bps) ? String(row.bps) : '',
-      allotment_date: toDateInput(row.allotment_date),
-      occupation_date: toDateInput(row.occupation_date),
-      vacation_date: toDateInput(row.vacation_date),
-      dob: toDateInput(row.dob),
-      dor: toDateInput(row.dor || (row.dob ? computeDOR(row.dob) : '')),
-      retention_last: toDateInput(row.retention_last),
+      house_id: row.house_id ?? '',
+      person_name: row.person_name ?? '',
+      designation: row.designation ?? '',
+      directorate: row.directorate ?? '',
+      cnic: row.cnic ?? '',
+      pool: row.pool ?? '',
+      medium: row.medium ?? '',
+      bps: row.bps ?? '',
+      allotment_date: toDateInput(row.allotment_date) || '',
+      occupation_date: toDateInput(row.occupation_date) || '',
+      dob: toDateInput(row.dob) || '',
+      dor: toDateInput(row.dor) || computeDOR(row.dob) || '',
       qtr_status: row.qtr_status || 'active',
       allottee_status: row.allottee_status || 'in_service',
       notes: row.notes || '',
@@ -268,48 +204,54 @@ export default function AllotmentsPage() {
     setShowForm(true)
   }
 
-  // helpers to show house fields even if backend doesn't embed full house
-  function houseFromRow(row) {
-    if (row?.house) return row.house
-    if (!row?.house_id) return null
-    return safeHouses.find(h => String(h.id) === String(row.house_id)) || null
+  /** NEW: Delete (admin only – server will 403 otherwise) */
+  async function onDelete(row) {
+    const name = row?.person_name ? ` "${row.person_name}"` : ''
+    if (!confirm(`Delete allotment${name}? This cannot be undone.`)) return
+    try {
+      setLoading(true)
+      setError('')
+      await deleteAllotment(row.id)
+      await search(page)
+    } catch (e) {
+      // Typical: 403 if not admin or missing permission
+      const msg = e?.response?.data?.detail || e?.message || 'Delete failed'
+      setError(`Cannot delete: ${msg}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
+  // --- UI ---
   return (
     <div className="page">
-      {/* toolbar */}
-      <div className="toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <h2>Allotments</h2>
+
+      {error ? <div className="error" role="alert">{error}</div> : null}
+
+      <div className="filters">
         <input
-          placeholder="Search name, CNIC, file no, etc."
+          placeholder="Search name / file no / qtr no…"
           value={q}
-          onChange={e => setQ(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') search() }}
-          style={{ minWidth: 260 }}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') search(1) }}
+          style={{ maxWidth: 360 }}
         />
-        <button onClick={search} disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
-        <div style={{ flex: 1 }} />
-        <button onClick={openAdd}>{showForm ? (editingId ? 'Close Edit' : 'Close') : 'Add Allotment'}</button>
+        <button className="btn" onClick={() => search(1)} disabled={loading}>Search</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={openAdd}>Add Allotment</button>
       </div>
 
-      {error ? (
-        <div className="error" style={{ marginTop: 8, color: '#b00020' }}>{error}</div>
-      ) : null}
-
-      {/* SUBFORM (used for both Add and Edit) */}
+      {/* Form */}
       {showForm ? (
-        <form className="card" onSubmit={onSubmit} style={{ margin: '1rem 0', padding: 12 }}>
-          <strong>{editingId ? 'Edit Allotment' : 'New Allotment'}</strong>
-
-          <div
-            className="grid"
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginTop: 12 }}
-          >
+        <form className="card" onSubmit={onSubmit}>
+          <div className="grid2">
             <label>House
-              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)} required>
-                <option value="">-- Select house / Qtr --</option>
+              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)}>
+                <option value="">Select house</option>
                 {safeHouses.map(h => (
                   <option key={h.id} value={h.id}>
-                    {(h.file_no ?? '-') + ' — Sector ' + (h.sector ?? '-') + ' • Street ' + (h.street ?? '-') + ' • Qtr ' + (h.qtr_no ?? h.number ?? h.id)}
+                    {h.sector || '-'} / {h.street || '-'} / {h.qtr_no || h.number || '-'}
                   </option>
                 ))}
               </select>
@@ -340,18 +282,11 @@ export default function AllotmentsPage() {
             </label>
 
             <label>Medium
-              <select value={form.medium} onChange={e => onChange('medium', e.target.value)}>
-                <option value="">Select medium</option>
-                <option value="family transfer">Family Transfer</option>
-                <option value="mutual">Mutual</option>
-                <option value="changes">Changes</option>
-                <option value="fresh">Fresh</option>
-                <option value="Transit">Transit</option>
-              </select>
+              <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
             </label>
 
             <label>BPS
-              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} inputMode="numeric" />
+              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
             </label>
 
             <label>Allotment Date
@@ -362,44 +297,36 @@ export default function AllotmentsPage() {
               <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
             </label>
 
-            <label>Vacation Date
-              <input type="date" value={form.vacation_date} onChange={e => onChange('vacation_date', e.target.value)} />
-            </label>
-
             <label>DOB
               <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
             </label>
 
-            <label>DOR (auto from DOB)
-              <input readOnly value={form.dob ? computeDOR(form.dob) : (form.dor || '')} />
-            </label>
-
-            <label>Retention Last
-              <input type="date" value={form.retention_last} onChange={e => onChange('retention_last', e.target.value)} />
+            <label>DOR
+              <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
             </label>
 
             <label>Quarter Status
               <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
-                <option value="active">active (occupied)</option>
-                <option value="ended">ended (vacant)</option>
+                <option value="active">Active</option>
+                <option value="ended">Ended</option>
               </select>
             </label>
 
             <label>Allottee Status
               <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
-                <option value="in_service">in service</option>
-                <option value="retired">retired</option>
-                <option value="cancelled">cancelled</option>
+                <option value="in_service">In Service</option>
+                <option value="retired">Retired</option>
+                <option value="deceased">Deceased</option>
               </select>
             </label>
 
-            <label>Notes
-              <input value={form.notes} onChange={e => onChange('notes', e.target.value)} />
+            <label style={{ gridColumn: '1 / -1' }}>Notes
+              <textarea value={form.notes} onChange={e => onChange('notes', e.target.value)} rows={3} />
             </label>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
+            <button type="button" className="link-btn" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
               Cancel
             </button>{' '}
             <button type="submit" disabled={saving}>
@@ -412,7 +339,6 @@ export default function AllotmentsPage() {
       {/* table */}
       <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
         <table className="table" style={{ borderCollapse: 'collapse', width: 'auto' }}>
-
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Allottee</th>
@@ -428,7 +354,6 @@ export default function AllotmentsPage() {
               <th></th>
             </tr>
           </thead>
-
           <tbody>
             {(Array.isArray(rows) ? rows : []).map(r => {
               const h = houseFromRow(r) || {}
@@ -436,11 +361,10 @@ export default function AllotmentsPage() {
                 <tr key={r.id}>
                   <td className="col-allottee" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
                     <div><strong>{r.person_name || '-'}</strong></div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>{r.designation || ''}</div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>{r.cnic || ''}</div>
                   </td>
 
-                  {/* REMOVED File No column */}
                   <td>{h.sector ?? '-'}</td>
                   <td>{h.street ?? '-'}</td>
                   <td>{h.qtr_no ?? h.number ?? '-'}</td>
@@ -462,93 +386,79 @@ export default function AllotmentsPage() {
                       {r.qtr_status || '-'}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button onClick={() => openEdit(r)}>Edit</button>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button className="btn" onClick={() => openEdit(r)} style={{ marginRight: 8 }}>Edit</button>
+                    {/* NEW: Delete – allowed only if server grants permission */}
+                    <button className="btn danger" onClick={() => onDelete(r)}>Delete</button>
                   </td>
                 </tr>
               )
             })}
             {!loading && (!rows || rows.length === 0) ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.7 }}>No records</td></tr>
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.8 }}>No records</td></tr>
             ) : null}
             {loading ? (
               <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
             ) : null}
           </tbody>
         </table>
+
         <div className="pager">
-  <button
-    className="btn"
-    disabled={loading || page <= 1}
-    onClick={() => search(page - 1)}
-    aria-label="Previous page"
-  >
-    « Prev
-  </button>
-
-  <span className="pager-info">Page {page}</span>
-
-  <button
-    className="btn"
-    disabled={loading || !hasNext}
-    onClick={() => search(page + 1)}
-    aria-label="Next page"
-  >
-    Next »
-  </button>
-</div>
+          <button
+            className="btn"
+            disabled={loading || page <= 1}
+            onClick={() => search(page - 1)}
+            aria-label="Previous page"
+          >
+            « Prev
+          </button>
+          <span className="pager-info">{page}</span>
+          <button
+            className="btn"
+            disabled={loading || !hasNext}
+            onClick={() => search(page + 1)}
+            aria-label="Next page"
+          >
+            Next »
+          </button>
+        </div>
       </div>
+
       <style>{`
         .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
         .page { padding: 12px; }
 
-        /* Table sizes to content; parent div already has overflow:auto for horizontal scroll */
         .table { border-collapse: collapse; width: auto; table-layout: auto; }
-
         .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
 
-        /* HEADERS: show fully, single line, never split words */
         .table thead th {
           white-space: nowrap;
           word-break: normal;
           overflow-wrap: normal;
         }
 
-        /* BODY: wrap nicely so data is readable */
         .table tbody td {
           white-space: normal;
           word-break: break-word;
           overflow-wrap: anywhere;
         }
 
-        /* Optional: give Allottee a little room */
-        .table thead th:first-child { min-width: 160px; }
-
-        input, select { width: 100%; height: 34px; box-sizing: border-box; }
-        input[readonly] { background: #f8f8f8; }
-        label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
-        button { height: 32px; padding: 0 12px; }
-        .chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #eee; }
-        .chip-accent { background: #f5e1ff; }
-        /* pagination */
-        .pager {
-          display: flex;
-          justify-content: center;
-          align-items: center;
+        .grid2 {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0,1fr));
           gap: 12px;
-          padding: 12px 6px;
         }
-        .pager .btn {
-          height: 32px;
-          padding: 0 12px;
-        }
-        .pager-info {
-          min-width: 80px;
-          text-align: center;
-          font-weight: 600;
-        }
-              `}
-      </style>
+
+        .chip { display:inline-block; font-size:12px; padding:2px 6px; border-radius:999px; border:1px solid #cfe9dc; }
+        .chip-accent { background:#e7f5ef; }
+
+        .pager { display:flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px; }
+        .pager .btn { height: 32px; padding: 0 12px; }
+        .pager-info { min-width: 80px; text-align: center; font-weight: 600; }
+
+        .btn.danger { background: var(--danger); }
+        .btn.danger:hover { filter: brightness(0.95); }
+      `}</style>
     </div>
   )
 }
