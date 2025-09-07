@@ -8,42 +8,25 @@ import {
   deleteAllotment,
 } from '../api'
 
-// ---- Helpers ----------------------------------------------------
-function pad(n) { return String(n).padStart(2, '0') }
-function toDateInput(d) {
+// ---------- small helpers ----------
+const pad = (n) => String(n).padStart(2, '0')
+const toDateInput = (d) => {
   if (!d) return ''
   const x = new Date(d)
   if (isNaN(x.getTime())) return ''
   return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`
 }
-function computeDOR(dob) {
+const computeDOR = (dob) => {
   if (!dob) return ''
   const d = new Date(dob)
   if (isNaN(d.getTime())) return ''
   d.setFullYear(d.getFullYear() + 60)
   return toDateInput(d)
 }
-function numOrNull(v) {
+const numOrNull = (v) => {
   if (v === '' || v === null || v === undefined) return null
   const n = Number(v)
   return isFinite(n) ? n : null
-}
-
-/** Normalize house fields coming from API with different key names */
-function getHouseFields(h = {}) {
-  // Qtr number may be qtr_no, quarter_no, house_no, number, qtr
-  const qtr =
-    h.qtr_no ?? h.quarter_no ?? h.house_no ?? h.number ?? h.qtr ?? '-'
-
-  // Street may be street, street_no, st_no, road
-  const street =
-    h.street ?? h.street_no ?? h.st_no ?? h.road ?? '-'
-
-  // Sector may be sector, sector_code, sector_name, block
-  const sector =
-    h.sector ?? h.sector_code ?? h.sector_name ?? h.block ?? '-'
-
-  return { qtr, street, sector }
 }
 
 export default function AllotmentsPage() {
@@ -56,8 +39,64 @@ export default function AllotmentsPage() {
   const [hasNext, setHasNext] = useState(false)
 
   const [houses, setHouses] = useState([])
-  const safeHouses = useMemo(() => (Array.isArray(houses) ? houses : []), [houses])
 
+  // Build lookup maps so we can resolve qtr/street/sector quickly
+  const { byId, byFile } = useMemo(() => {
+    const idMap = new Map()
+    const fileMap = new Map()
+    ;(Array.isArray(houses) ? houses : []).forEach((h) => {
+      if (h?.id != null) idMap.set(String(h.id), h)
+      if (h?.file_no) fileMap.set(String(h.file_no).toLowerCase(), h)
+    })
+    return { byId: idMap, byFile: fileMap }
+  }, [houses])
+
+  // Initial fetch
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError('')
+        // Load a big chunk of houses so we can resolve most rows locally
+        const [hs, al] = await Promise.all([
+          listHouses({ limit: 10000, offset: 0 }),
+          listAllotments({ limit, offset: 0 }), // first page of allotments
+        ])
+        if (!alive) return
+        setHouses(hs || [])
+        setRows(al || [])
+        setHasNext((al || []).length === limit)
+      } catch (e) {
+        if (!alive) return
+        setError(e?.message || 'Failed to load')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [limit])
+
+  async function search(nextPage = 1) {
+    try {
+      setLoading(true)
+      setError('')
+      const res = await listAllotments({
+        q: q?.trim() || undefined,
+        limit,
+        offset: (nextPage - 1) * limit,
+      })
+      setRows(res || [])
+      setPage(nextPage)
+      setHasNext((res || []).length === limit)
+    } catch (e) {
+      setError(e?.message || 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // form state
   const emptyForm = {
     house_id: '',
     person_name: '',
@@ -80,49 +119,12 @@ export default function AllotmentsPage() {
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState(null)
 
-  // Initial fetch
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      try {
-        setLoading(true)
-        const [hs, al] = await Promise.all([listHouses(), listAllotments({ limit, offset: 0 })])
-        if (!alive) return
-        setHouses(hs || [])
-        setRows(al || [])
-        setHasNext((al || []).length === limit)
-      } catch (e) {
-        if (!alive) return
-        setError(e?.message || 'Failed to load')
-      } finally {
-        if (alive) setLoading(false)
-      }
-    })()
-    return () => { alive = false }
-  }, [limit])
-
-  async function search(nextPage = 1) {
-    try {
-      setLoading(true)
-      setError('')
-      const params = {
-        q: q?.trim() || undefined,
-        limit,
-        offset: (nextPage - 1) * limit,
-      }
-      const res = await listAllotments(params)
-      setRows(res || [])
-      setPage(nextPage)
-      setHasNext((res || []).length === limit)
-    } catch (e) {
-      setError(e?.message || 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   function onChange(field, value) {
-    setForm((f) => ({ ...f, [field]: value }))
+    if (field === 'dob') {
+      setForm((f) => ({ ...f, dob: value, dor: value ? computeDOR(value) : '' }))
+    } else {
+      setForm((f) => ({ ...f, [field]: value }))
+    }
   }
 
   async function onSubmit(e) {
@@ -130,7 +132,6 @@ export default function AllotmentsPage() {
     try {
       setSaving(true)
       setError('')
-
       const payload = {
         house_id: numOrNull(form.house_id),
         person_name: form.person_name || null,
@@ -148,14 +149,11 @@ export default function AllotmentsPage() {
         allottee_status: form.allottee_status || 'in_service',
         notes: form.notes || null,
       }
-
       if (editingId) {
         await updateAllotment(editingId, payload)
       } else {
-        payload.force_end_previous = true
         await createAllotment(payload)
       }
-
       setShowForm(false)
       setForm(emptyForm)
       setEditingId(null)
@@ -211,7 +209,32 @@ export default function AllotmentsPage() {
     }
   }
 
-  // --- UI ---------------------------------------------------------
+  // Resolve house fields for a row (uses maps; falls back to computed fields from the API)
+  function resolveHouseFields(row) {
+    const byIdHit = byId.get(String(row.house_id))
+    if (byIdHit) {
+      return {
+        qtr: byIdHit.qtr_no ?? byIdHit.number ?? '-',
+        street: byIdHit.street ?? '-',
+        sector: byIdHit.sector ?? '-',
+      }
+    }
+    const byFileHit = row.house_file_no ? byFile.get(String(row.house_file_no).toLowerCase()) : null
+    if (byFileHit) {
+      return {
+        qtr: byFileHit.qtr_no ?? byFileHit.number ?? '-',
+        street: byFileHit.street ?? '-',
+        sector: byFileHit.sector ?? '-',
+      }
+    }
+    // Last fallback: at least show qtr if backend provided it
+    return {
+      qtr: row.house_qtr_no ?? '-',
+      street: '-',
+      sector: '-',
+    }
+  }
+
   return (
     <div className="page">
       <h2>Allotments</h2>
@@ -228,24 +251,22 @@ export default function AllotmentsPage() {
         />
         <button className="btn" onClick={() => search(1)} disabled={loading}>Search</button>
         <span style={{ flex: 1 }} />
-        <button className="btn" onClick={openAdd}>Add Allotment</button>
+        <button className="btn" onClick={openAdd}>{showForm ? 'Close' : 'Add Allotment'}</button>
       </div>
 
-      {/* Form */}
+      {/* form */}
       {showForm ? (
         <form className="card" onSubmit={onSubmit}>
           <div className="grid2">
             <label>House
-              <select value={form.house_id} onChange={e => onChange('house_id', e.target.value)}>
+              <select value={form.house_id} onChange={(e) => onChange('house_id', e.target.value)}>
                 <option value="">Select house</option>
-                {safeHouses.map(h => {
-                  const f = getHouseFields(h)
-                  return (
-                    <option key={h.id} value={h.id}>
-                      {`${f.qtr} / ${f.street} / ${f.sector}`}
-                    </option>
-                  )
-                })}
+                {(Array.isArray(houses) ? houses : []).map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {/* Qtr / Street / Sector for readability */}
+                    {(h.qtr_no ?? h.number ?? '-') + ' / ' + (h.street ?? '-') + ' / ' + (h.sector ?? '-')}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -266,11 +287,7 @@ export default function AllotmentsPage() {
             </label>
 
             <label>Pool
-              <select value={form.pool} onChange={e => onChange('pool', e.target.value)}>
-                <option value="">Select pool</option>
-                <option value="CDA">CDA</option>
-                <option value="Estate Office">Estate Office</option>
-              </select>
+              <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
             </label>
 
             <label>Medium
@@ -278,7 +295,7 @@ export default function AllotmentsPage() {
             </label>
 
             <label>BPS
-              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} />
+              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} inputMode="numeric" />
             </label>
 
             <label>Allotment Date
@@ -313,7 +330,7 @@ export default function AllotmentsPage() {
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>Notes
-              <textarea value={form.notes} onChange={e => onChange('notes', e.target.value)} rows={3} />
+              <textarea rows={3} value={form.notes} onChange={e => onChange('notes', e.target.value)} />
             </label>
           </div>
 
@@ -321,20 +338,18 @@ export default function AllotmentsPage() {
             <button type="button" className="link-btn" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
               Cancel
             </button>{' '}
-            <button type="submit" disabled={saving}>
-              {editingId ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Saving…' : 'Save')}
-            </button>
+            <button type="submit" disabled={saving}>{editingId ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Saving…' : 'Save')}</button>
           </div>
         </form>
       ) : null}
 
-      {/* Table */}
+      {/* table */}
       <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
         <table className="table" style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left' }}>Allottee</th>
-              {/* order changed: Qtr, Street, Sector */}
+              {/* Order: Qtr → Street → Sector */}
               <th style={{ textAlign: 'left' }}>Qtr</th>
               <th style={{ textAlign: 'left' }}>Street</th>
               <th style={{ textAlign: 'left' }}>Sector</th>
@@ -348,36 +363,26 @@ export default function AllotmentsPage() {
             </tr>
           </thead>
           <tbody>
-            {(Array.isArray(rows) ? rows : []).map(r => {
-              const h = r?.house || {}          // tolerate {house:{...}} or flat
-              const { qtr, street, sector } = getHouseFields(h)
+            {(Array.isArray(rows) ? rows : []).map((r) => {
+              const { qtr, street, sector } = resolveHouseFields(r)
               return (
                 <tr key={r.id}>
                   <td className="col-allottee" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                     <div><strong>{r.person_name || '-'}</strong></div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>{r.designation || ''}</div>
-                    <div style={{ fontSize: 12, opacity: 0.8 }}>{r.cnic || ''}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
                   </td>
 
-                  <td>{qtr}</td>
-                  <td>{street}</td>
-                  <td>{sector}</td>
+                  <td>{qtr ?? '-'}</td>
+                  <td>{street ?? '-'}</td>
+                  <td>{sector ?? '-'}</td>
 
                   <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    {r.medium || ''}
-                    {r.medium === 'Transit' && <span className="chip chip-accent" style={{ marginLeft: 6 }}>Transit</span>}
-                  </td>
+                  <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
                   <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    {toDateInput(r.dor || (r.dob ? computeDOR(r.dob) : ''))}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span title={'Quarter: ' + (r.qtr_status || '-') + ' | Allottee: ' + (r.allottee_status || '-')}>
-                      {r.qtr_status || '-'}
-                    </span>
-                  </td>
+                  <td style={{ textAlign: 'center' }}>{toDateInput(r.dor || (r.dob ? computeDOR(r.dob) : ''))}</td>
+                  <td style={{ textAlign: 'center' }}>{r.qtr_status || '-'}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn" onClick={() => openEdit(r)} style={{ marginRight: 8 }}>Edit</button>
                     <button className="btn danger" onClick={() => onDelete(r)}>Delete</button>
@@ -402,16 +407,8 @@ export default function AllotmentsPage() {
       </div>
 
       <style>{`
-        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
-        .page { padding: 12px; }
-
-        .table { border-collapse: collapse; width: auto; table-layout: auto; }
-        .table th, .table td { border-bottom: 1px solid #eee; padding: 8px; }
         .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-        .chip { display:inline-block; font-size:12px; padding:2px 6px; border-radius:999px; border:1px solid #cfe9dc; }
-        .chip-accent { background:#e7f5ef; }
         .pager { display:flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px; }
-        .pager .btn { height: 32px; padding: 0 12px; }
         .pager-info { min-width: 80px; text-align: center; font-weight: 600; }
         .btn.danger { background: var(--danger); }
         .btn.danger:hover { filter: brightness(0.95); }
