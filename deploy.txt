@@ -1,0 +1,122 @@
+1. Backend (FastAPI)
+Install dependencies
+
+Make sure you have Python 3.10+ and PostgreSQL/MySQL/SQLite ready.
+
+Open PowerShell or CMD in the project folder:
+
+cd accommodation-main\backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+
+Run backend (development)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+
+--reload restarts when code changes.
+
+Visit: http://127.0.0.1:8000/docs
+
+Run backend (production)
+
+Use gunicorn with uvicorn workers (or uvicorn directly on Windows):
+
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+
+(Windows doesn’t support gunicorn, so just use uvicorn.)
+
+If you want it always running, create a Windows service with NSSM
+:
+
+nssm install AccommodationBackend "C:\path\to\venv\Scripts\python.exe" "C:\path\to\venv\Scripts\uvicorn.exe" app.main:app --host 0.0.0.0 --port 8000
+
+2. Frontend (React + Vite)
+Install dependencies
+cd ..\frontend
+npm install
+
+Run frontend (development)
+npm run dev
+
+
+Default runs at http://localhost:5173
+
+Vite proxy (vite.config.js) forwards /api → http://localhost:8000
+ so you don’t hit CORS.
+
+Build frontend (production)
+npm run build
+
+
+Outputs to frontend/dist/.
+
+You can serve dist/ with any static server:
+
+npm install -g serve
+serve -s dist -l 5173
+
+
+Or configure nginx/IIS to serve the static files.
+
+3. Deployment Architecture (Production)
+
+👉 Recommended on Windows:
+
+Backend: run uvicorn as a Windows service on port 8000.
+
+Frontend: build (npm run build) → serve dist/ via:
+
+IIS (map / to dist, reverse-proxy /api to http://localhost:8000
+)
+
+or nginx for Windows
+
+or even serve -s dist
+
+Example IIS setup
+
+Site root → frontend/dist
+
+Add reverse proxy rule:
+
+Requests to /api/* → http://127.0.0.1:8000/api/
+
+4. Environment config
+
+Create a .env file in backend/ with DB credentials and secret:
+
+DATABASE_URL=sqlite:///./app.db
+JWT_SECRET=supersecret
+
+
+In frontend, set API base if not using Vite proxy:
+
+frontend/.env.production
+
+VITE_API_BASE_URL=http://yourserver:8000/api
+
+5. First-time setup checklist
+
+Run DB migrations (if included):
+
+alembic upgrade head
+
+
+Create an admin user (via API /api/users/ or directly in DB).
+
+Build frontend: npm run build.
+
+Point browser to your IIS/nginx site → login with admin → done.
+
+⚡ Quick start (dev on Windows):
+
+# terminal 1
+cd backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --port 8000
+
+# terminal 2
+cd frontend
+npm run dev
