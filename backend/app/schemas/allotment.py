@@ -55,6 +55,8 @@ class AllotmentBase(BaseModel):
     allotment_date: Optional[date] = None
     occupation_date: Optional[date] = None
     vacation_date: Optional[date] = None
+    # ✅ add dob so validators reference existing fields
+    dob: Optional[date] = None
     dor: Optional[date] = None
     retention_until: Optional[date] = None
     retention_last: Optional[date] = None
@@ -82,11 +84,15 @@ class AllotmentBase(BaseModel):
     def _v_dates(cls, v):  # noqa
         return _parse_date_any(v)
 
+
+# These subclasses exist only for clarity/role-based use in routes if desired.
+# (They don't redefine fields; routes can null-out dob/dor for viewers.)
 class AllotmentOutFull(AllotmentBase):
-    dob: date | None = None   # included
-    
+    pass
+
 class AllotmentOutRestricted(AllotmentBase):
     pass
+
 
 class AllotmentCreate(AllotmentBase):
     pass
