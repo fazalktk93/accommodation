@@ -56,6 +56,7 @@ async function searchHouses(params = {}) {
     if (!r.ok) throw new Error(`Failed to load houses (${r.status})`)
     const data = await r.json()
     return Array.isArray(data) ? data : data?.data ?? []
+}
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
