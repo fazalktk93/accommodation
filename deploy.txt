@@ -120,3 +120,74 @@ uvicorn app.main:app --reload --port 8000
 # terminal 2
 cd frontend
 npm run dev
+
+
+
+
+1. Install Python
+
+Go to the official download page:
+👉 https://www.python.org/downloads/windows/
+
+Download the latest Python 3.10+ (64-bit) installer (Windows installer (64-bit)).
+
+Run the installer:
+
+✅ Check “Add Python to PATH” at the bottom.
+
+Click Install Now.
+
+Verify installation (open Command Prompt or PowerShell):
+
+python --version
+
+
+Example output:
+
+Python 3.11.6
+
+2. Install Node.js & npm
+
+Go to the official Node.js download page:
+👉 https://nodejs.org/en/download/prebuilt-installer
+
+Choose LTS (Long Term Support) → Windows Installer (.msi).
+
+Run the installer:
+
+Leave defaults checked (it will install both node and npm).
+
+Verify installation:
+
+node -v
+npm -v
+
+
+Example output:
+
+v20.11.1
+10.5.0
+
+3. Prepare your project
+
+Open a terminal in your project folder (accommodation-main).
+
+For backend:
+
+cd backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+
+
+For frontend:
+
+cd ..\frontend
+npm install
+
+
+✅ Now you’re ready to run:
+
+Backend → uvicorn app.main:app --reload --port 8000
+
+Frontend → npm run dev
