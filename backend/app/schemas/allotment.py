@@ -55,7 +55,6 @@ class AllotmentBase(BaseModel):
     allotment_date: Optional[date] = None
     occupation_date: Optional[date] = None
     vacation_date: Optional[date] = None
-    dob: Optional[date] = None
     dor: Optional[date] = None
     retention_until: Optional[date] = None
     retention_last: Optional[date] = None
@@ -83,6 +82,11 @@ class AllotmentBase(BaseModel):
     def _v_dates(cls, v):  # noqa
         return _parse_date_any(v)
 
+class AllotmentOutFull(AllotmentBase):
+    dob: date | None = None   # included
+    
+class AllotmentOutRestricted(AllotmentBase):
+    pass
 
 class AllotmentCreate(AllotmentBase):
     pass

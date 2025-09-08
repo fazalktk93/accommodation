@@ -3,6 +3,7 @@ from app.core.security import require_permissions
 from datetime import date
 from typing import Optional, List
 
+from backend.app.models.user import Role
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, desc
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.schemas import allotment as s
 from app.crud import allotment as crud
 from app.crud import house as crud_house
 from app.models import House, Allotment, QtrStatus
+from app.schemas.allotment import AllotmentOutFull, AllotmentOutRestricted
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
@@ -201,3 +203,19 @@ def end_allotment(
 def delete_allotment(allotment_id: int, db: Session = Depends(get_db), user=Depends(require_permissions('allotments:delete'))):
     crud.delete(db, allotment_id)
     return None
+
+@router.get("/", response_model=list[AllotmentOutRestricted])
+def list_allotments(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    rows = db.query(Allotment).offset(skip).limit(limit).all()
+
+    # Admins and managers see DOB
+    if user.role in [Role.admin.value, Role.manager.value]:
+        return [AllotmentOutFull.from_orm(r) for r in rows]
+
+    # Viewers → restricted schema (no DOB field)
+    return [AllotmentOutRestricted.from_orm(r) for r in rows]
