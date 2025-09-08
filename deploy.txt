@@ -191,3 +191,6 @@ npm install
 Backend → uvicorn app.main:app --reload --port 8000
 
 Frontend → npm run dev
+
+
+python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('ChangeMe123!'))"
