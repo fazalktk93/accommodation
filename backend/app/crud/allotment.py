@@ -41,10 +41,20 @@ def get(db: Session, allotment_id: int) -> Allotment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allotment not found")
     return obj
 
-def list(db: Session, skip=0, limit=5000, house_id: Optional[int] = None,
-         active: Optional[bool] = None, person_name: Optional[str] = None,
-         file_no: Optional[str] = None, qtr_no: Optional[int] = None) -> List[Allotment]:
+def list(
+    db: Session,
+    skip=0,
+    limit=5000,
+    house_id: Optional[int] = None,
+    active: Optional[bool] = None,
+    person_name: Optional[str] = None,
+    file_no: Optional[str] = None,
+    qtr_no: Optional[str] = None,
+    q: Optional[str] = None,
+) -> List[Allotment]:
+    from sqlalchemy import and_, or_, desc
     from app.models import House as H
+
     stmt = select(Allotment).join(H)
     conds = []
     if house_id is not None:
@@ -56,11 +66,27 @@ def list(db: Session, skip=0, limit=5000, house_id: Optional[int] = None,
     if file_no:
         conds.append(H.file_no.ilike(f"%{file_no}%"))
     if qtr_no is not None:
-        conds.append(H.qtr_no == qtr_no)
+        # STRING match, not numeric
+        conds.append(H.qtr_no.ilike(f"%{qtr_no}%"))
+    if q:
+        like = f"%{q.strip()}%"
+        conds.append(or_(
+            Allotment.person_name.ilike(like),
+            Allotment.cnic.ilike(like),
+            Allotment.designation.ilike(like),
+            Allotment.directorate.ilike(like),
+            H.file_no.ilike(like),
+            H.qtr_no.ilike(like),
+            H.sector.ilike(like),
+            H.street.ilike(like),
+            H.type_code.ilike(like),
+        ))
+
     if conds:
         stmt = stmt.where(and_(*conds))
-    occ = Allotment.occupation_date
-    stmt = stmt.order_by(occ.is_(None), desc(occ), desc(Allotment.id)).offset(skip).limit(limit)
+
+    # Order newest first; then paginate
+    stmt = stmt.order_by(desc(Allotment.id)).offset(skip).limit(limit)
     return db.execute(stmt).scalars().all()
 
 def _end_previous_active_if_needed(db: Session, house_id: int, vacation_date: Optional[dt_date],

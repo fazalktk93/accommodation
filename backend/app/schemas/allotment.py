@@ -213,8 +213,10 @@ class AllotmentOut(AllotmentBase):
     # computed fields filled in routes
     period_of_stay: Optional[int] = None
     house_file_no: Optional[str] = None
-    house_qtr_no: Optional[int] = None
     house_qtr_no: Optional[str] = None
+    house_sector: Optional[str] = None
+    house_street: Optional[str] = None
+    house_type_code: Optional[str] = None
 
     class Config:
         orm_mode = True

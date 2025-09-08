@@ -32,8 +32,14 @@ def list_allotments(
     file_no: Optional[str] = None,
     # qtr no is actually a string (e.g., "465-B")
     qtr_no: Optional[str] = None,
-    # NEW: generic search term used by the UI
-    q: Optional[str] = Query(None, description="Generic search (name, file_no, qtr_no, etc.)"),
+    # generic search term used by the UI — now applied in DB for cross-page results
+    q: Optional[str] = Query(
+        None,
+        description=(
+            "Generic search (name, cnic, file_no, qtr_no, sector, street, "
+            "type_code, designation, directorate)"
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     rows = crud.list(
@@ -44,32 +50,9 @@ def list_allotments(
         active=active,
         person_name=person_name,
         file_no=file_no,
-        qtr_no=qtr_no,
+        qtr_no=qtr_no,   # string!
+        q=q,             # <-- search is now DB-side
     )
-
-    # Apply generic `q` filtering if provided (in-Python filter; simple and safe)
-    if q:
-        ql = q.strip().lower()
-        if ql:
-            def _match(a):
-                # allotment fields
-                if a.person_name and ql in a.person_name.lower():
-                    return True
-                # related house fields
-                h = getattr(a, "house", None)
-                if not h:
-                    return False
-                if getattr(h, "file_no", None) and ql in str(h.file_no).lower():
-                    return True
-                if getattr(h, "qtr_no", None) and ql in str(h.qtr_no).lower():
-                    return True
-                if getattr(h, "sector", None) and ql in str(h.sector).lower():
-                    return True
-                if getattr(h, "street", None) and ql in str(h.street).lower():
-                    return True
-                return False
-
-            rows = [a for a in rows if _match(a)]
 
     return [
         s.AllotmentOut.from_orm(a).copy(
@@ -78,6 +61,9 @@ def list_allotments(
                 "house_file_no": a.house.file_no if a.house else None,
                 # house_qtr_no is a STRING now
                 "house_qtr_no": a.house.qtr_no if a.house else None,
+                "house_sector": a.house.sector if a.house else None,
+                "house_street": a.house.street if a.house else None,
+                "house_type_code": a.house.type_code if a.house else None,
             }
         )
         for a in rows
@@ -125,6 +111,9 @@ def get_allotment(allotment_id: int, db: Session = Depends(get_db)):
         "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
+        "house_sector": house.sector if house else None,
+        "house_street": house.street if house else None,
+        "house_type_code": house.type_code if house else None,
     })
 
 @router.post("/", response_model=s.AllotmentOut, status_code=201)

@@ -229,9 +229,9 @@ export default function AllotmentsPage() {
     }
     // Last fallback: at least show qtr if backend provided it
     return {
-      qtr: row.house_qtr_no ?? '-',
-      street: '-',
-      sector: '-',
+    qtr: row.house_qtr_no ?? '-',
+    street: row.house_street ?? '-',
+    sector: row.house_sector ?? '-',
     }
   }
 
