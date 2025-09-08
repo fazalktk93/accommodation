@@ -36,7 +36,7 @@ async function searchHouses(params = {}) {
     url.searchParams.set('type_code', String(type_code))
     url.searchParams.set('type', String(type_code))
   }
-  url.searchParams.set('limit', String(Math.min(Math.max(Number(limit) || 50, 1), 1000)))
+  url.searchParams.set('limit', String(Math.min(Math.max(Number(limit) || 50, 1), 3000)))
   url.searchParams.set('offset', String(Math.max(Number(offset) || 0, 0)))
 
   const headers = {

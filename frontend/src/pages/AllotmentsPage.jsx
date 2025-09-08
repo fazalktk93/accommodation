@@ -60,7 +60,7 @@ export default function AllotmentsPage() {
         setError('')
         // Load a big chunk of houses so we can resolve most rows locally
         const [hs, al] = await Promise.all([
-          listHouses({ limit: 1000, offset: 0 }),
+          listHouses({ limit: 3000, offset: 0 }),
           listAllotments({ limit, offset: 0 }), // first page of allotments
         ])
         if (!alive) return
