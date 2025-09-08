@@ -25,7 +25,7 @@ def _period(occ: date | None, vac: date | None) -> int | None:
 def list_allotments(
     # accept `offset` from frontend but keep your internal name `skip`
     skip: int = Query(0, alias="offset", ge=0),
-    limit: int = Query(3000, ge=1, le=3000),
+    limit: int = Query(50, ge=1, le=3000),
     house_id: Optional[int] = None,
     active: Optional[bool] = None,
     person_name: Optional[str] = None,
