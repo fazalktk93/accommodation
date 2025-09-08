@@ -16,7 +16,7 @@ def list_houses(
     # UI sends ?offset= — map it to skip internally
     skip: int = Query(0, alias="offset", ge=0),
     # FIX: default must be <= max. Use default=50 and allow up to 3000
-    limit: int = Query(500, ge=1, le=3000),
+    limit: int = Query(3000, ge=1, le=3000),
     # Free-text search across key columns
     q: Optional[str] = Query(None, description="Search across file_no, qtr_no, sector, street, type_code, status"),
     # Optional granular filters (all optional; combined with AND)
