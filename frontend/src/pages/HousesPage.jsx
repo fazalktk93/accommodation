@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { createHouse, deleteHouse, updateHouse } from '../api'   // removed listHouses import
+import { createHouse, deleteHouse, updateHouse } from '../api'
+import { getToken, logout } from '../auth'
 import { useNavigate, Link } from 'react-router-dom'
 
 /** Build a robust API base that works with /api proxy or full URLs */
@@ -38,6 +39,15 @@ async function searchHouses(params = {}) {
   url.searchParams.set('offset', String(Math.max(Number(offset) || 0, 0)))
 
   const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store' })
+    const headers = {
+    Accept: 'application/json',
+    ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
+  }
+  const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store', headers })
+  if (r.status === 401) {
+    try { logout?.() } catch {}
+    throw new Error('Unauthorized')
+  }
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
   return r.json()
 }
