@@ -194,3 +194,22 @@ Frontend → npm run dev
 
 
 python -c "from passlib.context import CryptContext; print(CryptContext(schemes=['bcrypt']).hash('ChangeMe123!'))"
+
+
+python - <<'PY'
+import sqlite3, os
+url_path = r"E:/accommodation/backend/accommodation.db"   # <-- put your real path here
+print("Exists:", os.path.exists(url_path), "Size(bytes):", os.path.getsize(url_path) if os.path.exists(url_path) else 0)
+
+conn = sqlite3.connect(url_path)
+cur = conn.cursor()
+print("Opened:", conn.execute("PRAGMA database_list;").fetchall())
+for t in ("user","houses","allotments"):
+    try:
+        cur.execute(f"SELECT COUNT(*) FROM {t}")
+        print(f"{t}:", cur.fetchone()[0])
+    except Exception as e:
+        print(f"{t}: (missing) ->", e)
+conn.close()
+PY
+
