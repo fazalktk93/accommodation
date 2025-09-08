@@ -14,7 +14,7 @@ router = APIRouter(prefix="/files", tags=["files"])
 @router.get("/", response_model=List[FileMovementOut])
 def list_files(
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=3000),   # hard-cap at 3000
+    limit: int = Query(500, ge=1, le=3000),   # hard-cap at 3000
     file_no: Optional[str] = None,
     outstanding: Optional[bool] = None,
     missing: Optional[bool] = None,
