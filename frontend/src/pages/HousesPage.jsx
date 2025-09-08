@@ -38,19 +38,25 @@ async function searchHouses(params = {}) {
   url.searchParams.set('limit', String(Math.min(Math.max(Number(limit) || 50, 1), 1000)))
   url.searchParams.set('offset', String(Math.max(Number(offset) || 0, 0)))
 
-  const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store' })
-    const headers = {
-    Accept: 'application/json',
-    ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
-  }
   const r = await fetch(url.toString(), { method: 'GET', cache: 'no-store', headers })
-  if (r.status === 401) {
-    try { logout?.() } catch {}
-    throw new Error('Unauthorized')
-  }
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
+    const headers = {
+      Accept: 'application/json',
+      ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    }
+
+    const r = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+      headers,
+    })
+
+    if (r.status === 401) {
+      try { logout?.() } catch {}
+      throw new Error('Unauthorized')
+    }
+    if (!r.ok) throw new Error(`Failed to load houses (${r.status})`)
+    const data = await r.json()
+    return Array.isArray(data) ? data : data?.data ?? []
 
 export default function HousesPage(){
   const [items, setItems] = useState([])
