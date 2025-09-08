@@ -1,27 +1,28 @@
 from __future__ import annotations
-from app.core.security import require_permissions
 from datetime import date
 from typing import Optional, List
 
-from backend.app.models.user import Role
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, desc
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from fastapi import Query
+
+from app.core.security import get_current_user, require_permissions  # ✅ added get_current_user
 from app.api.deps import get_db
 from app.schemas import allotment as s
 from app.crud import allotment as crud
 from app.crud import house as crud_house
 from app.models import House, Allotment, QtrStatus
+from app.models.user import Role  # ✅ fixed import
 from app.schemas.allotment import AllotmentOutFull, AllotmentOutRestricted
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
+
 
 def _period(occ: date | None, vac: date | None) -> int | None:
     if not occ:
         return None
     end = vac or date.today()
     return (end - occ).days
+
 
 @router.get("/", response_model=List[s.AllotmentOut])
 def list_allotments(
@@ -43,6 +44,7 @@ def list_allotments(
         ),
     ),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),  # 👈 added (to know caller role)
 ):
     rows = crud.list(
         db,
@@ -53,11 +55,12 @@ def list_allotments(
         person_name=person_name,
         file_no=file_no,
         qtr_no=qtr_no,   # string!
-        q=q,             # <-- search is now DB-side
+        q=q,             # DB-side search
     )
 
-    return [
-        s.AllotmentOut.from_orm(a).copy(
+    out: List[s.AllotmentOut] = []
+    for a in rows:
+        item = s.AllotmentOut.from_orm(a).copy(
             update={
                 "period_of_stay": _period(a.occupation_date, a.vacation_date),
                 "house_file_no": a.house.file_no if a.house else None,
@@ -68,8 +71,13 @@ def list_allotments(
                 "house_type_code": a.house.type_code if a.house else None,
             }
         )
-        for a in rows
-    ]
+        # 👇 Hide dob & dor for viewer role (only change you asked for)
+        if user.role == Role.viewer.value:
+            item = item.copy(update={"dob": None, "dor": None})
+        out.append(item)
+
+    return out
+
 
 @router.get("/history/by-file/{file_no}", response_model=List[s.AllotmentOut])
 def history_by_file(
@@ -77,6 +85,7 @@ def history_by_file(
     skip: int = Query(0, alias="offset", ge=0),
     limit: int = Query(5000, ge=1, le=50000),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),  # 👈 added so we can hide on history too
 ):
     house = crud_house.get_by_file(db, file_no)
     if not house:
@@ -87,29 +96,37 @@ def history_by_file(
         skip=skip,
         limit=limit,
         house_id=house.id,
-        # do NOT force any status filter here—frontend can choose
+        # frontend controls status filters
     )
 
-    def to_out(a):
+    def to_out(a: Allotment) -> s.AllotmentOut:
         # ensure quarter number renders as string
         qtr_str = None
         if a.house:
             q = getattr(a.house, "qtr_no", None)
             qtr_str = None if q is None else str(q)
 
-        return s.AllotmentOut.from_orm(a).copy(update={
+        item = s.AllotmentOut.from_orm(a).copy(update={
             "period_of_stay": _period(a.occupation_date, a.vacation_date),
             "house_file_no": house.file_no,
             "house_qtr_no": qtr_str,
         })
+        if user.role == Role.viewer.value:
+            item = item.copy(update={"dob": None, "dor": None})  # 👈 hide here as well
+        return item
 
     return [to_out(a) for a in rows]
 
+
 @router.get("/{allotment_id}", response_model=s.AllotmentOut)
-def get_allotment(allotment_id: int, db: Session = Depends(get_db)):
+def get_allotment(
+    allotment_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),  # 👈 added (detail view also restricted)
+):
     obj = crud.get(db, allotment_id)
     house = db.get(House, obj.house_id)
-    return s.AllotmentOut.from_orm(obj).copy(update={
+    item = s.AllotmentOut.from_orm(obj).copy(update={
         "period_of_stay": _period(obj.occupation_date, obj.vacation_date),
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
@@ -117,6 +134,11 @@ def get_allotment(allotment_id: int, db: Session = Depends(get_db)):
         "house_street": house.street if house else None,
         "house_type_code": house.type_code if house else None,
     })
+    # 👇 Hide dob & dor for viewer role
+    if user.role == Role.viewer.value:
+        item = item.copy(update={"dob": None, "dor": None})
+    return item
+
 
 @router.post("/", response_model=s.AllotmentOut, status_code=201)
 def create_allotment(
@@ -169,6 +191,7 @@ def create_allotment(
         "house_qtr_no": house.qtr_no if house else None,
     })
 
+
 @router.patch("/{allotment_id}", response_model=s.AllotmentOut)
 def update_allotment(
     allotment_id: int,
@@ -183,6 +206,7 @@ def update_allotment(
         "house_file_no": house.file_no if house else None,
         "house_qtr_no": house.qtr_no if house else None,
     })
+
 
 @router.post("/{allotment_id}/end", response_model=s.AllotmentOut)
 def end_allotment(
@@ -199,23 +223,15 @@ def end_allotment(
         "house_qtr_no": house.qtr_no if house else None,
     })
 
+
 @router.delete("/{allotment_id}", status_code=204)
-def delete_allotment(allotment_id: int, db: Session = Depends(get_db), user=Depends(require_permissions('allotments:delete'))):
+def delete_allotment(
+    allotment_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_permissions('allotments:delete')),
+):
     crud.delete(db, allotment_id)
     return None
 
-@router.get("/", response_model=list[AllotmentOutRestricted])
-def list_allotments(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    rows = db.query(Allotment).offset(skip).limit(limit).all()
-
-    # Admins and managers see DOB
-    if user.role in [Role.admin.value, Role.manager.value]:
-        return [AllotmentOutFull.from_orm(r) for r in rows]
-
-    # Viewers → restricted schema (no DOB field)
-    return [AllotmentOutRestricted.from_orm(r) for r in rows]
+# The following route is removed due to duplicate path conflict with the main list_allotments route above.
+# If you need a restricted version, consider renaming the path or function.
