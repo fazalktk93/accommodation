@@ -8,6 +8,8 @@ from app.core.security import verify_password, create_access_token
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.user import Token, LoginRequest
+from app.core.security import get_current_user
+from app.schemas.user import UserRead
 
 # All routes below will be mounted under /auth (and optionally /api/auth in main.py)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -15,6 +17,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def get_db():
     # Reuse the project's session dependency
     yield from get_session()
+
+@router.get("/me", response_model=UserRead)
+def whoami(user: User = Depends(get_current_user)):
+    return user
 
 @router.post("/token", response_model=Token)
 def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db)):
