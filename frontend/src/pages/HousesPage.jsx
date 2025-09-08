@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createHouse, deleteHouse, updateHouse } from '../api'
 import { getToken, logout } from '../auth'
 import { useNavigate, Link } from 'react-router-dom'
+import { hasPerm } from '../authz'
 
 /** Build a robust API base that works with /api proxy or full URLs */
 function resolveApiBase() {
@@ -158,7 +159,8 @@ export default function HousesPage(){
         <button type="button" onClick={()=>setShowAdd(s=>!s)}>{showAdd ? 'Close' : 'Add House'}</button>
       </form>
 
-      {showAdd && (
+      
+        {showAdd && hasPerm('houses:create') && (
         <form className="card" onSubmit={submit} style={{ margin: '12px 0', padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
           <h3 style={{ marginTop: 0 }}>{editing ? 'Edit House' : 'Add House'}</h3>
           <div className="grid" style={{ display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit, minmax(220px, 1fr))' }}>
@@ -218,8 +220,8 @@ export default function HousesPage(){
                 <td>{it.type_code}</td>
                 <td>{it.status}</td>
                 <td>
-                  <button onClick={()=>onEdit(it)}>Edit</button>{' '}
-                  <button onClick={()=>onDelete(it.id)}>Delete</button>
+                  {hasPerm('houses:update') && <button onClick={()=>onEdit(it)}>Edit</button>}
+                  {hasPerm('houses:delete') && <button onClick={()=>onDelete(it.id)}>Delete</button>}
                 </td>
               </tr>
             ))}

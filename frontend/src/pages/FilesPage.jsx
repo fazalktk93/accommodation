@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react'
 import { listMovements, issueFile, returnFile, listHouses } from '../api'
 import { useLocation } from 'react-router-dom'
+import { hasPerm } from '../authz'
 
 function useQuery(){ const { search } = useLocation(); return new URLSearchParams(search) }
 
 export default function FilesPage(){
+  if (!hasPerm('files:read')) {
+    return (
+      <div className="container">
+        <h2>Files</h2>
+        <p>You do not have access to this section.</p>
+      </div>
+    )
+  }
   const query = useQuery()
   const initialCode = query.get('file_no') || ''
 
