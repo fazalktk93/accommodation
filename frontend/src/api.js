@@ -2,7 +2,7 @@
 import axios from 'axios'
 import { getToken, logout } from './auth'
 
-// Use relative base by default so the Vite proxy handles CORS in dev
+// -------- Base URL (keeps your Vite/env logic) --------
 const defaultApiBase = '/api'
 let baseURL = defaultApiBase
 try {
@@ -11,13 +11,27 @@ try {
   }
 } catch (_) {}
 
-/** Single axios instance */
+// -------- Params serializer: ignore empty values & support arrays --------
+function buildSearchParams(params = {}) {
+  const sp = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return
+    if (Array.isArray(v)) v.forEach((it) => sp.append(k, String(it)))
+    else sp.set(k, String(v))
+  })
+  return sp
+}
+
+// -------- Single axios instance --------
 const api = axios.create({
   baseURL,
-  headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
+  withCredentials: false,
+  paramsSerializer: { serialize: buildSearchParams },
+  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
 })
 
-/** Attach token if present */
+// Attach bearer token
 api.interceptors.request.use((config) => {
   const tok = getToken?.()
   if (tok) {
@@ -27,101 +41,98 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-/** Global 401 → logout */
+// Global 401 → logout
 api.interceptors.response.use(
   (r) => r,
   (e) => {
     if (e?.response?.status === 401) {
       try { logout?.() } catch {}
     }
-    throw e
+    return Promise.reject(e)
   }
 )
 
-/** Normalize list responses (array or {data:[...]}) */
+// -------- Helpers --------
+export function cancellableGet(url, cfg = {}) {
+  const controller = new AbortController()
+  const p = api.get(url, { signal: controller.signal, ...cfg })
+  p.cancel = () => controller.abort()
+  return p
+}
+
 function asList(res) {
   if (Array.isArray(res)) return res
   if (res && Array.isArray(res.data)) return res.data
   return []
 }
 
-/* -------------------- Houses -------------------- */
-
-export const listHouses = async (params = {}) => {
-  const r = await api.get('/houses/', { params })
-  return asList(r.data)
-}
-
-export const createHouse = async (payload) => {
-  const r = await api.post('/houses/', payload)
-  return r.data
-}
-
-export const updateHouse = async (houseId, payload) => {
-  const r = await api.patch(`/houses/${houseId}`, payload)
-  return r.data
-}
-
-export const deleteHouse = async (houseId) => {
-  await api.delete(`/houses/${houseId}`)
-}
-
-/** Also keep the fetch-based search used elsewhere (back-compat) */
-export async function searchHouses(params = {}) {
-  const { q, limit = 100, offset = 0, type, status } = params
-  const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
-  const url = new URL(`${base}/houses/`, window.location.origin)
-  if (q) url.searchParams.set('q', q)
-  if (type) url.searchParams.set('type_code', type)
-  if (status) url.searchParams.set('status', status)
-  url.searchParams.set('limit', String(limit))
-  url.searchParams.set('offset', String(offset))
-  const res = await fetch(url.toString(), {
-    headers: {
-      Accept: 'application/json',
-      ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
-    },
+// -------- Houses --------
+export const listHouses = async ({ limit = 50, offset = 0, q, sector, type_code, status, sort = 'id', order = 'asc' } = {}) => {
+  const r = await api.get('/houses', {
+    params: { limit, offset, q, sector, type_code, status, sort, order },
   })
-  if (!res.ok) throw new Error(`Failed to load houses (${res.status})`)
-  const data = await res.json()
-  return Array.isArray(data) ? data : data?.data ?? []
-}
-
-/* -------------------- Allotments -------------------- */
-
-export const listAllotments = async (params = {}) => {
-  const r = await api.get('/allotments/', { params })
   return asList(r.data)
 }
 
-/** CREATE allotment (backend typically accepts JSON body with fields you already send) */
+export const getHouse = async (id) => {
+  const r = await api.get(`/houses/${id}`)
+  return r.data
+}
+
+export const findHouseByFileNoStrict = async (file_no) => {
+  if (!file_no) throw new Error('file_no required')
+  const r = await api.get(`/houses/by-file/${encodeURIComponent(file_no)}`)
+  return r.data
+}
+
+export const patchHouseStatus = async (id, status, extra = {}) => {
+  const r = await api.patch(`/houses/${id}`, { status, ...extra })
+  return r.data
+}
+
+// -------- Allotments --------
+export const listAllotments = async ({
+  limit = 50,
+  offset = 0,
+  q,
+  file_no,
+  house_id,
+  person_name,
+  designation,
+  cnic,
+  status,
+  sort = 'id',
+  order = 'asc',
+} = {}) => {
+  const r = await api.get('/allotments', {
+    params: { limit, offset, q, file_no, house_id, person_name, designation, cnic, status, sort, order },
+  })
+  return asList(r.data)
+}
+
+export const listAllotmentsByFileNoStrict = async (file_no, { limit = 500, offset = 0 } = {}) => {
+  const r = await api.get('/allotments', { params: { file_no, limit, offset } })
+  return asList(r.data)
+}
+
 export const createAllotment = async (payload) => {
   const r = await api.post('/allotments/', payload)
   return r.data
 }
 
-/** UPDATE allotment */
 export const updateAllotment = async (id, payload) => {
   const r = await api.patch(`/allotments/${id}`, payload)
   return r.data
 }
 
-/** DELETE allotment (admin-only enforced by backend) */
 export const deleteAllotment = async (id) => {
   await api.delete(`/allotments/${id}`)
+  return true
 }
 
-/** Convenience: list by house */
-export const listAllotmentsByHouse = async (house, params = {}) => {
-  if (!house) return []
-  const r = await api.get('/allotments/', { params: { house_id: house.id, ...params } })
-  return asList(r.data)
-}
-
-/* -------------------- File Movements -------------------- */
-
-export const listMovements = async (params = {}) => {
-  const r = await api.get('/files/', { params })
+// -------- Files (movements) --------
+export const listMovements = async ({ limit = 50, offset = 0, q, file_no, due_before, outstanding } = {}) => {
+  const r = await api.get('/files', { params: { limit, offset, q, file_no, due_before, outstanding } })
   return asList(r.data)
 }
 
