@@ -2,7 +2,6 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-/** Use env/window override if available, otherwise default to /api (same-origin) */
 let API_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
@@ -16,8 +15,15 @@ export function logout() { setToken(null); if (typeof window !== "undefined") wi
 
 /* ---------- internals ---------- */
 function pickToken(data) {
-  return data?.access_token || data?.token || data?.access || data?.data?.access_token || null;
+  return (
+    data?.access_token ||
+    data?.token ||
+    data?.access ||
+    data?.data?.access_token ||
+    null
+  );
 }
+
 async function postJson(url, body) {
   return fetch(url, {
     method: "POST",
@@ -26,11 +32,14 @@ async function postJson(url, body) {
     credentials: "same-origin",
   });
 }
-async function postForm(url, fields) {
+
+function makeSearchParams(fields) {
   const sp = new URLSearchParams();
   Object.entries(fields).forEach(([k, v]) => sp.append(k, v == null ? "" : String(v)));
-  if (!sp.has("grant_type")) sp.set("grant_type", "password");
-  if (!sp.has("scope")) sp.set("scope", "");
+  return sp;
+}
+async function postForm(url, fields) {
+  const sp = makeSearchParams(fields);
   return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -41,33 +50,49 @@ async function postForm(url, fields) {
 
 /* ---------- login ---------- */
 export async function login(username, password) {
-  const attempts = [
-    { url: `${API_BASE}/auth/token`, kind: "form" },
-    { url: `${API_BASE}/auth/login`, kind: "form" },
-    { url: `${API_BASE}/login/access-token`, kind: "form" },
-    { url: `${API_BASE}/auth/jwt/login`, kind: "form" },
-    { url: `${API_BASE}/auth/token`, kind: "json" },
+  // Try typical endpoints.
+  const endpoints = [
+    `${API_BASE}/auth/token`,
+    `${API_BASE}/auth/login`,
+    `${API_BASE}/login/access-token`,
+    `${API_BASE}/auth/jwt/login`,
   ];
+
+  // Two body variants: bare form and OAuth2 form
+  const bodies = [
+    { kind: "form", fields: { username, password } },
+    { kind: "form", fields: { username, password, grant_type: "password", scope: "" } },
+    { kind: "json", fields: { username, password } },
+  ];
+
   let last = "Login failed";
-  for (const a of attempts) {
-    try {
-      const res = a.kind === "form"
-        ? await postForm(a.url, { username, password })
-        : await postJson(a.url, { username, password });
+  for (const url of endpoints) {
+    for (const b of bodies) {
+      try {
+        const res =
+          b.kind === "form" ? await postForm(url, b.fields) : await postJson(url, b.fields);
 
-      if (!res.ok) {
-        try { const j = await res.json(); last = j?.detail || j?.message || `${res.status} ${res.statusText}`; }
-        catch { last = `${res.status} ${res.statusText}`; }
-        if (res.status === 401) break;
-        continue;
+        if (!res.ok) {
+          try {
+            const j = await res.json();
+            last = j?.detail || j?.message || `${res.status} ${res.statusText}`;
+          } catch {
+            last = `${res.status} ${res.statusText}`;
+          }
+          // If the server definitively says "unauthorized", don't keep hammering.
+          if (res.status === 401) throw new Error(last);
+          continue;
+        }
+
+        const data = await res.json();
+        const token = pickToken(data);
+        if (!token) { last = "Invalid token response"; continue; }
+        setToken(token);
+        return data;
+      } catch (e) {
+        last = e?.message || String(e);
       }
-
-      const data = await res.json();
-      const token = pickToken(data);
-      if (!token) { last = "Invalid token response"; continue; }
-      setToken(token);
-      return data;
-    } catch (e) { last = e?.message || String(e); }
+    }
   }
   throw new Error(last);
 }
@@ -81,19 +106,26 @@ export async function authFetch(pathOrUrl, options = {}) {
   const baseHeaders = new Headers(options.headers || {});
   baseHeaders.set("Accept", baseHeaders.get("Accept") || "application/json");
 
-  const schemes = token ? ["Bearer", "Token", "JWT"] : [null];
+  if (!token) {
+    return fetch(url, { ...options, headers: baseHeaders, credentials: "same-origin" });
+  }
 
+  // Try Bearer → Token → JWT. If any returns 401, we’ll logout below.
+  const schemes = ["Bearer", "Token", "JWT"];
   for (let i = 0; i < schemes.length; i++) {
     const h = new Headers(baseHeaders);
-    if (schemes[i]) h.set("Authorization", `${schemes[i]} ${token}`);
+    h.set("Authorization", `${schemes[i]} ${token}`);
     const res = await fetch(url, { ...options, headers: h, credentials: "same-origin" });
     if (res.status !== 401 || i === schemes.length - 1) {
-      if (res.status === 401 && token) logout();
+      if (res.status === 401) logout();
       return res;
     }
   }
-  return fetch(url, { ...options, headers: baseHeaders, credentials: "same-origin" });
 }
 
-export const auth = { get token() { return getToken(); }, set token(v) { setToken(v); }, isLoggedIn, logout, login, fetch: authFetch, api };
+export const auth = {
+  get token() { return getToken(); },
+  set token(v) { setToken(v); },
+  isLoggedIn, logout, login, fetch: authFetch, api
+};
 export default auth;
