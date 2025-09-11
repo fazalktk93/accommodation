@@ -1,5 +1,5 @@
 // frontend/src/authz.js
-import { authFetch, api } from "./auth";
+import { authFetch } from "./auth";
 
 let _user = null;
 let _perms = new Set();
@@ -32,27 +32,28 @@ function buildPerms(user) {
     ROLE_PERMS.viewer.forEach((x) => p.add(x));
     return p;
   }
-  roles.forEach((role) => (ROLE_PERMS[role?.toLowerCase()] || []).forEach((x) => p.add(x)));
+  roles.forEach((role) =>
+    (ROLE_PERMS[role?.toLowerCase()] || []).forEach((x) => p.add(x))
+  );
   return p;
 }
 
 /**
  * Bootstrap current user.
- * - Never logs out on 401.
- * - Tolerates missing endpoints and returns viewer perms when anonymous.
+ * NOTE: pass **relative paths** to authFetch so it can prefix /api itself.
  */
 export async function loadMe() {
-  const endpoints = [api("/auth/me"), api("/users/me"), api("/me")];
-  for (const url of endpoints) {
+  const endpoints = ["/auth/me", "/users/me", "/me"]; // <-- no api() here
+  for (const path of endpoints) {
     try {
-      const res = await authFetch(url);
-      if (!res.ok) continue;          // ignore 401/404/etc.
+      const res = await authFetch(path);
+      if (!res.ok) continue; // ignore 401/404/etc.
       const data = await res.json();
       _user = data;
       _perms = buildPerms(data);
       return _user;
     } catch {
-      // keep trying others
+      // try next endpoint
     }
   }
   _user = null;
