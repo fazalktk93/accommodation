@@ -5,46 +5,53 @@ import { getToken } from "./auth";
 /**
  * Axios instance
  * DEV: baseURL '/api' (Vite proxy -> backend)
- * PROD: have your web server reverse-proxy '/api' to the backend
+ * PROD: have the web server reverse-proxy '/api' to backend
  */
 const api = axios.create({
   baseURL: "/api",
   timeout: 20000,
+  withCredentials: true, // <-- send cookies for cookie-based auth
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
 });
 
-/** Attach Authorization header */
+/**
+ * Attach auth headers before every request.
+ * - Default Authorization: Bearer <token>
+ * - Also set common alternates some backends accept: X-Auth-Token, X-Api-Token
+ */
 api.interceptors.request.use((config) => {
   const tok = getToken?.();
   if (tok) {
     config.headers = config.headers || {};
+    // if a caller didn't already set Authorization, set a default
     if (!config.headers.Authorization) {
-      // default to Bearer; we may retry with other schemes on 401
       config.headers.Authorization = `Bearer ${tok}`;
       config.__authScheme = "Bearer";
     }
+    // add extra token headers for backends that look for custom names
+    if (!config.headers["X-Auth-Token"]) config.headers["X-Auth-Token"] = tok;
+    if (!config.headers["X-Api-Token"]) config.headers["X-Api-Token"] = tok;
   }
   return config;
 });
 
 /**
  * On 401:
- *  - DO NOT logout here (prevents login loop)
- *  - Retry once with alternate schemes: 'Token' then 'JWT'
- *  - If still 401, reject; UI can show an error
+ *  - DO NOT logout (avoids redirect loop).
+ *  - Retry once with alternate schemes: 'Token' then 'JWT'.
+ *  - If still 401, just reject so UI can show an error.
  */
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
     const { response, config } = error || {};
     if (!response || !config) return Promise.reject(error);
-
     if (response.status !== 401) return Promise.reject(error);
 
-    // Don't retry auth endpoints
+    // Avoid retrying auth endpoints themselves
     const url = String(config.url || "");
     const isAuthEndpoint =
       /\/auth\/(token|login|jwt\/login)|\/login\/access-token/i.test(url);
@@ -54,20 +61,25 @@ api.interceptors.response.use(
     const tok = getToken?.();
     if (!tok) return Promise.reject(error);
 
-    // Prevent infinite loops
+    // Guard against infinite loops
     if (config.__authRetried) return Promise.reject(error);
 
     for (const scheme of ["Token", "JWT"]) {
       try {
         const retried = {
           ...config,
-          headers: { ...(config.headers || {}), Authorization: `${scheme} ${tok}` },
+          headers: {
+            ...(config.headers || {}),
+            Authorization: `${scheme} ${tok}`,
+            "X-Auth-Token": tok,
+            "X-Api-Token": tok,
+          },
           __authRetried: true,
           __usedAltScheme: scheme,
         };
         return await api.request(retried);
       } catch (e) {
-        if (e?.response?.status !== 401) throw e; // bubble non-401
+        if (e?.response?.status !== 401) throw e; // non-401 => bubble up
         // else try next scheme
       }
     }
@@ -76,7 +88,7 @@ api.interceptors.response.use(
   }
 );
 
-/* ---------------- small helpers ---------------- */
+/* ---------------- list helper ---------------- */
 function asList(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.results)) return data.results;
@@ -146,20 +158,19 @@ export async function listMovements(params = {}) {
   const { data } = await api.get("/files", { params });
   return asList(data);
 }
-/** Issue file (outgoing) */
 export async function issueFile(payload) {
-  // backend may accept with or without trailing slash
-  const { data } = await api.post("/files", payload).catch(async (e) => {
-    // retry with trailing slash if server demands it
+  // some servers require trailing slash; try both
+  try {
+    const { data } = await api.post("/files", payload);
+    return data;
+  } catch (e) {
     if (e?.response?.status === 404) {
-      const { data: d2 } = await api.post("/files/", payload);
-      return { data: d2 };
+      const { data } = await api.post("/files/", payload);
+      return data;
     }
     throw e;
-  });
-  return data;
+  }
 }
-/** Return file (incoming) */
 export async function returnFile(id, returned_date = null) {
   const body = { returned_date };
   const { data } = await api.post(`/files/${id}/return`, body);
