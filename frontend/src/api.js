@@ -177,12 +177,9 @@ export async function issueFile(payload) {
   try {
     const { data } = await api.post("/files", payload);
     return data;
-export { api, refreshApiAuthHeaders };
-export default api;
-      const { data } = await api.post("/files/", payload);
-      return data;
-    }
-    throw e;
+  } catch (e) {
+    const { data: altData } = await api.post("/files/", payload);
+    return altData;
   }
 }
 export async function returnFile(id, returned_date = null) {
