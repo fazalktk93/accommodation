@@ -16,9 +16,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (isLoggedIn()) nav("/dashboard", { replace: true });
-  }, [nav]);
+  useEffect(() => { if (isLoggedIn()) nav("/dashboard", { replace: true }); }, [nav]);
 
   const canSubmit = useMemo(
     () => username.trim().length > 0 && password.length > 0 && !submitting,
@@ -28,24 +26,15 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault();
     if (!canSubmit) return;
-    setError("");
-    setSubmitting(true);
+    setError(""); setSubmitting(true);
     try {
       await login(username.trim(), password);
-      const redirectTo =
-        (location.state && (location.state.from || location.state.intent)) ||
-        "/dashboard";
+      const redirectTo = (location.state && (location.state.from || location.state.intent)) || "/dashboard";
       nav(redirectTo, { replace: true });
     } catch (err) {
-      const msg =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Login failed";
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Login failed";
       setError(String(msg));
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   }
 
   return (
@@ -66,7 +55,6 @@ export default function Login() {
             style={{ width: "100%" }}
           />
         </label>
-
         <label>
           <div>Password</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -80,40 +68,18 @@ export default function Login() {
               required
               style={{ width: "100%" }}
             />
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setShowPwd((v) => !v)}
-              aria-label={showPwd ? "Hide password" : "Show password"}
-            >
+            <button type="button" className="btn" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Hide password" : "Show password"}>
               {showPwd ? "Hide" : "Show"}
             </button>
           </div>
-          {caps && (
-            <div style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>
-              Warning: Caps Lock is on
-            </div>
-          )}
+          {caps && <div style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>Warning: Caps Lock is on</div>}
         </label>
 
-        <button
-          type="submit"
-          className="btn primary"
-          style={{ marginTop: 16, width: "100%" }}
-          disabled={!canSubmit}
-        >
+        <button type="submit" className="btn primary" style={{ marginTop: 16, width: "100%" }} disabled={!canSubmit}>
           {submitting ? "Signing in…" : "Sign in"}
         </button>
 
-        <div className="muted" style={{ marginTop: 8, textAlign: "right" }}>
-          Posts JSON to <code>/api/auth/token</code>
-        </div>
-
-        {error && (
-          <div className="error" role="alert" style={{ marginTop: 12 }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
       </form>
     </div>
   );

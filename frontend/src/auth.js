@@ -2,10 +2,7 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-/** API base:
- *  DEV: use '/api' so Vite proxy forwards to backend.
- *  PROD: allow VITE_API_BASE_URL or window.API_BASE_URL.
- */
+/** DEV: '/api' so Vite proxy forwards to backend. PROD: env/window override allowed. */
 let API_BASE = "/api";
 try {
   const isDev = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.DEV;
@@ -17,16 +14,13 @@ try {
   }
 } catch { API_BASE = "/api"; }
 
-/* ---------------- token helpers ---------------- */
+/* ---------- token helpers ---------- */
 export function getToken() { return localStorage.getItem(AUTH_STORAGE_KEY); }
 export function setToken(v) { v ? localStorage.setItem(AUTH_STORAGE_KEY, v) : localStorage.removeItem(AUTH_STORAGE_KEY); }
 export function isLoggedIn() { return !!getToken(); }
-export function logout() {
-  setToken(null);
-  if (typeof window !== "undefined") window.location.href = "/login";
-}
+export function logout() { setToken(null); if (typeof window !== "undefined") window.location.href = "/login"; }
 
-/* ---------------- internals ---------------- */
+/* ---------- internals ---------- */
 function pickToken(data) {
   return data?.access_token || data?.token || data?.access || data?.data?.access_token || null;
 }
@@ -51,14 +45,14 @@ async function postForm(url, fields) {
   });
 }
 
-/* ---------------- login ---------------- */
+/* ---------- login ---------- */
 export async function login(username, password) {
   const attempts = [
-    { url: `${API_BASE}/auth/token`, kind: "form" },
+    { url: `${API_BASE}/auth/token`, kind: "form" },  // FastAPI typical
     { url: `${API_BASE}/auth/login`, kind: "form" },
     { url: `${API_BASE}/login/access-token`, kind: "form" },
     { url: `${API_BASE}/auth/jwt/login`, kind: "form" },
-    { url: `${API_BASE}/auth/token`, kind: "json" },
+    { url: `${API_BASE}/auth/token`, kind: "json" },  // your earlier contract
   ];
   let last = "Login failed";
   for (const a of attempts) {
@@ -70,7 +64,7 @@ export async function login(username, password) {
       if (!res.ok) {
         try { const j = await res.json(); last = j?.detail || j?.message || `${res.status} ${res.statusText}`; }
         catch { last = `${res.status} ${res.statusText}`; }
-        if (res.status === 401) break; // wrong creds -> stop
+        if (res.status === 401) break;  // wrong creds
         continue;
       }
 
@@ -84,30 +78,33 @@ export async function login(username, password) {
   throw new Error(last);
 }
 
-/* ---------------- generic helpers ---------------- */
+/* ---------- generic helpers ---------- */
 export function api(path) { return path.startsWith("http") ? path : `${API_BASE}${path}`; }
 
 /**
- * authFetch: attaches token and tries multiple auth schemes on 401.
- * IMPORTANT: it does NOT auto-logout. Callers decide what to do on 401.
+ * authFetch: attaches token; retries Bearer→Token→JWT on 401.
+ * Never auto-logout unless we actually had a token and all schemes failed.
  */
 export async function authFetch(pathOrUrl, options = {}) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : api(pathOrUrl);
   const token = getToken();
-  const headers = new Headers(options.headers || {});
-  headers.set("Accept", headers.get("Accept") || "application/json");
+  const baseHeaders = new Headers(options.headers || {});
+  baseHeaders.set("Accept", baseHeaders.get("Accept") || "application/json");
 
   const schemes = token ? ["Bearer", "Token", "JWT"] : [null];
 
   for (let i = 0; i < schemes.length; i++) {
-    const h = new Headers(headers);
+    const h = new Headers(baseHeaders);
     if (schemes[i]) h.set("Authorization", `${schemes[i]} ${token}`);
     const res = await fetch(url, { ...options, headers: h, credentials: "same-origin" });
-    if (res.status !== 401 || i === schemes.length - 1) return res; // return on success or last attempt
-    // else try next scheme
+    if (res.status !== 401 || i === schemes.length - 1) {
+      // only logout if we had a token and still 401 after trying all schemes
+      if (res.status === 401 && token) logout();
+      return res;
+    }
   }
-  // should not reach here
-  return fetch(url, { ...options, headers, credentials: "same-origin" });
+  // fallback (should never reach)
+  return fetch(url, { ...options, headers: baseHeaders, credentials: "same-origin" });
 }
 
 export const auth = { get token() { return getToken(); }, set token(v) { setToken(v); }, isLoggedIn, logout, login, fetch: authFetch, api };

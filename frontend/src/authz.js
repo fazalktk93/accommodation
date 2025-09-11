@@ -1,5 +1,5 @@
 // frontend/src/authz.js
-import { authFetch } from "./auth";
+import { authFetch, getToken } from "./auth";
 
 let _user = null;
 let _perms = new Set();
@@ -24,26 +24,18 @@ function extractRoles(data) {
   if (typeof r === "string") return [r];
   return [];
 }
-
 function buildPerms(user) {
   const roles = extractRoles(user);
   const p = new Set();
-  if (!roles.length) {
-    ROLE_PERMS.viewer.forEach((x) => p.add(x));
-    return p;
-  }
-  roles.forEach((role) =>
-    (ROLE_PERMS[role?.toLowerCase()] || []).forEach((x) => p.add(x))
-  );
+  if (!roles.length) { ROLE_PERMS.viewer.forEach((x) => p.add(x)); return p; }
+  roles.forEach((role) => (ROLE_PERMS[role?.toLowerCase()] || []).forEach((x) => p.add(x)));
   return p;
 }
 
-/**
- * Bootstrap current user.
- * NOTE: pass **relative paths** to authFetch so it can prefix /api itself.
- */
+/** Bootstrap current user *only if* we already have a token. */
 export async function loadMe() {
-  const endpoints = ["/auth/me", "/users/me", "/me"]; // <-- no api() here
+  if (!getToken()) { _user = null; _perms = buildPerms(null); return null; }
+  const endpoints = ["/auth/me", "/users/me", "/me"]; // relative: authFetch will prefix /api
   for (const path of endpoints) {
     try {
       const res = await authFetch(path);
@@ -52,9 +44,7 @@ export async function loadMe() {
       _user = data;
       _perms = buildPerms(data);
       return _user;
-    } catch {
-      // try next endpoint
-    }
+    } catch {}
   }
   _user = null;
   _perms = buildPerms(null);
