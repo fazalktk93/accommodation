@@ -1,25 +1,39 @@
-from typing import Optional
-from pydantic import BaseSettings
+# app/core/config.py (add/ensure these exist)
+from pydantic import BaseSettings, Field
+from functools import lru_cache
+import json, os
+from typing import List, Optional
 
 class Settings(BaseSettings):
-    ENV: str = "development"
-    DATABASE_URL: str = "sqlite:///./accommodation.db"
+    ENV: str = Field("production")
+    API_PREFIX: str = "/api"
+    SECRET_KEY: str = Field(..., description="JWT secret")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 10
 
-    # Allow localhost + common LAN ranges without hardcoding IPs
-    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = (
-        r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|"
-        r"172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$"
-    )
+    # Accept both names, prefer DATABASE_URL
+    DATABASE_URL: str = Field("sqlite:///./app.db", env="DATABASE_URL")
+    SQLALCHEMY_DATABASE_URL: Optional[str] = Field(None, env="SQLALCHEMY_DATABASE_URL")
 
-    # 🔑 Required for SessionMiddleware & JWT
-    SECRET_KEY: str = "change-this-to-a-long-random-string"
-
-    # 👤 Default SQLAdmin login user/pass (can override in .env)
-    ADMIN_USER: str = "admin"
-    ADMIN_PASS: str = "admin123"
+    BACKEND_CORS_ORIGINS: List[str] | str = Field(default_factory=list)
+    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None
 
     class Config:
-        env_file = ".env"
         case_sensitive = True
+        env_file = ".env"
 
-settings = Settings()
+@lru_cache()
+def _load_settings() -> Settings:
+    s = Settings()
+    # Map legacy SQLALCHEMY_DATABASE_URL → DATABASE_URL if provided
+    if s.SQLALCHEMY_DATABASE_URL and not s.DATABASE_URL:
+        s.DATABASE_URL = s.SQLALCHEMY_DATABASE_URL
+
+    # Normalize CORS env if it was JSON/string
+    if isinstance(s.BACKEND_CORS_ORIGINS, str):
+        try:
+            s.BACKEND_CORS_ORIGINS = json.loads(s.BACKEND_CORS_ORIGINS)
+        except Exception:
+            s.BACKEND_CORS_ORIGINS = [o.strip() for o in s.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
+    return s
+
+settings = _load_settings()

@@ -1,61 +1,85 @@
 // frontend/src/pages/Login.jsx
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { login, isLoggedIn } from "../auth";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { isLoggedIn } from "../auth";
+import { useAuth } from "../context/AuthProvider";
 
 export default function Login() {
   const nav = useNavigate();
+  const location = useLocation();
+  const { login } = useAuth();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [caps, setCaps] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  React.useEffect(() => {
-    if (isLoggedIn()) nav("/dashboard", { replace: true });
-  }, [nav]);
+  useEffect(() => { if (isLoggedIn()) nav("/dashboard", { replace: true }); }, [nav]);
 
-  const onSubmit = async (e) => {
+  const canSubmit = useMemo(
+    () => username.trim().length > 0 && password.length > 0 && !submitting,
+    [username, password, submitting]
+  );
+
+  async function onSubmit(e) {
     e.preventDefault();
-    setError("");
+    if (!canSubmit) return;
+    setError(""); setSubmitting(true);
     try {
       await login(username.trim(), password);
-      nav("/dashboard", { replace: true });
+      const redirectTo = (location.state && (location.state.from || location.state.intent)) || "/dashboard";
+      nav(redirectTo, { replace: true });
     } catch (err) {
-      setError(err.message || "Login failed");
-    }
-  };
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Login failed";
+      setError(String(msg));
+    } finally { setSubmitting(false); }
+  }
 
   return (
-    <div style={{ display: "grid", placeItems: "center", height: "100vh", background: "#f6f7f9" }}>
-      <form
-        onSubmit={onSubmit}
-        style={{
-          background: "#fff", padding: 24, borderRadius: 12,
-          boxShadow: "0 10px 30px rgba(0,0,0,.08)", width: 320
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Sign in</h2>
-        <label>Username</label>
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
-          required
-          style={{ width: "100%", marginBottom: 8 }}
-        />
-        <label>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="current-password"
-          required
-          style={{ width: "100%" }}
-        />
-        <button type="submit" style={{ marginTop: 16, width: "100%" }}>Login</button>
-        {error && <div style={{ color: "#b00020", marginTop: 10 }}>{error}</div>}
-        <div style={{ color: "#666", fontSize: 12, marginTop: 10 }}>
-          Authenticates via <code>/api/auth/token</code>.
-        </div>
+    <div className="container narrow">
+      <h1 style={{ textAlign: "center" }}>Sign in</h1>
+      <form onSubmit={onSubmit} className="card" noValidate>
+        <label>
+          <div>Username</div>
+          <input
+            type="text"
+            value={username}
+            autoFocus
+            onChange={(e) => setUsername(e.target.value)}
+            onKeyDown={(e) => setCaps(!!e.getModifierState && e.getModifierState("CapsLock"))}
+            onKeyUp={(e) => setCaps(!!e.getModifierState && e.getModifierState("CapsLock"))}
+            autoComplete="username"
+            required
+            style={{ width: "100%" }}
+          />
+        </label>
+        <label>
+          <div>Password</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type={showPwd ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => setCaps(!!e.getModifierState && e.getModifierState("CapsLock"))}
+              onKeyUp={(e) => setCaps(!!e.getModifierState && e.getModifierState("CapsLock"))}
+              autoComplete="current-password"
+              required
+              style={{ width: "100%" }}
+            />
+            <button type="button" className="btn" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Hide password" : "Show password"}>
+              {showPwd ? "Hide" : "Show"}
+            </button>
+          </div>
+          {caps && <div style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>Warning: Caps Lock is on</div>}
+        </label>
+
+        <button type="submit" className="btn primary" style={{ marginTop: 16, width: "100%" }} disabled={!canSubmit}>
+          {submitting ? "Signing in…" : "Sign in"}
+        </button>
+
+        {error && <div className="error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
       </form>
     </div>
   );

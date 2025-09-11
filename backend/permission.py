@@ -1,28 +1,44 @@
-import sqlite3, json
+#!/usr/bin/env python3
+"""
+Ensure the admin has a proper JSON list of full permissions.
+Usage:
+    export PYTHONPATH=backend/app
+    python fix_admin_perms.py --username admin
+"""
 
-DB_PATH = "accommodation.db"
-USERNAME = "admin"   # change to your username
+import argparse
+from sqlalchemy import select
+from app.db.session import get_session
+from app.models.user import User, Role
 
-needed = {
-    "houses:read","houses:create","houses:update","houses:delete",
-    "allotments:read","allotments:create","allotments:update","allotments:delete"
-}
+FULL_PERMS = [
+    # Houses
+    "houses:read", "houses:create", "houses:update", "houses:delete",
+    # Allotments
+    "allotments:read", "allotments:create", "allotments:update", "allotments:delete",
+    # File movement
+    "files:read", "files:issue", "files:update", "files:return", "files:delete",
+]
 
-conn = sqlite3.connect(DB_PATH)
-cur = conn.cursor()
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--username", default="admin")
+    args = ap.parse_args()
 
-cur.execute("SELECT id, username, permissions FROM user WHERE username=?", (USERNAME,))
-row = cur.fetchone()
-if not row:
-    raise SystemExit("User not found")
+    with next(get_session()) as db:
+        u = db.scalar(select(User).where(User.username == args.username))
+        if not u:
+            print(f"❌ User '{args.username}' not found")
+            return
 
-uid, uname, perms = row
-try:
-    current = set(json.loads(perms)) if perms else set()
-except Exception:
-    current = set()
+        print("Before:", u.username, u.role, type(u.permissions), u.permissions)
+        u.role = Role.admin.value
+        u.permissions = list(FULL_PERMS)  # ensure real JSON list
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+        print("After :", u.username, u.role, type(u.permissions), u.permissions)
+        print("✅ Admin permissions repaired.")
 
-updated = sorted(current.union(needed))
-cur.execute("UPDATE user SET permissions=? WHERE id=?", (json.dumps(updated), uid))
-conn.commit()
-print("✅ Updated permissions for", uname, "→", updated)
+if __name__ == "__main__":
+    main()

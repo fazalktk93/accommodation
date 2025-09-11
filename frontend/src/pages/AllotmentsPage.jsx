@@ -1,418 +1,249 @@
 // frontend/src/pages/AllotmentsPage.jsx
-import React, { useEffect, useMemo, useState } from 'react'
-import {
-  listHouses,
-  listAllotments,
-  createAllotment,
-  updateAllotment,
-  deleteAllotment,
-} from '../api'
+import React, { useEffect, useMemo, useState } from "react";
+import { listAllotments, createAllotment, updateAllotment, deleteAllotment } from "../api";
+import { hasPerm } from "../authz";
+import Modal from "../components/Modal";
 
-// ---------- small helpers ----------
-const pad = (n) => String(n).padStart(2, '0')
-const toDateInput = (d) => {
-  if (!d) return ''
-  const x = new Date(d)
-  if (isNaN(x.getTime())) return ''
-  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`
-}
-const computeDOR = (dob) => {
-  if (!dob) return ''
-  const d = new Date(dob)
-  if (isNaN(d.getTime())) return ''
-  d.setFullYear(d.getFullYear() + 60)
-  return toDateInput(d)
-}
-const numOrNull = (v) => {
-  if (v === '' || v === null || v === undefined) return null
-  const n = Number(v)
-  return isFinite(n) ? n : null
+const POOL_OPTIONS = ["CDA", "Estate Office"]; // required constraint
+
+function isRetention(dor) {
+  if (!dor) return false;
+  const d = new Date(dor);
+  const today = new Date();
+  d.setHours(0,0,0,0); today.setHours(0,0,0,0);
+  // Past or today -> retention
+  return d <= today;
 }
 
 export default function AllotmentsPage() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [rows, setRows] = useState([])
-  const [q, setQ] = useState('')
-  const [page, setPage] = useState(1)
-  const [limit] = useState(50)
-  const [hasNext, setHasNext] = useState(false)
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
 
-  const [houses, setHouses] = useState([])
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({
+    file_no: "",
+    house_id: "",
+    person_name: "",
+    designation: "",
+    cnic: "",
+    pool: "CDA",
+    medium: "",
+    dor: "",
+    status: "Active",
+  });
 
-  // Build lookup maps so we can resolve qtr/street/sector quickly
-  const { byId, byFile } = useMemo(() => {
-    const idMap = new Map()
-    const fileMap = new Map()
-    ;(Array.isArray(houses) ? houses : []).forEach((h) => {
-      if (h?.id != null) idMap.set(String(h.id), h)
-      if (h?.file_no) fileMap.set(String(h.file_no).toLowerCase(), h)
-    })
-    return { byId: idMap, byFile: fileMap }
-  }, [houses])
+  const canWrite = hasPerm("allotments:create") || hasPerm("allotments:update");
 
-  // Initial fetch
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      try {
-        setLoading(true)
-        setError('')
-        // Load a big chunk of houses so we can resolve most rows locally
-        const [hs, al] = await Promise.all([
-          listHouses({ limit: 1000, offset: 0 }),
-          listAllotments({ limit, offset: 0 }), // first page of allotments
-        ])
-        if (!alive) return
-        setHouses(hs || [])
-        setRows(al || [])
-        setHasNext((al || []).length === limit)
-      } catch (e) {
-        if (!alive) return
-        setError(e?.message || 'Failed to load')
-      } finally {
-        if (alive) setLoading(false)
-      }
-    })()
-    return () => { alive = false }
-  }, [limit])
+  const derivedList = useMemo(() => {
+    // Show retention automatically even if DB not updated
+    return (list || []).map((a) => ({
+      ...a,
+      status: isRetention(a?.dor) ? "Retention" : a?.status || "Active",
+    }));
+  }, [list]);
 
-  async function search(nextPage = 1) {
+  async function load() {
     try {
-      setLoading(true)
-      setError('')
-      const res = await listAllotments({
-        q: q?.trim() || undefined,
-        limit,
-        offset: (nextPage - 1) * limit,
-      })
-      setRows(res || [])
-      setPage(nextPage)
-      setHasNext((res || []).length === limit)
+      setLoading(true);
+      setErr("");
+      const data = await listAllotments({ limit: 5000 });
+      setList(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e?.message || 'Failed to load')
+      setErr(e?.message || "Failed to load allotments");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
-  // form state
-  const emptyForm = {
-    house_id: '',
-    person_name: '',
-    designation: '',
-    directorate: '',
-    cnic: '',
-    pool: '',
-    medium: '',
-    bps: '',
-    allotment_date: '',
-    occupation_date: '',
-    dob: '',
-    dor: '',
-    qtr_status: 'active',
-    allottee_status: 'in_service',
-    notes: '',
-  }
-  const [form, setForm] = useState(emptyForm)
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [editingId, setEditingId] = useState(null)
+  useEffect(() => { load(); }, []);
 
-  function onChange(field, value) {
-    if (field === 'dob') {
-      setForm((f) => ({ ...f, dob: value, dor: value ? computeDOR(value) : '' }))
-    } else {
-      setForm((f) => ({ ...f, [field]: value }))
-    }
+  function openNew() {
+    setEditing(null);
+    setForm({
+      file_no: "",
+      house_id: "",
+      person_name: "",
+      designation: "",
+      cnic: "",
+      pool: "CDA",
+      medium: "",
+      dor: "",
+      status: "Active",
+    });
+    setModalOpen(true);
+  }
+
+  function openEdit(a) {
+    setEditing(a);
+    setForm({
+      file_no: a.file_no || "",
+      house_id: a.house_id || "",
+      person_name: a.person_name || "",
+      designation: a.designation || "",
+      cnic: a.cnic || "",
+      pool: POOL_OPTIONS.includes(a.pool) ? a.pool : "CDA",
+      medium: a.medium || "",
+      dor: (a.dor || "").slice(0, 10),
+      status: isRetention(a.dor) ? "Retention" : (a.status || "Active"),
+    });
+    setModalOpen(true);
   }
 
   async function onSubmit(e) {
-    e.preventDefault()
+    e.preventDefault();
+    const payload = {
+      ...form,
+      pool: POOL_OPTIONS.includes(form.pool) ? form.pool : "CDA",
+      status: isRetention(form.dor) ? "Retention" : (form.status || "Active"),
+    };
+
     try {
-      setSaving(true)
-      setError('')
-      const payload = {
-        house_id: numOrNull(form.house_id),
-        person_name: form.person_name || null,
-        designation: form.designation || null,
-        directorate: form.directorate || null,
-        cnic: form.cnic || null,
-        pool: form.pool || null,
-        medium: form.medium || null,
-        bps: numOrNull(form.bps),
-        allotment_date: form.allotment_date || null,
-        occupation_date: form.occupation_date || null,
-        dob: form.dob || null,
-        dor: form.dor || null,
-        qtr_status: form.qtr_status || 'active',
-        allottee_status: form.allottee_status || 'in_service',
-        notes: form.notes || null,
-      }
-      if (editingId) {
-        await updateAllotment(editingId, payload)
+      if (editing?.id) {
+        await updateAllotment(editing.id, payload);
       } else {
-        await createAllotment(payload)
+        await createAllotment(payload);
       }
-      setShowForm(false)
-      setForm(emptyForm)
-      setEditingId(null)
-      await search(page)
+      setModalOpen(false);
+      await load();
     } catch (e) {
-      setError(e?.message || 'Failed to save')
-    } finally {
-      setSaving(false)
+      alert(e?.message || "Save failed");
     }
   }
 
-  function openAdd() {
-    setEditingId(null)
-    setForm(emptyForm)
-    setShowForm(true)
-  }
-
-  function openEdit(row) {
-    setEditingId(row.id)
-    setForm({
-      house_id: row.house_id ?? '',
-      person_name: row.person_name ?? '',
-      designation: row.designation ?? '',
-      directorate: row.directorate ?? '',
-      cnic: row.cnic ?? '',
-      pool: row.pool ?? '',
-      medium: row.medium ?? '',
-      bps: row.bps ?? '',
-      allotment_date: toDateInput(row.allotment_date) || '',
-      occupation_date: toDateInput(row.occupation_date) || '',
-      dob: toDateInput(row.dob) || '',
-      dor: toDateInput(row.dor) || computeDOR(row.dob) || '',
-      qtr_status: row.qtr_status || 'active',
-      allottee_status: row.allottee_status || 'in_service',
-      notes: row.notes || '',
-    })
-    setShowForm(true)
-  }
-
-  async function onDelete(row) {
-    const name = row?.person_name ? ` "${row.person_name}"` : ''
-    if (!confirm(`Delete allotment${name}? This cannot be undone.`)) return
+  async function onDelete(a) {
+    if (!confirm("Delete this allotment?")) return;
     try {
-      setLoading(true)
-      setError('')
-      await deleteAllotment(row.id)
-      await search(page)
+      await deleteAllotment(a.id);
+      await load();
     } catch (e) {
-      const msg = e?.response?.data?.detail || e?.message || 'Delete failed'
-      setError(`Cannot delete: ${msg}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Resolve house fields for a row (uses maps; falls back to computed fields from the API)
-  function resolveHouseFields(row) {
-    const byIdHit = byId.get(String(row.house_id))
-    if (byIdHit) {
-      return {
-        qtr: byIdHit.qtr_no ?? byIdHit.number ?? '-',
-        street: byIdHit.street ?? '-',
-        sector: byIdHit.sector ?? '-',
-      }
-    }
-    const byFileHit = row.house_file_no ? byFile.get(String(row.house_file_no).toLowerCase()) : null
-    if (byFileHit) {
-      return {
-        qtr: byFileHit.qtr_no ?? byFileHit.number ?? '-',
-        street: byFileHit.street ?? '-',
-        sector: byFileHit.sector ?? '-',
-      }
-    }
-    // Last fallback: at least show qtr if backend provided it
-    return {
-    qtr: row.house_qtr_no ?? '-',
-    street: row.house_street ?? '-',
-    sector: row.house_sector ?? '-',
+      alert(e?.message || "Delete failed");
     }
   }
 
   return (
-    <div className="page">
-      <h2>Allotments</h2>
+    <div>
+      <h1>Allotments</h1>
 
-      {error ? <div className="error" role="alert">{error}</div> : null}
+      {err && <div className="card" style={{ borderLeft: "4px solid #e53935", color: "#b71c1c" }}>{err}</div>}
 
-      <div className="filters">
-        <input
-          placeholder="Search name / file no / qtr no…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') search(1) }}
-          style={{ maxWidth: 360 }}
-        />
-        <button className="btn" onClick={() => search(1)} disabled={loading}>Search</button>
-        <span style={{ flex: 1 }} />
-        <button className="btn" onClick={openAdd}>{showForm ? 'Close' : 'Add Allotment'}</button>
+      <div style={{ marginBottom: 8 }}>
+        {canWrite && (
+          <button className="btn primary" onClick={openNew}>+ New Allotment</button>
+        )}
       </div>
 
-      {/* form */}
-      {showForm ? (
-        <form className="card" onSubmit={onSubmit}>
-          <div className="grid2">
-            <label>House
-              <select value={form.house_id} onChange={(e) => onChange('house_id', e.target.value)}>
-                <option value="">Select house</option>
-                {(Array.isArray(houses) ? houses : []).map((h) => (
-                  <option key={h.id} value={h.id}>
-                    {/* Qtr / Street / Sector for readability */}
-                    {(h.qtr_no ?? h.number ?? '-') + ' / ' + (h.street ?? '-') + ' / ' + (h.sector ?? '-')}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>Allottee
-              <input value={form.person_name} onChange={e => onChange('person_name', e.target.value)} />
-            </label>
-
-            <label>Designation
-              <input value={form.designation} onChange={e => onChange('designation', e.target.value)} />
-            </label>
-
-            <label>Directorate
-              <input value={form.directorate} onChange={e => onChange('directorate', e.target.value)} />
-            </label>
-
-            <label>CNIC
-              <input value={form.cnic} onChange={e => onChange('cnic', e.target.value)} />
-            </label>
-
-            <label>Pool
-              <input value={form.pool} onChange={e => onChange('pool', e.target.value)} />
-            </label>
-
-            <label>Medium
-              <input value={form.medium} onChange={e => onChange('medium', e.target.value)} />
-            </label>
-
-            <label>BPS
-              <input value={form.bps} onChange={e => onChange('bps', e.target.value)} inputMode="numeric" />
-            </label>
-
-            <label>Allotment Date
-              <input type="date" value={form.allotment_date} onChange={e => onChange('allotment_date', e.target.value)} />
-            </label>
-
-            <label>Occupation Date
-              <input type="date" value={form.occupation_date} onChange={e => onChange('occupation_date', e.target.value)} />
-            </label>
-
-            <label>DOB
-              <input type="date" value={form.dob} onChange={e => onChange('dob', e.target.value)} />
-            </label>
-
-            <label>DOR
-              <input type="date" value={form.dor} onChange={e => onChange('dor', e.target.value)} />
-            </label>
-
-            <label>Quarter Status
-              <select value={form.qtr_status} onChange={e => onChange('qtr_status', e.target.value)}>
-                <option value="active">Active</option>
-                <option value="ended">Ended</option>
-              </select>
-            </label>
-
-            <label>Allottee Status
-              <select value={form.allottee_status} onChange={e => onChange('allottee_status', e.target.value)}>
-                <option value="in_service">In Service</option>
-                <option value="retired">Retired</option>
-                <option value="deceased">Deceased</option>
-              </select>
-            </label>
-
-            <label style={{ gridColumn: '1 / -1' }}>Notes
-              <textarea rows={3} value={form.notes} onChange={e => onChange('notes', e.target.value)} />
-            </label>
-          </div>
-
-          <div style={{ marginTop: 12 }}>
-            <button type="button" className="link-btn" onClick={() => { setShowForm(false); setEditingId(null); setForm(emptyForm) }}>
-              Cancel
-            </button>{' '}
-            <button type="submit" disabled={saving}>{editingId ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Saving…' : 'Save')}</button>
-          </div>
-        </form>
-      ) : null}
-
-      {/* table */}
-      <div className="card" style={{ marginTop: 12, overflow: 'auto' }}>
-        <table className="table" style={{ borderCollapse: 'collapse', width: '100%' }}>
+      <div className="card" style={{ overflowX: "auto" }}>
+        <table className="table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Allottee</th>
-              {/* Order: Qtr → Street → Sector */}
-              <th style={{ textAlign: 'left' }}>Qtr</th>
-              <th style={{ textAlign: 'left' }}>Street</th>
-              <th style={{ textAlign: 'left' }}>Sector</th>
-              <th>BPS</th>
+              <th>File #</th>
+              <th>House</th>
+              <th>Person</th>
+              <th>Designation</th>
+              <th>CNIC</th>
+              <th>Pool</th>
               <th>Medium</th>
-              <th>Allotment Date</th>
-              <th>Occupation Date</th>
               <th>DOR</th>
               <th>Status</th>
-              <th></th>
+              {canWrite && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {(Array.isArray(rows) ? rows : []).map((r) => {
-              const { qtr, street, sector } = resolveHouseFields(r)
-              return (
-                <tr key={r.id}>
-                  <td className="col-allottee" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
-                    <div><strong>{r.person_name || '-'}</strong></div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.designation || ''}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>{r.cnic || ''}</div>
+            {derivedList.map((a) => (
+              <tr key={a.id}>
+                <td>{a.file_no}</td>
+                <td>{a.house_id}</td>
+                <td>{a.person_name}</td>
+                <td>{a.designation}</td>
+                <td>{a.cnic}</td>
+                <td>{POOL_OPTIONS.includes(a.pool) ? a.pool : "CDA"}</td>
+                <td>{a.medium || "-"}</td>
+                <td>{a.dor ? String(a.dor).slice(0,10) : "-"}</td>
+                <td><Badge value={isRetention(a.dor) ? "Retention" : (a.status || "Active")} /></td>
+                {canWrite && (
+                  <td>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn" onClick={() => openEdit(a)}>Edit</button>
+                      {hasPerm("allotments:delete") && (
+                        <button className="btn danger" onClick={() => onDelete(a)}>Delete</button>
+                      )}
+                    </div>
                   </td>
-
-                  <td>{qtr ?? '-'}</td>
-                  <td>{street ?? '-'}</td>
-                  <td>{sector ?? '-'}</td>
-
-                  <td style={{ textAlign: 'center' }}>{(r.bps === 0 || r.bps) ? r.bps : ''}</td>
-                  <td style={{ textAlign: 'center' }}>{r.medium || ''}</td>
-                  <td style={{ textAlign: 'center' }}>{toDateInput(r.allotment_date)}</td>
-                  <td style={{ textAlign: 'center' }}>{toDateInput(r.occupation_date)}</td>
-                  <td style={{ textAlign: 'center' }}>{toDateInput(r.dor || (r.dob ? computeDOR(r.dob) : ''))}</td>
-                  <td style={{ textAlign: 'center' }}>{r.qtr_status || '-'}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn" onClick={() => openEdit(r)} style={{ marginRight: 8 }}>Edit</button>
-                    <button className="btn danger" onClick={() => onDelete(r)}>Delete</button>
-                  </td>
-                </tr>
-              )
-            })}
-            {!loading && (!rows || rows.length === 0) ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16, opacity: 0.8 }}>No records</td></tr>
-            ) : null}
-            {loading ? (
-              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 16 }}>Loading…</td></tr>
-            ) : null}
+                )}
+              </tr>
+            ))}
+            {!derivedList.length && (
+              <tr><td colSpan={canWrite ? 10 : 9} style={{ textAlign: "center", color: "#607d8b" }}>No records</td></tr>
+            )}
           </tbody>
         </table>
-
-        <div className="pager">
-          <button className="btn" disabled={loading || page <= 1} onClick={() => search(page - 1)} aria-label="Previous page">« Prev</button>
-          <span className="pager-info">{page}</span>
-          <button className="btn" disabled={loading || !hasNext} onClick={() => search(page + 1)} aria-label="Next page">Next »</button>
-        </div>
       </div>
 
-      <style>{`
-        .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
-        .pager { display:flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 8px; }
-        .pager-info { min-width: 80px; text-align: center; font-weight: 600; }
-        .btn.danger { background: var(--danger); }
-        .btn.danger:hover { filter: brightness(0.95); }
-      `}</style>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Allotment" : "New Allotment"}>
+        <form onSubmit={onSubmit} className="grid gap-2">
+          <label>File #
+            <input value={form.file_no} onChange={(e) => setForm({ ...form, file_no: e.target.value })} required />
+          </label>
+
+          <label>House ID
+            <input value={form.house_id} onChange={(e) => setForm({ ...form, house_id: e.target.value })} required />
+          </label>
+
+          <label>Person Name
+            <input value={form.person_name} onChange={(e) => setForm({ ...form, person_name: e.target.value })} required />
+          </label>
+
+          <label>Designation
+            <input value={form.designation} onChange={(e) => setForm({ ...form, designation: e.target.value })} />
+          </label>
+
+          <label>CNIC
+            <input value={form.cnic} onChange={(e) => setForm({ ...form, cnic: e.target.value })} />
+          </label>
+
+          <label>Pool (CDA / Estate Office)
+            <select
+              value={form.pool}
+              onChange={(e) => setForm({ ...form, pool: e.target.value })}
+              required
+            >
+              {POOL_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+
+          <label>Medium
+            <input value={form.medium} onChange={(e) => setForm({ ...form, medium: e.target.value })} />
+          </label>
+
+          <label>DOR
+            <input type="date" value={form.dor} onChange={(e) => setForm({ ...form, dor: e.target.value })} />
+            <small style={{ color: "#607d8b" }}>
+              {isRetention(form.dor) ? "This will be saved as Retention." : "Will be Active unless DOR is past."}
+            </small>
+          </label>
+
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <button className="btn primary" type="submit">{editing ? "Save" : "Create"}</button>
+            <button className="btn" type="button" onClick={() => setModalOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      </Modal>
     </div>
-  )
+  );
+}
+
+function Badge({ value }) {
+  const v = String(value || "").toLowerCase();
+  const color =
+    v === "retention" ? "#8e24aa" :
+    v === "active" ? "#1565c0" :
+    v === "cancelled" ? "#b71c1c" :
+    "#455a64";
+  return (
+    <span style={{ color: "#fff", background: color, padding: "2px 8px", borderRadius: 12, fontSize: 12 }}>
+      {value}
+    </span>
+  );
 }

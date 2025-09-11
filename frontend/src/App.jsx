@@ -1,16 +1,17 @@
 // frontend/src/App.jsx
-import { Routes, Route, NavLink } from 'react-router-dom'
-import HousesPage from './pages/HousesPage'
-import AllotmentsPage from './pages/AllotmentsPage'
-import FilesPage from './pages/FilesPage'
-import HouseAllotmentsPage from './pages/HouseAllotmentsPage.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import Login from './pages/Login.jsx'
-import ProtectedRoute from './components/ProtectedRoute.jsx'
-import { isLoggedIn, logout } from './auth'
+import React from 'react';
+import { Routes, Route, NavLink } from 'react-router-dom';
+import HousesPage from './pages/HousesPage';
+import AllotmentsPage from './pages/AllotmentsPage';
+import FilesPage from './pages/FilesPage';
+import HouseAllotmentsPage from './pages/HouseAllotmentsPage.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import Login from './pages/Login.jsx';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
+import { useAuth } from './context/AuthProvider'; // <-- use context (not raw isLoggedIn/logout)
 
 export default function App() {
-  const loggedIn = isLoggedIn()
+  const { loading, isAuthed, signout } = useAuth();
 
   return (
     <div>
@@ -23,8 +24,12 @@ export default function App() {
             <NavLink to="/files">File Movement</NavLink>
           </div>
           <div className="nav-right">
-            {loggedIn ? (
-              <button className="btn btn-logout" onClick={logout} title="Sign out">Logout</button>
+            {loading ? (
+              <span style={{ opacity: 0.6 }}>…</span>
+            ) : isAuthed ? (
+              <button className="btn btn-logout" onClick={signout} title="Sign out">
+                Logout
+              </button>
             ) : (
               <NavLink to="/login">Login</NavLink>
             )}
@@ -48,5 +53,5 @@ export default function App() {
         </Routes>
       </div>
     </div>
-  )
+  );
 }

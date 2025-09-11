@@ -1,139 +1,185 @@
 // frontend/src/api.js
-import axios from 'axios'
-import { getToken, logout } from './auth'
+import { getToken } from "./auth";
 
-// Use relative base by default so the Vite proxy handles CORS in dev
-const defaultApiBase = '/api'
-let baseURL = defaultApiBase
-try {
-  if (import.meta?.env?.VITE_API_BASE_URL) {
-    baseURL = import.meta.env.VITE_API_BASE_URL
+/* ---------------- core helpers ---------------- */
+
+// Prefer env or a window override in prod; fall back to /api (same-origin reverse proxy)
+const API_PREFIX =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+  (typeof window !== "undefined" && window.API_BASE_URL) ||
+  "/api";
+
+function buildUrl(path, params) {
+  const url = new URL(API_PREFIX + (path.startsWith("/") ? path : `/${path}`), window.location.origin);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "") return;
+      if (Array.isArray(v)) v.forEach((it) => url.searchParams.append(k, String(it)));
+      else url.searchParams.set(k, String(v));
+    });
   }
-} catch (_) {}
+  return url.toString();
+}
 
-/** Single axios instance */
-const api = axios.create({
-  baseURL,
-  headers: { 'Content-Type': 'application/json' },
-})
+function jsonHeaders(extra = {}) {
+  const h = new Headers({
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...extra,
+  });
+  return h;
+}
 
-/** Attach token if present */
-api.interceptors.request.use((config) => {
-  const tok = getToken?.()
-  if (tok) {
-    config.headers = config.headers || {}
-    config.headers.Authorization = `Bearer ${tok}`
+function addTokenHeaders(headers) {
+  const tok = getToken?.();
+  if (!tok) return headers;
+  const h = new Headers(headers || {});
+  if (!h.has("Authorization")) h.set("Authorization", `Bearer ${tok}`);
+  if (!h.has("X-Auth-Token")) h.set("X-Auth-Token", tok);
+  if (!h.has("X-Api-Token")) h.set("X-Api-Token", tok);
+  return h;
+}
+
+async function doFetch({ method = "GET", path, params, body, headers }) {
+  const url = buildUrl(path, params);
+  const opts = {
+    method,
+    headers,
+    credentials: "include",
+  };
+  if (body !== undefined) {
+    opts.body = typeof body === "string" ? body : JSON.stringify(body);
   }
-  return config
-})
-
-/** Global 401 → logout */
-api.interceptors.response.use(
-  (r) => r,
-  (e) => {
-    if (e?.response?.status === 401) {
-      try { logout?.() } catch {}
+  try {
+    const res = await fetch(url, opts);
+    if (!res.ok && res.status === 404 && method.toUpperCase() === "POST" && !/\/$/.test(path)) {
+      const retryUrl = buildUrl(path + "/", params);
+      return await fetch(retryUrl, opts);
     }
-    throw e
+    return res;
+  } catch (e) {
+    throw e;
   }
-)
-
-/** Normalize list responses (array or {data:[...]}) */
-function asList(res) {
-  if (Array.isArray(res)) return res
-  if (res && Array.isArray(res.data)) return res.data
-  return []
 }
 
-/* -------------------- Houses -------------------- */
+/* ---------- robust request with fallbacks ---------- */
+async function request(method, path, { params, data, headers } = {}) {
+  const token = getToken?.();
+  const baseHeaders = addTokenHeaders(jsonHeaders(headers));
 
-export const listHouses = async (params = {}) => {
-  const r = await api.get('/houses/', { params })
-  return asList(r.data)
+  let res = await doFetch({ method, path, params, body: data, headers: baseHeaders });
+  if (res.status !== 401 || !token) return res;
+
+  for (const scheme of ["Token", "JWT"]) {
+    const h = jsonHeaders(headers);
+    h.set("Authorization", `${scheme} ${token}`);
+    h.set("X-Auth-Token", token);
+    h.set("X-Api-Token", token);
+    res = await doFetch({ method, path, params, body: data, headers: h });
+    if (res.status !== 401) return res;
+  }
+
+  const params1 = { ...(params || {}), token };
+  res = await doFetch({ method, path, params: params1, body: data, headers: jsonHeaders(headers) });
+  if (res.status !== 401) return res;
+
+  const params2 = { ...(params || {}), access_token: token };
+  res = await doFetch({ method, path, params: params2, body: data, headers: jsonHeaders(headers) });
+  return res;
 }
 
-export const createHouse = async (payload) => {
-  const r = await api.post('/houses/', payload)
-  return r.data
+async function getJson(res) {
+  if (res.ok) {
+    if (res.status === 204) return null;
+    try { return await res.json(); } catch { return null; }
+  }
+  let msg = `${res.status} ${res.statusText}`;
+  try {
+    const j = await res.json();
+    msg = j?.detail || j?.message || msg;
+  } catch {}
+  const err = new Error(msg);
+  err.status = res.status;
+  throw err;
 }
 
-export const updateHouse = async (houseId, payload) => {
-  const r = await api.patch(`/houses/${houseId}`, payload)
-  return r.data
+function asList(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.results)) return data.results;
+  if (data && Array.isArray(data.data)) return data.data;
+  return [];
 }
 
-export const deleteHouse = async (houseId) => {
-  await api.delete(`/houses/${houseId}`)
+/* ---------------- API surface ---------------- */
+export async function listHouses(params = {}) {
+  const res = await request("GET", "/houses", { params });
+  return asList(await getJson(res));
+}
+export async function getHouse(id) {
+  const res = await request("GET", `/houses/${id}`);
+  return await getJson(res);
+}
+export async function createHouse(payload) {
+  const res = await request("POST", "/houses", { data: payload });
+  return await getJson(res);
+}
+export async function updateHouse(id, payload) {
+  const res = await request("PATCH", `/houses/${id}`, { data: payload });
+  return await getJson(res);
+}
+export async function deleteHouse(id) {
+  const res = await request("DELETE", `/houses/${id}`);
+  await getJson(res);
+  return true;
+}
+export async function findHouseByFileNoStrict(file_no) {
+  if (!file_no) throw new Error("file_no required");
+  const res = await request("GET", `/houses/by-file/${encodeURIComponent(file_no)}`);
+  return await getJson(res);
+}
+export async function patchHouseStatus(id, status, extra = {}) {
+  const res = await request("PATCH", `/houses/${id}`, { data: { status, ...extra } });
+  return await getJson(res);
 }
 
-/** Also keep the fetch-based search used elsewhere (back-compat) */
-export async function searchHouses(params = {}) {
-  const { q, limit = 100, offset = 0, type, status } = params
-  const base = (import.meta?.env?.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
-  const url = new URL(`${base}/houses/`, window.location.origin)
-  if (q) url.searchParams.set('q', q)
-  if (type) url.searchParams.set('type_code', type)
-  if (status) url.searchParams.set('status', status)
-  url.searchParams.set('limit', String(limit))
-  url.searchParams.set('offset', String(offset))
-  const res = await fetch(url.toString(), {
-    headers: {
-      Accept: 'application/json',
-      ...(getToken?.() ? { Authorization: `Bearer ${getToken()}` } : {}),
-    },
-  })
-  if (!res.ok) throw new Error(`Failed to load houses (${res.status})`)
-  const data = await res.json()
-  return Array.isArray(data) ? data : data?.data ?? []
+export async function listAllotments(params = {}) {
+  const res = await request("GET", "/allotments", { params });
+  return asList(await getJson(res));
+}
+export async function getAllotment(id) {
+  const res = await request("GET", `/allotments/${id}`);
+  return await getJson(res);
+}
+export async function createAllotment(payload) {
+  const res = await request("POST", "/allotments", { data: payload });
+  return await getJson(res);
+}
+export async function updateAllotment(id, payload) {
+  const res = await request("PATCH", `/allotments/${id}`, { data: payload });
+  return await getJson(res);
+}
+export async function deleteAllotment(id) {
+  const res = await request("DELETE", `/allotments/${id}`);
+  await getJson(res);
+  return true;
+}
+export async function listAllotmentsByFileNoStrict(file_no, { limit = 500, offset = 0 } = {}) {
+  const res = await request("GET", "/allotments", { params: { file_no, limit, offset } });
+  return asList(await getJson(res));
 }
 
-/* -------------------- Allotments -------------------- */
-
-export const listAllotments = async (params = {}) => {
-  const r = await api.get('/allotments/', { params })
-  return asList(r.data)
+export async function listMovements(params = {}) {
+  const res = await request("GET", "/files", { params });
+  return asList(await getJson(res));
+}
+export async function issueFile(payload) {
+  const res = await request("POST", "/files", { data: payload });
+  return await getJson(res);
+}
+export async function returnFile(id, returned_date = null) {
+  const res = await request("POST", `/files/${id}/return`, { data: { returned_date } });
+  return await getJson(res);
 }
 
-/** CREATE allotment (backend typically accepts JSON body with fields you already send) */
-export const createAllotment = async (payload) => {
-  const r = await api.post('/allotments/', payload)
-  return r.data
-}
-
-/** UPDATE allotment */
-export const updateAllotment = async (id, payload) => {
-  const r = await api.patch(`/allotments/${id}`, payload)
-  return r.data
-}
-
-/** DELETE allotment (admin-only enforced by backend) */
-export const deleteAllotment = async (id) => {
-  await api.delete(`/allotments/${id}`)
-}
-
-/** Convenience: list by house */
-export const listAllotmentsByHouse = async (house, params = {}) => {
-  if (!house) return []
-  const r = await api.get('/allotments/', { params: { house_id: house.id, ...params } })
-  return asList(r.data)
-}
-
-/* -------------------- File Movements -------------------- */
-
-export const listMovements = async (params = {}) => {
-  const r = await api.get('/files/', { params })
-  return asList(r.data)
-}
-
-export const issueFile = async (payload) => {
-  const r = await api.post('/files/', payload)
-  return r.data
-}
-
-export const returnFile = async (id, returned_date = null) => {
-  const r = await api.post(`/files/${id}/return`, { returned_date })
-  return r.data
-}
-
-export { api }
-export default api
+export const api = { request, buildUrl };
+export default api;

@@ -1,6 +1,11 @@
+<<<<<<< HEAD
 # backend/app/api/routes/auth.py
 
 from fastapi import APIRouter, Depends, HTTPException, status, Form, Response
+=======
+# app/api/routes/auth.py
+from fastapi import APIRouter, Depends, HTTPException, status, Form
+>>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import json
@@ -9,14 +14,17 @@ from app.core.security import verify_password, create_access_token, get_current_
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.user import Token, LoginRequest, UserRead
+<<<<<<< HEAD
 from app.core.config import settings
 from app.core.session import create_session, COOKIE_NAME  # NEW: cookie sessions
 
 # All routes below are mounted under /auth (and /api/auth via main.py)
+=======
+
+>>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 def get_db():
-    # Reuse the project's session dependency
     yield from get_session()
 
 @router.get("/me", response_model=UserRead)
@@ -30,12 +38,8 @@ def whoami(user: User = Depends(get_current_user)):
 
 @router.post("/token", response_model=Token)
 def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db)):
-    """
-    JSON login:
-    POST /auth/token
-    Body: {"username": "...", "password": "..."}
-    """
     user = db.scalar(select(User).where(User.username == payload.username))
+<<<<<<< HEAD
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -43,6 +47,11 @@ def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db))
         )
     # IMPORTANT: create_access_token expects a string subject
     token = create_access_token(payload.username)
+=======
+    if not user or not user.is_active or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
+    token = create_access_token(sub=user.username)
+>>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
     return {"access_token": token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
@@ -51,19 +60,19 @@ def login_alias(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    """
-    Form login (useful for HTML forms):
-    POST /auth/login
-    Content-Type: application/x-www-form-urlencoded
-    Body: username=...&password=...
-    """
     user = db.scalar(select(User).where(User.username == username))
+<<<<<<< HEAD
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
         )
     token = create_access_token(user.username)
+=======
+    if not user or not user.is_active or not verify_password(password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
+    token = create_access_token(sub=user.username)
+>>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
     return {"access_token": token, "token_type": "bearer"}
 
 @router.post("/jwt/login", response_model=Token)
