@@ -2,10 +2,9 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-/**
- * API base:
- * - DEV: always use relative '/api' so Vite proxy forwards to backend.
- * - PROD: allow VITE_API_BASE_URL or window.API_BASE_URL overrides.
+/** API base:
+ *  DEV: use '/api' so Vite proxy forwards to backend.
+ *  PROD: allow VITE_API_BASE_URL or window.API_BASE_URL.
  */
 let API_BASE = "/api";
 try {
@@ -19,16 +18,9 @@ try {
 } catch { API_BASE = "/api"; }
 
 /* ---------------- token helpers ---------------- */
-export function getToken() {
-  return localStorage.getItem(AUTH_STORAGE_KEY);
-}
-export function setToken(value) {
-  if (value) localStorage.setItem(AUTH_STORAGE_KEY, value);
-  else localStorage.removeItem(AUTH_STORAGE_KEY);
-}
-export function isLoggedIn() {
-  return !!getToken();
-}
+export function getToken() { return localStorage.getItem(AUTH_STORAGE_KEY); }
+export function setToken(v) { v ? localStorage.setItem(AUTH_STORAGE_KEY, v) : localStorage.removeItem(AUTH_STORAGE_KEY); }
+export function isLoggedIn() { return !!getToken(); }
 export function logout() {
   setToken(null);
   if (typeof window !== "undefined") window.location.href = "/login";
@@ -60,10 +52,6 @@ async function postForm(url, fields) {
 }
 
 /* ---------------- login ---------------- */
-/**
- * Try common FastAPI-style endpoints with form first (most typical),
- * then JSON as fallback.
- */
 export async function login(username, password) {
   const attempts = [
     { url: `${API_BASE}/auth/token`, kind: "form" },
@@ -82,7 +70,7 @@ export async function login(username, password) {
       if (!res.ok) {
         try { const j = await res.json(); last = j?.detail || j?.message || `${res.status} ${res.statusText}`; }
         catch { last = `${res.status} ${res.statusText}`; }
-        if (res.status === 401) break; // wrong creds -> stop trying others
+        if (res.status === 401) break; // wrong creds -> stop
         continue;
       }
 
@@ -91,28 +79,35 @@ export async function login(username, password) {
       if (!token) { last = "Invalid token response"; continue; }
       setToken(token);
       return data;
-    } catch (e) {
-      last = e?.message || String(e);
-      // try next attempt
-    }
+    } catch (e) { last = e?.message || String(e); }
   }
   throw new Error(last);
 }
 
 /* ---------------- generic helpers ---------------- */
-export function api(path) {
-  return path.startsWith("http") ? path : `${API_BASE}${path}`;
-}
+export function api(path) { return path.startsWith("http") ? path : `${API_BASE}${path}`; }
+
+/**
+ * authFetch: attaches token and tries multiple auth schemes on 401.
+ * IMPORTANT: it does NOT auto-logout. Callers decide what to do on 401.
+ */
 export async function authFetch(pathOrUrl, options = {}) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : api(pathOrUrl);
-  const headers = new Headers(options.headers || {});
   const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const headers = new Headers(options.headers || {});
   headers.set("Accept", headers.get("Accept") || "application/json");
-  const res = await fetch(url, { ...options, headers, credentials: "same-origin" });
-  // do NOT force logout for anonymous 401s (e.g., before login)
-  if (res.status === 401 && token) logout();
-  return res;
+
+  const schemes = token ? ["Bearer", "Token", "JWT"] : [null];
+
+  for (let i = 0; i < schemes.length; i++) {
+    const h = new Headers(headers);
+    if (schemes[i]) h.set("Authorization", `${schemes[i]} ${token}`);
+    const res = await fetch(url, { ...options, headers: h, credentials: "same-origin" });
+    if (res.status !== 401 || i === schemes.length - 1) return res; // return on success or last attempt
+    // else try next scheme
+  }
+  // should not reach here
+  return fetch(url, { ...options, headers, credentials: "same-origin" });
 }
 
 export const auth = { get token() { return getToken(); }, set token(v) { setToken(v); }, isLoggedIn, logout, login, fetch: authFetch, api };

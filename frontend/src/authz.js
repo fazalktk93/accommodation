@@ -15,12 +15,9 @@ const ROLE_PERMS = {
     "allotments:read","allotments:create","allotments:update",
     "files:read","files:create","files:update",
   ],
-  viewer: [
-    "houses:read","allotments:read","files:read",
-  ],
+  viewer: ["houses:read","allotments:read","files:read"],
 };
 
-// normalize roles in api responses
 function extractRoles(data) {
   const r = data?.role || data?.roles || data?.data?.roles || [];
   if (Array.isArray(r)) return r.map(String);
@@ -32,24 +29,24 @@ function buildPerms(user) {
   const roles = extractRoles(user);
   const p = new Set();
   if (!roles.length) {
-    // default: viewer perms for anonymous
     ROLE_PERMS.viewer.forEach((x) => p.add(x));
     return p;
   }
-  roles.forEach((role) => {
-    const list = ROLE_PERMS[role?.toLowerCase()] || [];
-    list.forEach((x) => p.add(x));
-  });
+  roles.forEach((role) => (ROLE_PERMS[role?.toLowerCase()] || []).forEach((x) => p.add(x)));
   return p;
 }
 
+/**
+ * Bootstrap current user.
+ * - Never logs out on 401.
+ * - Tolerates missing endpoints and returns viewer perms when anonymous.
+ */
 export async function loadMe() {
-  // try common endpoints; never throw, never logout here
   const endpoints = [api("/auth/me"), api("/users/me"), api("/me")];
   for (const url of endpoints) {
     try {
       const res = await authFetch(url);
-      if (!res.ok) continue;
+      if (!res.ok) continue;          // ignore 401/404/etc.
       const data = await res.json();
       _user = data;
       _perms = buildPerms(data);
@@ -58,15 +55,10 @@ export async function loadMe() {
       // keep trying others
     }
   }
-  // anonymous fallback
   _user = null;
   _perms = buildPerms(null);
   return null;
 }
 
-export function hasPerm(p) {
-  return _perms.has(p);
-}
-export function currentUser() {
-  return _user;
-}
+export function hasPerm(p) { return _perms.has(p); }
+export function currentUser() { return _user; }
