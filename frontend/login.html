@@ -4,61 +4,179 @@
   <meta charset="utf-8" />
   <title>Login · Accommodation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark">
   <style>
-    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    .wrap { min-height: 100%; display: grid; place-items: center; background: #f6f7f9; }
-    .card { width: 100%; max-width: 380px; background: #fff; padding: 24px; border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,.08); }
-    h1 { font-size: 18px; margin: 0 0 16px; }
+    :root{
+      --bg:#f6f7f9; --card:#fff; --text:#111; --muted:#666; --border:#d9dbe1;
+      --brand:#000; --brandText:#fff; --error:#b00020; --ring:#3b82f6;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --bg:#0f1115; --card:#171923; --text:#eef1f7; --muted:#9aa4b2; --border:#2a2f3a;
+        --brand:#3b82f6; --brandText:#000; --error:#ff6b6b; --ring:#60a5fa;
+      }
+    }
+    *{box-sizing:border-box}
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; color: var(--text); }
+    .wrap { min-height: 100%; display: grid; place-items: center; background: var(--bg); padding: 24px; }
+    .card { width: 100%; max-width: 400px; background: var(--card); padding: 24px; border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,.08); border: 1px solid var(--border); }
+    h1 { font-size: 18px; margin: 0 0 6px; display:flex; align-items:center; gap:8px; }
+    .badge { font-size: 11px; letter-spacing:.04em; text-transform: uppercase; color: var(--brand);
+             background: color-mix(in oklab, var(--brand) 12%, transparent); border:1px solid color-mix(in oklab, var(--brand) 35%, transparent);
+             padding: 2px 6px; border-radius: 6px; }
+    .sub { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
     label { display: block; font-size: 13px; margin: 12px 0 6px; color: #444; }
-    input { width: 100%; padding: 10px 12px; border: 1px solid #d9dbe1; border-radius: 8px; font-size: 14px; }
-    button { width: 100%; margin-top: 16px; padding: 10px 12px; font-size: 15px; border: 0; border-radius: 8px;
-             cursor: pointer; background: black; color: #fff; }
-    .error { color: #b00020; font-size: 13px; margin-top: 10px; min-height: 18px; }
-    .muted { color: #666; font-size: 12px; margin-top: 12px; }
+    @media (prefers-color-scheme: dark){ label{color:#cbd5e1} }
+    .field { display:flex; gap:8px; align-items: stretch; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: transparent; color: var(--text); }
+    input:focus{ outline: 2px solid color-mix(in oklab, var(--ring) 45%, transparent); outline-offset: 1px; }
+    .btn { width: 100%; margin-top: 16px; padding: 10px 12px; font-size: 15px; border: 0; border-radius: 8px;
+           cursor: pointer; background: var(--brand); color: var(--brandText); display:flex; align-items:center; justify-content:center; gap:8px; }
+    .btn[disabled]{ opacity: .6; cursor: not-allowed; }
+    .error { color: var(--error); font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .muted { color: var(--muted); font-size: 12px; margin-top: 10px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .caps { color: var(--error); font-size: 12px; margin-top: 6px; }
+    .right { text-align:right }
+    .icon-btn { padding: 0 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; font-size:13px; }
+    .icon-btn:hover{ color: var(--text); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: color-mix(in oklab, var(--text) 6%, transparent); padding: 1px 5px; border-radius: 4px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>Sign in</h1>
-      <form id="loginForm" autocomplete="on">
-        <label>Username</label>
+      <h1>
+        Sign in
+        <span class="badge" title="This form will POST JSON to the API">POST JSON</span>
+      </h1>
+      <div class="sub">Enter your credentials to access the dashboard.</div>
+
+      <form id="loginForm" autocomplete="on" novalidate>
+        <label for="username">Username</label>
         <input id="username" name="username" autocomplete="username" required />
-        <label>Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
-        <button type="submit">Login</button>
-        <div class="error" id="error"></div>
-        <div class="muted">Posts JSON to <code>/api/auth/token</code>.</div>
+
+        <label for="password">Password</label>
+        <div class="field">
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <button type="button" class="icon-btn" id="togglePwd" aria-label="Show password">Show</button>
+        </div>
+        <div class="caps" id="caps" hidden>Warning: Caps Lock is ON</div>
+
+        <button type="submit" class="btn" id="submitBtn">
+          <span id="btnText">Login</span>
+          <span id="btnSpinner" hidden>· · ·</span>
+        </button>
+
+        <div class="right muted">Posts JSON to <code>/api/auth/token</code></div>
+
+        <div class="error" id="error" role="alert" aria-live="polite"></div>
+        <div class="hint">Having trouble? Check username/password and network access to the API.</div>
       </form>
     </div>
   </div>
 
-  <!-- Optional: override backend base if not :8000 -->
+  <!-- Optional: override backend base if not proxied via Vite -->
   <!-- <script>window.API_BASE_URL = "http://192.168.0.102:8000/api";</script> -->
 
-  <!-- IMPORTANT: import using absolute path to /src/... so Vite resolves it -->
   <script type="module">
-    import auth, { isLoggedIn, login } from "/src/auth.js";
+    // Minimal local auth util (keeps in sync with the app’s storage key)
+    const AUTH_STORAGE_KEY = "auth_token";
 
-    if (isLoggedIn()) {
-      // route wherever you want after login
-      window.location.href = "/dashboard"; // SPA route (no .html)
+    // Dev-safe base: use relative '/api' so Vite proxy forwards to backend
+    let API_BASE = "/api";
+    if (typeof window !== "undefined" && window.API_BASE_URL) {
+      API_BASE = window.API_BASE_URL;
     }
 
-    const form = document.getElementById("loginForm");
-    const err  = document.getElementById("error");
+    const $ = (id) => document.getElementById(id);
+    const form = $("loginForm");
+    const user = $("username");
+    const pass = $("password");
+    const togglePwd = $("togglePwd");
+    const caps = $("caps");
+    const btn = $("submitBtn");
+    const btnText = $("btnText");
+    const btnSpinner = $("btnSpinner");
+    const err = $("error");
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();           // prevent default form POST (avoids /admin/login)
-      err.textContent = "";
-      const username = document.getElementById("username").value.trim();
-      const password = document.getElementById("password").value;
+    const setBusy = (busy) => {
+      btn.disabled = busy;
+      btnSpinner.hidden = !busy;
+      btnText.textContent = busy ? "Signing in…" : "Login";
+    };
+
+    // Redirect if token already present
+    try {
+      if (localStorage.getItem(AUTH_STORAGE_KEY)) {
+        window.location.href = "/dashboard";
+      }
+    } catch {}
+
+    // CapsLock indicator
+    function updateCaps(e){
       try {
-        await login(username, password); // this calls /api/auth/token with JSON
-        window.location.href = "/dashboard";   // <— fixed
+        const on = !!(e.getModifierState && e.getModifierState("CapsLock"));
+        caps.hidden = !on;
+      } catch { /* ignore */ }
+    }
+    user.addEventListener("keydown", updateCaps);
+    user.addEventListener("keyup", updateCaps);
+    pass.addEventListener("keydown", updateCaps);
+    pass.addEventListener("keyup", updateCaps);
+
+    // Show/Hide password
+    togglePwd.addEventListener("click", () => {
+      const show = pass.type === "password";
+      pass.type = show ? "text" : "password";
+      togglePwd.textContent = show ? "Hide" : "Show";
+      togglePwd.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      pass.focus();
+    });
+
+    // Submit handler (POST JSON)
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.textContent = "";
+
+      const username = user.value.trim();
+      const password = pass.value;
+
+      if (!username || !password) {
+        err.textContent = "Please enter username and password.";
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const res = await fetch(`${API_BASE}/auth/token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ username, password }),
+        });
+
+        if (!res.ok) {
+          let msg = `Login failed (${res.status})`;
+          try {
+            const j = await res.json();
+            msg = j?.detail || j?.message || msg;
+          } catch {}
+          throw new Error(msg);
+        }
+
+        const data = await res.json();
+        const token = data?.access_token || data?.token || data?.access;
+        if (!token) throw new Error("Invalid token response from server.");
+
+        // persist & go
+        localStorage.setItem(AUTH_STORAGE_KEY, token);
+        window.location.href = "/dashboard";
       } catch (ex) {
-        err.textContent = ex.message || "Login failed";
+        err.textContent = ex?.message || "Login failed";
+      } finally {
+        setBusy(false);
       }
     });
   </script>
