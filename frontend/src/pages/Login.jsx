@@ -1,11 +1,13 @@
 // frontend/src/pages/Login.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { login as doLogin, isLoggedIn } from "../auth";
+import { isLoggedIn } from "../auth";                 // only for initial shortcut
+import { useAuth } from "../context/AuthProvider";    // <-- use context
 
 export default function Login() {
   const nav = useNavigate();
   const location = useLocation();
+  const { login } = useAuth();                        // <-- context login updates isAuthed
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -14,7 +16,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // if already logged in, go straight to dashboard
+  // if already authed (e.g., token in storage), skip login page
   useEffect(() => {
     if (isLoggedIn()) nav("/dashboard", { replace: true });
   }, [nav]);
@@ -30,8 +32,8 @@ export default function Login() {
     setError("");
     setSubmitting(true);
     try {
-      await doLogin(username.trim(), password);
-      // ProtectedRoute stores a string path in state.from
+      // IMPORTANT: use AuthProvider's login so context becomes authed
+      await login(username.trim(), password);
       const redirectTo =
         (location.state && (location.state.from || location.state.intent)) ||
         "/dashboard";
@@ -63,7 +65,6 @@ export default function Login() {
             onKeyUp={(e) => setCaps(!!e.getModifierState && e.getModifierState("CapsLock"))}
             autoComplete="username"
             required
-            inputMode="email"
             style={{ width: "100%" }}
           />
         </label>
