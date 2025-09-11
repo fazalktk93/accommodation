@@ -3,9 +3,9 @@ import axios from "axios";
 import { getToken } from "./auth";
 
 /**
- * Single axios instance.
- * DEV: baseURL '/api' so Vite proxy forwards to backend.
- * PROD: your server should reverse-proxy '/api' to backend as well.
+ * Axios instance
+ * DEV: baseURL '/api' (Vite proxy -> backend)
+ * PROD: have your web server reverse-proxy '/api' to the backend
  */
 const api = axios.create({
   baseURL: "/api",
@@ -16,15 +16,13 @@ const api = axios.create({
   },
 });
 
-/**
- * Attach auth header (default Bearer).
- */
+/** Attach Authorization header */
 api.interceptors.request.use((config) => {
   const tok = getToken?.();
   if (tok) {
     config.headers = config.headers || {};
-    // set default scheme if none provided by the caller
     if (!config.headers.Authorization) {
+      // default to Bearer; we may retry with other schemes on 401
       config.headers.Authorization = `Bearer ${tok}`;
       config.__authScheme = "Bearer";
     }
@@ -33,10 +31,10 @@ api.interceptors.request.use((config) => {
 });
 
 /**
- * On 401 from protected endpoints:
- *  - do NOT logout here (prevents redirect loop)
- *  - retry once with alternate schemes: 'Token' then 'JWT'
- *  - otherwise just reject so UI can show an error
+ * On 401:
+ *  - DO NOT logout here (prevents login loop)
+ *  - Retry once with alternate schemes: 'Token' then 'JWT'
+ *  - If still 401, reject; UI can show an error
  */
 api.interceptors.response.use(
   (r) => r,
@@ -44,43 +42,41 @@ api.interceptors.response.use(
     const { response, config } = error || {};
     if (!response || !config) return Promise.reject(error);
 
-    const status = response.status;
-    if (status !== 401) return Promise.reject(error);
+    if (response.status !== 401) return Promise.reject(error);
 
-    // don't retry login endpoints
+    // Don't retry auth endpoints
     const url = String(config.url || "");
-    const isAuthEndpoint = /\/auth\/(token|login|jwt\/login)|\/login\/access-token/.test(url);
+    const isAuthEndpoint =
+      /\/auth\/(token|login|jwt\/login)|\/login\/access-token/i.test(url);
     if (isAuthEndpoint) return Promise.reject(error);
 
-    // if there is no token, nothing to retry
+    // No token? Nothing to retry
     const tok = getToken?.();
     if (!tok) return Promise.reject(error);
 
-    // avoid infinite retry loops
+    // Prevent infinite loops
     if (config.__authRetried) return Promise.reject(error);
 
-    const schemes = ["Token", "JWT"];
-    for (const s of schemes) {
+    for (const scheme of ["Token", "JWT"]) {
       try {
         const retried = {
           ...config,
-          headers: { ...(config.headers || {}), Authorization: `${s} ${tok}` },
+          headers: { ...(config.headers || {}), Authorization: `${scheme} ${tok}` },
           __authRetried: true,
-          __usedAltScheme: s,
+          __usedAltScheme: scheme,
         };
         return await api.request(retried);
       } catch (e) {
-        if (e?.response?.status !== 401) throw e; // other error => bubble up
+        if (e?.response?.status !== 401) throw e; // bubble non-401
         // else try next scheme
       }
     }
 
-    // still 401 after trying alternates; just reject (NO logout here)
     return Promise.reject(error);
   }
 );
 
-/* ---------------- helpers ---------------- */
+/* ---------------- small helpers ---------------- */
 function asList(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.results)) return data.results;
@@ -88,7 +84,7 @@ function asList(data) {
   return [];
 }
 
-/* ---------------- Houses ---------------- */
+/* ========== HOUSES ========== */
 export async function listHouses(params = {}) {
   const { data } = await api.get("/houses", { params });
   return asList(data);
@@ -109,8 +105,17 @@ export async function deleteHouse(id) {
   await api.delete(`/houses/${id}`);
   return true;
 }
+export async function findHouseByFileNoStrict(file_no) {
+  if (!file_no) throw new Error("file_no required");
+  const { data } = await api.get(`/houses/by-file/${encodeURIComponent(file_no)}`);
+  return data;
+}
+export async function patchHouseStatus(id, status, extra = {}) {
+  const { data } = await api.patch(`/houses/${id}`, { status, ...extra });
+  return data;
+}
 
-/* ---------------- Allotments ---------------- */
+/* ========== ALLOTMENTS ========== */
 export async function listAllotments(params = {}) {
   const { data } = await api.get("/allotments", { params });
   return asList(data);
@@ -130,6 +135,35 @@ export async function updateAllotment(id, payload) {
 export async function deleteAllotment(id) {
   await api.delete(`/allotments/${id}`);
   return true;
+}
+export async function listAllotmentsByFileNoStrict(file_no, { limit = 500, offset = 0 } = {}) {
+  const { data } = await api.get("/allotments", { params: { file_no, limit, offset } });
+  return asList(data);
+}
+
+/* ========== FILES / MOVEMENTS ========== */
+export async function listMovements(params = {}) {
+  const { data } = await api.get("/files", { params });
+  return asList(data);
+}
+/** Issue file (outgoing) */
+export async function issueFile(payload) {
+  // backend may accept with or without trailing slash
+  const { data } = await api.post("/files", payload).catch(async (e) => {
+    // retry with trailing slash if server demands it
+    if (e?.response?.status === 404) {
+      const { data: d2 } = await api.post("/files/", payload);
+      return { data: d2 };
+    }
+    throw e;
+  });
+  return data;
+}
+/** Return file (incoming) */
+export async function returnFile(id, returned_date = null) {
+  const body = { returned_date };
+  const { data } = await api.post(`/files/${id}/return`, body);
+  return data;
 }
 
 export { api };
