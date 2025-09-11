@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { listHouses, listAllotments } from "../api";
 
 /** ---------- Tiny SVG PieChart (no dependencies) ---------- */
+function colorFor(label) {
+  const s = String(label || '').toLowerCase();
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const sat = 65; // %
+  const light = 55; // %
+  return `hsl(${hue} ${sat}% ${light}%)`;
+}
+
 function PieChart({ title, data, size = 220, onSliceClick }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   const cx = size / 2;
@@ -144,12 +154,12 @@ export default function Dashboard() {
       else buckets.Other++;
     });
     return [
-      { label: "Occupied", value: buckets.Occupied, color: "#5b8def", kind: "houses", field: "status", valueKey: "occupied" },
-      { label: "Vacant", value: buckets.Vacant, color: "#2bb673", kind: "houses", field: "status", valueKey: "vacant" },
-      { label: "Other", value: buckets.Other, color: "#c2c7cf", kind: "houses", field: "status", valueKey: "other" },
-    ];
+      { label: "Occupied", value: buckets.Occupied, color: colorFor("Occupied"), kind: "houses", field: "status", valueKey: "occupied" },
+      { label: "Vacant", value: buckets.Vacant, color: colorFor("Vacant"),   kind: "houses", field: "status", valueKey: "vacant" },
+      { label: "Other", value: buckets.Other, color: colorFor("Other"),      kind: "houses", field: "status", valueKey: "other" },
+    ]
   }, [houses]);
-
+color: colorFor(k)
   // ----- Pie: House Type (A–H + Other) -----
   const typeData = useMemo(() => {
     const counts = {};

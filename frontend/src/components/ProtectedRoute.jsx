@@ -12,8 +12,10 @@ export default function ProtectedRoute({ children }) {
   if (loading) return <Loader />;
 
   if (!isAuthed) {
+    // redirect to login and remember intended url
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  // support both wrapped-children and nested routes
   return children ? children : <Outlet />;
 }
