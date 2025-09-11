@@ -7,31 +7,24 @@ const AUTH_STORAGE_KEY = "auth_token";
  * - In DEV (vite), always use relative '/api' so the vite proxy forwards to backend.
  * - In PROD, allow VITE_API_BASE_URL or window.API_BASE_URL to override.
  */
-let API_BASE = "/api"; // safe for dev (proxy)
-
+let API_BASE = "/api"; // safe default for dev
 try {
-  // Vite injects these flags at build time
-  const isDev = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.DEV;
+  const isDev =
+    typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    import.meta.env.DEV;
 
   if (!isDev) {
-    // Production defaults: keep your old behavior / allow overrides
-    const defaultApiBase = `${window.location.protocol}//${window.location.hostname}:8000/api`;
-    API_BASE = defaultApiBase;
-
-    if (import.meta?.env?.VITE_API_BASE_URL) {
-      API_BASE = import.meta.env.VITE_API_BASE_URL;
-    }
-    if (typeof window !== "undefined" && window.API_BASE_URL) {
-      API_BASE = window.API_BASE_URL;
-    }
+    let base = `${window.location.protocol}//${window.location.hostname}:8000/api`;
+    if (import.meta?.env?.VITE_API_BASE_URL) base = import.meta.env.VITE_API_BASE_URL;
+    if (typeof window !== "undefined" && window.API_BASE_URL) base = window.API_BASE_URL;
+    API_BASE = base;
   }
 } catch {
-  // Fallback if anything above fails
   API_BASE = "/api";
 }
 
-/* ===== Named exports expected elsewhere (e.g., api.js) ===== */
-
+/* ================== token helpers ================== */
 export function getToken() {
   return localStorage.getItem(AUTH_STORAGE_KEY);
 }
@@ -52,40 +45,101 @@ export function logout() {
   }
 }
 
-/** JSON login: POST /api/auth/token */
-export async function login(username, password) {
-  const res = await fetch(`${API_BASE}/auth/token`, {
+/* ================== internals ================== */
+async function postJson(url, body) {
+  const res = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ username, password }),
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
     credentials: "same-origin",
   });
-
-  if (!res.ok) {
-    let msg = "Login failed";
-    try {
-      const data = await res.json();
-      msg = data?.detail || data?.message || msg;
-    } catch {}
-    throw new Error(msg);
-  }
-
-  const data = await res.json();
-  const token = data?.access_token || data?.token || null;
-  if (!token) throw new Error("Invalid response from server");
-  setToken(token);
-  return data;
+  return res;
 }
 
-/** Build full API URL */
+async function postForm(url, fields) {
+  const sp = new URLSearchParams();
+  Object.entries(fields).forEach(([k, v]) => sp.append(k, v == null ? "" : String(v)));
+  // add OAuth2 defaults; harmless if backend ignores
+  if (!sp.has("grant_type")) sp.set("grant_type", "password");
+  if (!sp.has("scope")) sp.set("scope", "");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: sp.toString(),
+    credentials: "same-origin",
+  });
+  return res;
+}
+
+function pickToken(data) {
+  return (
+    data?.access_token ||
+    data?.token ||
+    data?.access ||
+    data?.data?.access_token ||
+    null
+  );
+}
+
+/* ================== login ================== */
+/**
+ * Tries the common FastAPI token endpoints:
+ * 1) POST form  → /auth/token
+ * 2) POST form  → /login/access-token
+ * 3) POST form  → /auth/jwt/login
+ * 4) (fallback) POST json → /auth/token
+ */
+export async function login(username, password) {
+  const attempts = [
+    { url: `${API_BASE}/auth/token`,      kind: "form" },
+    { url: `${API_BASE}/login/access-token`, kind: "form" },
+    { url: `${API_BASE}/auth/jwt/login`,  kind: "form" },
+    { url: `${API_BASE}/auth/token`,      kind: "json" },
+  ];
+
+  let lastErr = "Login failed";
+  for (const a of attempts) {
+    try {
+      const res =
+        a.kind === "form"
+          ? await postForm(a.url, { username, password })
+          : await postJson(a.url, { username, password });
+
+      if (!res.ok) {
+        // keep the most useful error message but continue trying others
+        try {
+          const j = await res.json();
+          lastErr = j?.detail || j?.message || `${res.status} ${res.statusText}`;
+        } catch {
+          lastErr = `${res.status} ${res.statusText}`;
+        }
+        // try next endpoint on 404/405/422/415; stop early on explicit 401
+        if (res.status === 401) break;
+        continue;
+      }
+
+      const data = await res.json();
+      const token = pickToken(data);
+      if (!token) {
+        lastErr = "Invalid token response";
+        continue;
+      }
+      setToken(token);
+      return data;
+    } catch (e) {
+      lastErr = e?.message || String(e);
+      // try next attempt
+    }
+  }
+
+  throw new Error(lastErr || "Login failed");
+}
+
+/* ================== general API helpers ================== */
 export function api(path) {
   return path.startsWith("http") ? path : `${API_BASE}${path}`;
 }
 
-/** Fetch wrapper with Authorization header */
 export async function authFetch(pathOrUrl, options = {}) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : api(pathOrUrl);
   const headers = new Headers(options.headers || {});
@@ -97,14 +151,10 @@ export async function authFetch(pathOrUrl, options = {}) {
   return res;
 }
 
-/* Optional convenience object */
+/* convenience object */
 export const auth = {
-  get token() {
-    return getToken();
-  },
-  set token(v) {
-    setToken(v);
-  },
+  get token() { return getToken(); },
+  set token(v) { setToken(v); },
   isLoggedIn,
   logout,
   login,
