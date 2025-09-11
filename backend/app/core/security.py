@@ -1,12 +1,7 @@
 # app/core/security.py
 from datetime import datetime, timedelta
 from typing import Optional
-<<<<<<< HEAD
-
-from requests import Request
-=======
 import logging
->>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
 import jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends, Request
@@ -26,11 +21,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = getattr(settings, "SECRET_KEY", None) or getattr(settings, "JWT_SECRET", None)
 if not SECRET_KEY:
     raise RuntimeError("SECRET_KEY not set. Add SECRET_KEY=... to .env")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 8 * 60)
 
 # IMPORTANT: reflect the real mount (/api)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/token", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_PREFIX}/auth/token",
+    auto_error=False,
+)
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -56,7 +55,7 @@ def _extract_token(request: Request, header_token: Optional[str]) -> Optional[st
         parts = auth.split()
         if len(parts) == 2:
             return parts[1]
-    # 3) Custom headers (nice to have)
+    # 3) Custom headers
     for k in ("X-Auth-Token", "X-Api-Token"):
         v = request.headers.get(k)
         if v:
@@ -113,6 +112,9 @@ def require_permissions(*perms: str):
         return user
     return _dep
 
+# -------------------------------
+# Cookie-session auth dependency
+# -------------------------------
 from app.core.session import get_user_from_cookie
 
 def get_current_user_cookie(

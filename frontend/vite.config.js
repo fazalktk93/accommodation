@@ -7,7 +7,7 @@ const isDev = process.env.NODE_ENV !== 'production';
 export default defineConfig({
   plugins: [
     react({
-      jsxRuntime: 'automatic',          // ensure the new JSX transform
+      jsxRuntime: 'automatic', // ensure the new JSX transform
       // (no custom babel needed)
     }),
   ],
@@ -16,12 +16,8 @@ export default defineConfig({
     alias: isDev ? { 'react/jsx-runtime': 'react/jsx-dev-runtime' } : {},
   },
   server: {
-<<<<<<< HEAD
-    host: true,
+    host: true,   // expose to LAN
     port: 5173,
-=======
-    host: true, // expose to LAN
->>>>>>> a2ff501738d0237c297fa569e7cee55c16c55a09
     proxy: {
       '/api': {
         // IMPORTANT: NO /api on the target — backend already serves /api
