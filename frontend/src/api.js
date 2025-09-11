@@ -1,134 +1,120 @@
 // frontend/src/api.js
-import axios from "axios";
 import { getToken } from "./auth";
 
-/**
- * Axios instance
- * DEV: baseURL '/api' → Vite proxy routes to backend at :8000
- * PROD: your web server should reverse-proxy '/api' to the backend
- */
-const api = axios.create({
-  baseURL: "/api",
-  timeout: 20000,
-  withCredentials: true, // send cookies for cookie-based auth backends
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
-});
+/* ---------------- core helpers ---------------- */
 
-/** Build Authorization + companion headers for a given scheme */
-function buildAuthHeaders(token, scheme = "Bearer") {
-  if (!token) return {};
-  const h = {
-    Authorization: `${scheme} ${token}`,
-    "X-Auth-Token": token,
-    "X-Api-Token": token,
-  };
+const API_PREFIX = "/api"; // always relative → Vite proxy in dev / reverse-proxy in prod
+
+function buildUrl(path, params) {
+  const url = new URL(API_PREFIX + (path.startsWith("/") ? path : `/${path}`), window.location.origin);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "") return;
+      if (Array.isArray(v)) v.forEach((it) => url.searchParams.append(k, String(it)));
+      else url.searchParams.set(k, String(v));
+    });
+  }
+  return url.toString();
+}
+
+function jsonHeaders(extra = {}) {
+  const h = new Headers({
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...extra,
+  });
   return h;
 }
 
-/**
- * Generic request with robust auth fallbacks:
- *  1) First try: Bearer + token headers
- *  2) If 401: retry with Token, then JWT schemes
- *  3) If still 401: append ?token=... then ?access_token=...
- *  4) If 404 on POST without trailing slash: retry with trailing slash
- */
-async function requestWithAuth(cfg) {
-  const token = getToken?.();
-  const tryConfigs = [];
+function addTokenHeaders(headers) {
+  const tok = getToken?.();
+  if (!tok) return headers;
+  const h = new Headers(headers || {});
+  // default scheme: Bearer (we'll try alternates in the retry loop)
+  if (!h.has("Authorization")) h.set("Authorization", `Bearer ${tok}`);
+  // companion headers some backends accept
+  if (!h.has("X-Auth-Token")) h.set("X-Auth-Token", tok);
+  if (!h.has("X-Api-Token")) h.set("X-Api-Token", tok);
+  return h;
+}
 
-  // Base attempt (Bearer + extra token headers)
-  tryConfigs.push({
-    ...cfg,
-    headers: {
-      ...(cfg.headers || {}),
-      ...buildAuthHeaders(token, "Bearer"),
-    },
-  });
-
-  // 401 fallbacks: alternate schemes
-  if (token) {
-    for (const scheme of ["Token", "JWT"]) {
-      tryConfigs.push({
-        ...cfg,
-        headers: {
-          ...(cfg.headers || {}),
-          ...buildAuthHeaders(token, scheme),
-        },
-        __altScheme: scheme,
-      });
-    }
-  }
-
-  // Helper to actually fire a request with axios
-  const doOne = async (conf) => {
-    try {
-      return await api.request(conf);
-    } catch (err) {
-      // if 404 on POST and no trailing slash, retry with trailing slash immediately
-      const status = err?.response?.status;
-      const method = String(conf.method || "get").toLowerCase();
-      const url = String(conf.url || "");
-      if (
-        status === 404 &&
-        method === "post" &&
-        !url.endsWith("/") &&
-        // avoid double slashes
-        !url.includes("?")
-      ) {
-        const withSlash = { ...conf, url: url + "/" };
-        return await api.request(withSlash);
-      }
-      throw err;
-    }
+async function doFetch({ method = "GET", path, params, body, headers }) {
+  const url = buildUrl(path, params);
+  const opts = {
+    method,
+    headers,
+    credentials: "include", // send cookies for cookie-session backends
   };
-
-  // 1 & 2: run the header-based attempts
-  for (let i = 0; i < tryConfigs.length; i++) {
-    try {
-      const res = await doOne(tryConfigs[i]);
-      return res;
-    } catch (e) {
-      const status = e?.response?.status;
-      if (status !== 401) throw e; // non-401 -> bubble up
-      // else continue to next attempt
-    }
+  if (body !== undefined) {
+    opts.body = typeof body === "string" ? body : JSON.stringify(body);
   }
 
-  // 3) query-param fallbacks for backends that only accept token in URL
-  if (token) {
-    const url = new URL(
-      (cfg.url || "").replace(/^\//, ""),
-      "http://placeholder" // base to use URL util safely; we'll strip host below
-    );
-    const qsFirst = url.search ? "&" : "?";
-    const basePath = (cfg.url || "");
-    const paramAttempts = [
-      `${basePath}${qsFirst}token=${encodeURIComponent(token)}`,
-      `${basePath}${qsFirst}access_token=${encodeURIComponent(token)}`,
-    ];
+  try {
+    const res = await fetch(url, opts);
 
-    for (const u of paramAttempts) {
-      try {
-        const res = await api.request({ ...cfg, url: u, headers: { ...(cfg.headers || {}) } });
-        return res;
-      } catch (e) {
-        const status = e?.response?.status;
-        if (status !== 401) throw e;
-      }
+    // If POST hits a 404 and path didn’t end with '/', retry with trailing slash (some backends require it)
+    if (!res.ok && res.status === 404 && method.toUpperCase() === "POST" && !/\/$/.test(path)) {
+      const retryUrl = buildUrl(path + "/", params);
+      return await fetch(retryUrl, opts);
     }
+    return res;
+  } catch (e) {
+    throw e;
+  }
+}
+
+/**
+ * Robust request with auth fallbacks:
+ *  1) Try Authorization: Bearer
+ *  2) If 401 → try Token, then JWT
+ *  3) If still 401 → put token on query (?token=, then ?access_token=)
+ *  4) Returns the Response (caller decides how to parse or throw)
+ */
+async function request(method, path, { params, data, headers } = {}) {
+  const token = getToken?.();
+  const baseHeaders = addTokenHeaders(jsonHeaders(headers));
+
+  // 1: Bearer / default headers
+  let res = await doFetch({ method, path, params, body: data, headers: baseHeaders });
+  if (res.status !== 401 || !token) return res;
+
+  // 2: Alternate schemes
+  for (const scheme of ["Token", "JWT"]) {
+    const h = jsonHeaders(headers);
+    h.set("Authorization", `${scheme} ${token}`);
+    h.set("X-Auth-Token", token);
+    h.set("X-Api-Token", token);
+    res = await doFetch({ method, path, params, body: data, headers: h });
+    if (res.status !== 401) return res;
   }
 
-  // If we’re here, all auth variants failed
-  // Just throw the last 401 so UI can show a friendly message
-  const err = new Error("Unauthorized");
-  err.status = 401;
+  // 3: Token in query string
+  const params1 = { ...(params || {}), token };
+  res = await doFetch({ method, path, params: params1, body: data, headers: jsonHeaders(headers) });
+  if (res.status !== 401) return res;
+
+  const params2 = { ...(params || {}), access_token: token };
+  res = await doFetch({ method, path, params: params2, body: data, headers: jsonHeaders(headers) });
+  return res;
+}
+
+async function getJson(res) {
+  if (res.ok) {
+    // 204 No Content → return null
+    if (res.status === 204) return null;
+    try { return await res.json(); } catch { return null; }
+  }
+  // not ok: try to extract message then throw
+  let msg = `${res.status} ${res.statusText}`;
+  try {
+    const j = await res.json();
+    msg = j?.detail || j?.message || msg;
+  } catch {}
+  const err = new Error(msg);
+  err.status = res.status;
   throw err;
 }
 
-/* ---------------- small list helper ---------------- */
 function asList(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.results)) return data.results;
@@ -136,78 +122,81 @@ function asList(data) {
   return [];
 }
 
-/* ========== HOUSES ========== */
+/* ---------------- API surface (same names your pages use) ---------------- */
+
+/* HOUSES */
 export async function listHouses(params = {}) {
-  const { data } = await requestWithAuth({ method: "get", url: "/houses", params });
-  return asList(data);
+  const res = await request("GET", "/houses", { params });
+  return asList(await getJson(res));
 }
 export async function getHouse(id) {
-  const { data } = await requestWithAuth({ method: "get", url: `/houses/${id}` });
-  return data;
+  const res = await request("GET", `/houses/${id}`);
+  return await getJson(res);
 }
 export async function createHouse(payload) {
-  const { data } = await requestWithAuth({ method: "post", url: "/houses", data: payload });
-  return data;
+  const res = await request("POST", "/houses", { data: payload });
+  return await getJson(res);
 }
 export async function updateHouse(id, payload) {
-  const { data } = await requestWithAuth({ method: "patch", url: `/houses/${id}`, data: payload });
-  return data;
+  const res = await request("PATCH", `/houses/${id}`, { data: payload });
+  return await getJson(res);
 }
 export async function deleteHouse(id) {
-  await requestWithAuth({ method: "delete", url: `/houses/${id}` });
+  const res = await request("DELETE", `/houses/${id}`);
+  await getJson(res);
   return true;
 }
 export async function findHouseByFileNoStrict(file_no) {
   if (!file_no) throw new Error("file_no required");
-  const { data } = await requestWithAuth({ method: "get", url: `/houses/by-file/${encodeURIComponent(file_no)}` });
-  return data;
+  const res = await request("GET", `/houses/by-file/${encodeURIComponent(file_no)}`);
+  return await getJson(res);
 }
 export async function patchHouseStatus(id, status, extra = {}) {
-  const { data } = await requestWithAuth({ method: "patch", url: `/houses/${id}`, data: { status, ...extra } });
-  return data;
+  const res = await request("PATCH", `/houses/${id}`, { data: { status, ...extra } });
+  return await getJson(res);
 }
 
-/* ========== ALLOTMENTS ========== */
+/* ALLOTMENTS */
 export async function listAllotments(params = {}) {
-  const { data } = await requestWithAuth({ method: "get", url: "/allotments", params });
-  return asList(data);
+  const res = await request("GET", "/allotments", { params });
+  return asList(await getJson(res));
 }
 export async function getAllotment(id) {
-  const { data } = await requestWithAuth({ method: "get", url: `/allotments/${id}` });
-  return data;
+  const res = await request("GET", `/allotments/${id}`);
+  return await getJson(res);
 }
 export async function createAllotment(payload) {
-  const { data } = await requestWithAuth({ method: "post", url: "/allotments", data: payload });
-  return data;
+  const res = await request("POST", "/allotments", { data: payload });
+  return await getJson(res);
 }
 export async function updateAllotment(id, payload) {
-  const { data } = await requestWithAuth({ method: "patch", url: `/allotments/${id}`, data: payload });
-  return data;
+  const res = await request("PATCH", `/allotments/${id}`, { data: payload });
+  return await getJson(res);
 }
 export async function deleteAllotment(id) {
-  await requestWithAuth({ method: "delete", url: `/allotments/${id}` });
+  const res = await request("DELETE", `/allotments/${id}`);
+  await getJson(res);
   return true;
 }
 export async function listAllotmentsByFileNoStrict(file_no, { limit = 500, offset = 0 } = {}) {
-  const { data } = await requestWithAuth({ method: "get", url: "/allotments", params: { file_no, limit, offset } });
-  return asList(data);
+  const res = await request("GET", "/allotments", { params: { file_no, limit, offset } });
+  return asList(await getJson(res));
 }
 
-/* ========== FILES / MOVEMENTS ========== */
+/* FILES / MOVEMENTS */
 export async function listMovements(params = {}) {
-  const { data } = await requestWithAuth({ method: "get", url: "/files", params });
-  return asList(data);
+  const res = await request("GET", "/files", { params });
+  return asList(await getJson(res));
 }
-/** Issue file (outgoing) — also retries with trailing slash if server needs it */
 export async function issueFile(payload) {
-  const { data } = await requestWithAuth({ method: "post", url: "/files", data: payload });
-  return data;
+  const res = await request("POST", "/files", { data: payload }); // trailing slash fallback handled in request()
+  return await getJson(res);
 }
-/** Return file (incoming) */
 export async function returnFile(id, returned_date = null) {
-  const { data } = await requestWithAuth({ method: "post", url: `/files/${id}/return`, data: { returned_date } });
-  return data;
+  const res = await request("POST", `/files/${id}/return`, { data: { returned_date } });
+  return await getJson(res);
 }
 
-export { api };
+/* export a tiny wrapper too, if you need low-level access */
+export const api = { request, buildUrl };
 export default api;
