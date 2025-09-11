@@ -1,9 +1,11 @@
+// frontend/src/main.jsx
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './styles.css'
 import { loadMe } from './authz'
+import { AuthProvider } from './context/AuthProvider' // ⬅️ add this
 
 loadMe()
 
@@ -34,9 +36,11 @@ try {
   const root = ReactDOM.createRoot(rootEl)
   root.render(
     <React.StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <AuthProvider> {/* ⬅️ wrap the whole app */}
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AuthProvider>
     </React.StrictMode>
   )
 
