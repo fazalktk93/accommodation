@@ -2,6 +2,20 @@
 import axios from "axios";
 import { getToken } from "./auth";
 
+// Utility to refresh axios headers after login/logout
+export function refreshApiAuthHeaders() {
+  const tok = getToken?.();
+  if (tok) {
+    api.defaults.headers.common.Authorization = `Bearer ${tok}`;
+    api.defaults.headers.common["X-Auth-Token"] = tok;
+    api.defaults.headers.common["X-Api-Token"] = tok;
+  } else {
+    delete api.defaults.headers.common.Authorization;
+    delete api.defaults.headers.common["X-Auth-Token"];
+    delete api.defaults.headers.common["X-Api-Token"];
+  }
+}
+
 /**
  * Axios instance
  * DEV: baseURL '/api' (Vite proxy -> backend)
@@ -163,8 +177,8 @@ export async function issueFile(payload) {
   try {
     const { data } = await api.post("/files", payload);
     return data;
-  } catch (e) {
-    if (e?.response?.status === 404) {
+export { api, refreshApiAuthHeaders };
+export default api;
       const { data } = await api.post("/files/", payload);
       return data;
     }
