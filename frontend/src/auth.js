@@ -2,17 +2,11 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-/** DEV: '/api' so Vite proxy forwards to backend. PROD: env/window override allowed. */
-let API_BASE = "/api";
-try {
-  const isDev = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.DEV;
-  if (!isDev) {
-    let base = `${window.location.protocol}//${window.location.hostname}:8000/api`;
-    if (import.meta?.env?.VITE_API_BASE_URL) base = import.meta.env.VITE_API_BASE_URL;
-    if (typeof window !== "undefined" && window.API_BASE_URL) base = window.API_BASE_URL;
-    API_BASE = base;
-  }
-} catch { API_BASE = "/api"; }
+/** Use env/window override if available, otherwise default to /api */
+let API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+  (typeof window !== "undefined" && window.API_BASE_URL) ||
+  "/api";
 
 /* ---------- token helpers ---------- */
 export function getToken() { return localStorage.getItem(AUTH_STORAGE_KEY); }
@@ -48,11 +42,11 @@ async function postForm(url, fields) {
 /* ---------- login ---------- */
 export async function login(username, password) {
   const attempts = [
-    { url: `${API_BASE}/auth/token`, kind: "form" },  // FastAPI typical
+    { url: `${API_BASE}/auth/token`, kind: "form" },
     { url: `${API_BASE}/auth/login`, kind: "form" },
     { url: `${API_BASE}/login/access-token`, kind: "form" },
     { url: `${API_BASE}/auth/jwt/login`, kind: "form" },
-    { url: `${API_BASE}/auth/token`, kind: "json" },  // your earlier contract
+    { url: `${API_BASE}/auth/token`, kind: "json" },
   ];
   let last = "Login failed";
   for (const a of attempts) {
@@ -64,7 +58,7 @@ export async function login(username, password) {
       if (!res.ok) {
         try { const j = await res.json(); last = j?.detail || j?.message || `${res.status} ${res.statusText}`; }
         catch { last = `${res.status} ${res.statusText}`; }
-        if (res.status === 401) break;  // wrong creds
+        if (res.status === 401) break;
         continue;
       }
 
@@ -81,10 +75,6 @@ export async function login(username, password) {
 /* ---------- generic helpers ---------- */
 export function api(path) { return path.startsWith("http") ? path : `${API_BASE}${path}`; }
 
-/**
- * authFetch: attaches token; retries Bearer→Token→JWT on 401.
- * Never auto-logout unless we actually had a token and all schemes failed.
- */
 export async function authFetch(pathOrUrl, options = {}) {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : api(pathOrUrl);
   const token = getToken();
@@ -98,12 +88,10 @@ export async function authFetch(pathOrUrl, options = {}) {
     if (schemes[i]) h.set("Authorization", `${schemes[i]} ${token}`);
     const res = await fetch(url, { ...options, headers: h, credentials: "same-origin" });
     if (res.status !== 401 || i === schemes.length - 1) {
-      // only logout if we had a token and still 401 after trying all schemes
       if (res.status === 401 && token) logout();
       return res;
     }
   }
-  // fallback (should never reach)
   return fetch(url, { ...options, headers: baseHeaders, credentials: "same-origin" });
 }
 

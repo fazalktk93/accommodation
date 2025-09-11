@@ -3,7 +3,11 @@ import { getToken } from "./auth";
 
 /* ---------------- core helpers ---------------- */
 
-const API_PREFIX = "/api"; // always relative → Vite proxy in dev / reverse-proxy in prod
+// Prefer env or a window override in prod; fall back to /api
+const API_PREFIX =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+  (typeof window !== "undefined" && window.API_BASE_URL) ||
+  "/api";
 
 function buildUrl(path, params) {
   const url = new URL(API_PREFIX + (path.startsWith("/") ? path : `/${path}`), window.location.origin);
@@ -30,9 +34,7 @@ function addTokenHeaders(headers) {
   const tok = getToken?.();
   if (!tok) return headers;
   const h = new Headers(headers || {});
-  // default scheme: Bearer (we'll try alternates in the retry loop)
   if (!h.has("Authorization")) h.set("Authorization", `Bearer ${tok}`);
-  // companion headers some backends accept
   if (!h.has("X-Auth-Token")) h.set("X-Auth-Token", tok);
   if (!h.has("X-Api-Token")) h.set("X-Api-Token", tok);
   return h;
@@ -43,16 +45,13 @@ async function doFetch({ method = "GET", path, params, body, headers }) {
   const opts = {
     method,
     headers,
-    credentials: "include", // send cookies for cookie-session backends
+    credentials: "include",
   };
   if (body !== undefined) {
     opts.body = typeof body === "string" ? body : JSON.stringify(body);
   }
-
   try {
     const res = await fetch(url, opts);
-
-    // If POST hits a 404 and path didn’t end with '/', retry with trailing slash (some backends require it)
     if (!res.ok && res.status === 404 && method.toUpperCase() === "POST" && !/\/$/.test(path)) {
       const retryUrl = buildUrl(path + "/", params);
       return await fetch(retryUrl, opts);
@@ -63,22 +62,14 @@ async function doFetch({ method = "GET", path, params, body, headers }) {
   }
 }
 
-/**
- * Robust request with auth fallbacks:
- *  1) Try Authorization: Bearer
- *  2) If 401 → try Token, then JWT
- *  3) If still 401 → put token on query (?token=, then ?access_token=)
- *  4) Returns the Response (caller decides how to parse or throw)
- */
+/* ---------- robust request with fallbacks ---------- */
 async function request(method, path, { params, data, headers } = {}) {
   const token = getToken?.();
   const baseHeaders = addTokenHeaders(jsonHeaders(headers));
 
-  // 1: Bearer / default headers
   let res = await doFetch({ method, path, params, body: data, headers: baseHeaders });
   if (res.status !== 401 || !token) return res;
 
-  // 2: Alternate schemes
   for (const scheme of ["Token", "JWT"]) {
     const h = jsonHeaders(headers);
     h.set("Authorization", `${scheme} ${token}`);
@@ -88,7 +79,6 @@ async function request(method, path, { params, data, headers } = {}) {
     if (res.status !== 401) return res;
   }
 
-  // 3: Token in query string
   const params1 = { ...(params || {}), token };
   res = await doFetch({ method, path, params: params1, body: data, headers: jsonHeaders(headers) });
   if (res.status !== 401) return res;
@@ -100,11 +90,9 @@ async function request(method, path, { params, data, headers } = {}) {
 
 async function getJson(res) {
   if (res.ok) {
-    // 204 No Content → return null
     if (res.status === 204) return null;
     try { return await res.json(); } catch { return null; }
   }
-  // not ok: try to extract message then throw
   let msg = `${res.status} ${res.statusText}`;
   try {
     const j = await res.json();
@@ -122,9 +110,7 @@ function asList(data) {
   return [];
 }
 
-/* ---------------- API surface (same names your pages use) ---------------- */
-
-/* HOUSES */
+/* ---------------- API surface ---------------- */
 export async function listHouses(params = {}) {
   const res = await request("GET", "/houses", { params });
   return asList(await getJson(res));
@@ -156,7 +142,6 @@ export async function patchHouseStatus(id, status, extra = {}) {
   return await getJson(res);
 }
 
-/* ALLOTMENTS */
 export async function listAllotments(params = {}) {
   const res = await request("GET", "/allotments", { params });
   return asList(await getJson(res));
@@ -183,13 +168,12 @@ export async function listAllotmentsByFileNoStrict(file_no, { limit = 500, offse
   return asList(await getJson(res));
 }
 
-/* FILES / MOVEMENTS */
 export async function listMovements(params = {}) {
   const res = await request("GET", "/files", { params });
   return asList(await getJson(res));
 }
 export async function issueFile(payload) {
-  const res = await request("POST", "/files", { data: payload }); // trailing slash fallback handled in request()
+  const res = await request("POST", "/files", { data: payload });
   return await getJson(res);
 }
 export async function returnFile(id, returned_date = null) {
@@ -197,6 +181,5 @@ export async function returnFile(id, returned_date = null) {
   return await getJson(res);
 }
 
-/* export a tiny wrapper too, if you need low-level access */
 export const api = { request, buildUrl };
 export default api;
