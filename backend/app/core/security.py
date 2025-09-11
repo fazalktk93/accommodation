@@ -1,6 +1,8 @@
 
 from datetime import datetime, timedelta
 from typing import Optional
+
+from requests import Request
 import jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
@@ -61,3 +63,19 @@ def require_permissions(*perms: str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing permission")
         return user
     return _dep
+
+from app.core.session import get_user_from_cookie
+
+def get_current_user_cookie(
+    request: Request,
+    db: Session = Depends(get_session),
+) -> User:
+    """
+    Authenticate using signed cookie session (created by /auth/cookie-login).
+    Keeps existing JWT-based get_current_user untouched.
+    """
+    username = get_user_from_cookie(request)
+    user = db.scalar(select(User).where(User.username == username))
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
+    return user
