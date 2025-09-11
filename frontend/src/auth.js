@@ -3,9 +3,9 @@
 const AUTH_STORAGE_KEY = "auth_token";
 
 /**
- * API base logic:
- * - In DEV (vite), always use relative '/api' so the vite proxy forwards to backend.
- * - In PROD, allow VITE_API_BASE_URL or window.API_BASE_URL to override.
+ * API base:
+ * - DEV: always use relative '/api' so Vite proxy forwards to backend.
+ * - PROD: allow VITE_API_BASE_URL or window.API_BASE_URL overrides.
  */
 let API_BASE = "/api"; // safe default for dev
 try {
@@ -47,28 +47,26 @@ export function logout() {
 
 /* ================== internals ================== */
 async function postJson(url, body) {
-  const res = await fetch(url, {
+  return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
     credentials: "same-origin",
   });
-  return res;
 }
 
 async function postForm(url, fields) {
   const sp = new URLSearchParams();
   Object.entries(fields).forEach(([k, v]) => sp.append(k, v == null ? "" : String(v)));
-  // add OAuth2 defaults; harmless if backend ignores
+  // harmless defaults for OAuth2-style backends
   if (!sp.has("grant_type")) sp.set("grant_type", "password");
   if (!sp.has("scope")) sp.set("scope", "");
-  const res = await fetch(url, {
+  return fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: sp.toString(),
     credentials: "same-origin",
   });
-  return res;
 }
 
 function pickToken(data) {
@@ -83,37 +81,32 @@ function pickToken(data) {
 
 /* ================== login ================== */
 /**
- * Tries the common FastAPI token endpoints:
- * 1) POST form  → /auth/token
- * 2) POST form  → /login/access-token
- * 3) POST form  → /auth/jwt/login
- * 4) (fallback) POST json → /auth/token
+ * Your backend exposes BOTH:
+ *   - POST /auth/token  (JSON {username,password})
+ *   - POST /auth/login  (x-www-form-urlencoded)
+ * Try them in a sensible order.
  */
 export async function login(username, password) {
   const attempts = [
-    { url: `${API_BASE}/auth/token`,      kind: "form" },
-    { url: `${API_BASE}/login/access-token`, kind: "form" },
-    { url: `${API_BASE}/auth/jwt/login`,  kind: "form" },
-    { url: `${API_BASE}/auth/token`,      kind: "json" },
+    { url: `${API_BASE}/auth/token`, kind: "json" },
+    { url: `${API_BASE}/auth/login`, kind: "form" },
   ];
 
   let lastErr = "Login failed";
   for (const a of attempts) {
     try {
-      const res =
-        a.kind === "form"
-          ? await postForm(a.url, { username, password })
-          : await postJson(a.url, { username, password });
+      const res = a.kind === "json"
+        ? await postJson(a.url, { username, password })
+        : await postForm(a.url, { username, password });
 
       if (!res.ok) {
-        // keep the most useful error message but continue trying others
         try {
           const j = await res.json();
           lastErr = j?.detail || j?.message || `${res.status} ${res.statusText}`;
         } catch {
           lastErr = `${res.status} ${res.statusText}`;
         }
-        // try next endpoint on 404/405/422/415; stop early on explicit 401
+        // if it was 401, credentials were rejected; no point trying next
         if (res.status === 401) break;
         continue;
       }
@@ -131,8 +124,7 @@ export async function login(username, password) {
       // try next attempt
     }
   }
-
-  throw new Error(lastErr || "Login failed");
+  throw new Error(lastErr);
 }
 
 /* ================== general API helpers ================== */

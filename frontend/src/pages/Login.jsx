@@ -1,13 +1,11 @@
 // frontend/src/pages/Login.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { isLoggedIn } from "../auth";                 // only for initial shortcut
-import { useAuth } from "../context/AuthProvider";    // <-- use context
+import { login, isLoggedIn } from "../auth";
 
 export default function Login() {
   const nav = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();                        // <-- context login updates isAuthed
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -16,7 +14,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // if already authed (e.g., token in storage), skip login page
+  // already authed? go straight to dashboard
   useEffect(() => {
     if (isLoggedIn()) nav("/dashboard", { replace: true });
   }, [nav]);
@@ -32,7 +30,6 @@ export default function Login() {
     setError("");
     setSubmitting(true);
     try {
-      // IMPORTANT: use AuthProvider's login so context becomes authed
       await login(username.trim(), password);
       const redirectTo =
         (location.state && (location.state.from || location.state.intent)) ||
