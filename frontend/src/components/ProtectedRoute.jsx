@@ -37,14 +37,11 @@ export default function ProtectedRoute({
 
   if (loading) return <Loader />;
 
-  // not authenticated -> go to login and remember where we were headed
   if (!isAuthed) {
-    const intended =
-      (location.pathname || '/') + (location.search || '') + (location.hash || '');
+    const intended = (location.pathname || '/') + (location.search || '') + (location.hash || '');
     return <Navigate to="/login" replace state={{ from: intended }} />;
   }
 
-  // ----- permission checks (optional) -----
   const hasAny = (list) => Array.isArray(list) && list.some((p) => hasPerm(p));
   const hasAll = (list) => Array.isArray(list) && list.every((p) => hasPerm(p));
 
@@ -53,11 +50,7 @@ export default function ProtectedRoute({
   if (allowed && anyOf?.length) allowed = hasAny(anyOf);
   if (allowed && allOf?.length) allowed = hasAll(allOf);
 
-  if (!allowed) {
-    // authenticated but unauthorized -> bump to a safe page
-    return <Navigate to={fallback} replace state={{ deniedFrom: location }} />;
-  }
+  if (!allowed) return <Navigate to={fallback} replace state={{ deniedFrom: location }} />;
 
-  // support both wrapped-children and nested routes
   return children ? children : <Outlet />;
 }

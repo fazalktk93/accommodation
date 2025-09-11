@@ -1,11 +1,13 @@
 // frontend/src/pages/Login.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { login, isLoggedIn } from "../auth";
+import { isLoggedIn } from "../auth";
+import { useAuth } from "../context/AuthProvider";
 
 export default function Login() {
   const nav = useNavigate();
   const location = useLocation();
+  const { login } = useAuth(); // <-- use context so isAuthed flips
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -14,7 +16,6 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // already authed? go straight to dashboard
   useEffect(() => {
     if (isLoggedIn()) nav("/dashboard", { replace: true });
   }, [nav]);
@@ -27,20 +28,13 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault();
     if (!canSubmit) return;
-    setError("");
-    setSubmitting(true);
+    setError(""); setSubmitting(true);
     try {
       await login(username.trim(), password);
-      const redirectTo =
-        (location.state && (location.state.from || location.state.intent)) ||
-        "/dashboard";
+      const redirectTo = (location.state && (location.state.from || location.state.intent)) || "/dashboard";
       nav(redirectTo, { replace: true });
     } catch (err) {
-      const msg =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Login failed";
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Login failed";
       setError(String(msg));
     } finally {
       setSubmitting(false);
@@ -65,7 +59,6 @@ export default function Login() {
             style={{ width: "100%" }}
           />
         </label>
-
         <label>
           <div>Password</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -79,36 +72,16 @@ export default function Login() {
               required
               style={{ width: "100%" }}
             />
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setShowPwd((v) => !v)}
-              aria-label={showPwd ? "Hide password" : "Show password"}
-            >
+            <button type="button" className="btn" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Hide password" : "Show password"}>
               {showPwd ? "Hide" : "Show"}
             </button>
           </div>
-          {caps && (
-            <div style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>
-              Warning: Caps Lock is on
-            </div>
-          )}
+          {caps && <div style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>Warning: Caps Lock is on</div>}
         </label>
-
-        <button
-          type="submit"
-          className="btn primary"
-          style={{ marginTop: 16, width: "100%" }}
-          disabled={!canSubmit}
-        >
+        <button type="submit" className="btn primary" style={{ marginTop: 16, width: "100%" }} disabled={!canSubmit}>
           {submitting ? "Signing in…" : "Sign in"}
         </button>
-
-        {error && (
-          <div className="error" role="alert" style={{ marginTop: 12 }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
       </form>
     </div>
   );

@@ -1,42 +1,46 @@
 // frontend/src/context/AuthProvider.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { isLoggedIn, login as apiLogin, logout } from "../auth";
+import { isLoggedIn as hasToken, login as rawLogin, logout as rawLogout, getToken } from "../auth";
 
-const AuthContext = createContext(null);
+const Ctx = createContext(null);
 
 export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(null); // optional: fill via /api/auth/me if you have it
 
   useEffect(() => {
-    // check login status on mount
-    if (isLoggedIn()) {
-      setIsAuthed(true);
-      // optionally fetch profile here
-    }
+    setIsAuthed(hasToken());
     setLoading(false);
+
+    // keep state in sync across tabs
+    const onStorage = (e) => {
+      if (e.key === "auth_token") setIsAuthed(!!e.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const login = async (username, password) => {
-    await apiLogin(username, password);
-    setIsAuthed(true);
-    // optionally fetch profile here
-  };
+  async function login(username, password) {
+    await rawLogin(username, password);   // stores token
+    setIsAuthed(true);                    // reflect immediately
+    // optional: load profile here and setUser(...)
+    return { token: getToken() };
+  }
 
-  const signout = () => {
-    logout();
+  function signout() {
+    rawLogout();
     setIsAuthed(false);
     setUser(null);
-  };
+  }
 
   return (
-    <AuthContext.Provider value={{ loading, isAuthed, user, login, signout }}>
+    <Ctx.Provider value={{ loading, isAuthed, user, login, signout }}>
       {children}
-    </AuthContext.Provider>
+    </Ctx.Provider>
   );
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  return useContext(Ctx);
 }
