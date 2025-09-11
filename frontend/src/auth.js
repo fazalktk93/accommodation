@@ -2,7 +2,7 @@
 
 const AUTH_STORAGE_KEY = "auth_token";
 
-/** Use env/window override if available, otherwise default to /api */
+/** Use env/window override if available, otherwise default to /api (same-origin) */
 let API_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||

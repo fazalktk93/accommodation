@@ -3,7 +3,7 @@ import { getToken } from "./auth";
 
 /* ---------------- core helpers ---------------- */
 
-// Prefer env or a window override in prod; fall back to /api
+// Prefer env or a window override in prod; fall back to /api (same-origin reverse proxy)
 const API_PREFIX =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
