@@ -2,10 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listHouses, listAllotments } from "../api";
 
-/**
- * Stable color per label across charts.
- * Deterministic HSL from string → consistent but distinct colors.
- */
 function colorFor(label) {
   const s = String(label ?? "").toLowerCase();
   let h = 0;
@@ -14,10 +10,6 @@ function colorFor(label) {
   return `hsl(${hue} 65% 55%)`;
 }
 
-/**
- * Tiny SVG-based pie chart with legend. No external deps.
- * data = [{ label, value, color }]
- */
 function PieChart({ title, data, size = 220 }) {
   const total = data.reduce((a, b) => a + (Number(b.value) || 0), 0);
   const radius = size / 2;
@@ -55,10 +47,7 @@ function PieChart({ title, data, size = 220 }) {
           />
         );
       })
-    : [
-        // draw a grey ring when no data
-        <circle key="empty" cx={cx} cy={cy} r={radius} fill="#eceff1" />,
-      ];
+    : [<circle key="empty" cx={cx} cy={cy} r={radius} fill="#eceff1" />];
 
   return (
     <div className="card" style={{ display: "flex", gap: 16 }}>
@@ -118,19 +107,11 @@ export default function Dashboard() {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   const counts = useMemo(() => {
-    const c = {
-      houses: houses.length,
-      occupied: 0,
-      vacant: 0,
-      available: 0,
-      allotments: allots.length,
-    };
+    const c = { houses: houses.length, occupied: 0, vacant: 0, available: 0, allotments: allots.length };
     houses.forEach((h) => {
       const st = String(h?.status ?? "").toLowerCase();
       if (st === "occupied") c.occupied++;
@@ -143,14 +124,10 @@ export default function Dashboard() {
   const byType = useMemo(() => {
     const map = new Map();
     houses.forEach((h) => {
-      const k = (h?.type_code ?? "Unknown").toString();
-      map.set(k, (map.get(k) || 0) + 1);
+      const label = (h?.type_code ?? "Unknown").toString();
+      map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({
-      label,
-      value,
-      color: colorFor(label),
-    }));
+    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
   }, [houses]);
 
   const byStatus = useMemo(() => {
@@ -159,11 +136,7 @@ export default function Dashboard() {
       const label = (h?.status ?? "unknown").toString();
       map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({
-      label,
-      value,
-      color: colorFor(label),
-    }));
+    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
   }, [houses]);
 
   const byPool = useMemo(() => {
@@ -172,11 +145,7 @@ export default function Dashboard() {
       const label = a?.pool || "Unknown";
       map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({
-      label,
-      value,
-      color: colorFor(label),
-    }));
+    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
   }, [allots]);
 
   const byMedium = useMemo(() => {
@@ -185,11 +154,7 @@ export default function Dashboard() {
       const label = a?.medium || "Unknown";
       map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({
-      label,
-      value,
-      color: colorFor(label),
-    }));
+    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
   }, [allots]);
 
   return (
@@ -219,17 +184,6 @@ export default function Dashboard() {
           <PieChart title="Allotments by Medium" data={byMedium} />
         </div>
       )}
-
-      <style>{`
-        .tile {
-          border: 1px solid var(--border);
-          border-radius: 8px;
-          padding: 14px 16px;
-          background: var(--surface);
-        }
-        .tile .label { color: #607d8b; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-        .tile .value { font-size: 28px; font-weight: 800; }
-      `}</style>
     </div>
   );
 }
@@ -237,8 +191,8 @@ export default function Dashboard() {
 function Tile({ label, value }) {
   return (
     <div className="tile">
-      <div className="label">{label}</div>
-      <div className="value">{value}</div>
+      <div className="label" style={{ color: "#607d8b", fontSize: 12, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</div>
+      <div className="value" style={{ fontSize: 28, fontWeight: 800 }}>{value}</div>
     </div>
   );
 }

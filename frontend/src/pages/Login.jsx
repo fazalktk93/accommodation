@@ -105,7 +105,6 @@ export default function Login() {
           {submitting ? "Signing in…" : "Sign in"}
         </button>
 
-        {/* keep this informational line as requested */}
         <div className="muted" style={{ marginTop: 8, textAlign: "right" }}>
           Posts JSON to <code>/api/auth/token</code>
         </div>
