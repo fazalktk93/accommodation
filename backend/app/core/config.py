@@ -1,52 +1,39 @@
-from functools import lru_cache
-from typing import List, Optional, Union
+# app/core/config.py (add/ensure these exist)
 from pydantic import BaseSettings, Field
-import json
-import os
+from functools import lru_cache
+import json, os
+from typing import List, Optional
 
 class Settings(BaseSettings):
-    # Keep your existing names so imports like "from app.core.config import settings" still work
-    ENV: str = Field("production", description="environment: development/staging/production")
+    ENV: str = Field("production")
     API_PREFIX: str = "/api"
-    SECRET_KEY: str = Field(..., description="JWT/crypto secret")
+    SECRET_KEY: str = Field(..., description="JWT secret")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 10
 
-    # IMPORTANT: your code references DATABASE_URL (db/session.py), so keep it
-    DATABASE_URL: str = Field("sqlite:///./app.db", description="SQLAlchemy URL")
+    # Accept both names, prefer DATABASE_URL
+    DATABASE_URL: str = Field("sqlite:///./app.db", env="DATABASE_URL")
+    SQLALCHEMY_DATABASE_URL: Optional[str] = Field(None, env="SQLALCHEMY_DATABASE_URL")
 
-    # Be flexible: accept either a JSON array or comma-separated string for CORS
-    BACKEND_CORS_ORIGINS: List[str] = []
-
-    LOG_LEVEL: str = "INFO"
-    CORS_ALLOW_CREDENTIALS: bool = True
+    BACKEND_CORS_ORIGINS: List[str] | str = Field(default_factory=list)
+    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None
 
     class Config:
         case_sensitive = True
         env_file = ".env"
-        env_file_encoding = "utf-8"
-
-# Parse CORS origins from env more flexibly while keeping the same attribute name
-def _parse_cors(origins_env: Optional[str]) -> List[str]:
-    if not origins_env:
-        return []
-    origins_env = origins_env.strip()
-    # Try JSON first
-    if origins_env.startswith("["):
-        try:
-            data = json.loads(origins_env)
-            return [str(x) for x in data]
-        except Exception:
-            pass
-    # Fallback: comma-separated
-    return [o.strip() for o in origins_env.split(",") if o.strip()]
 
 @lru_cache()
 def _load_settings() -> Settings:
     s = Settings()
-    # Normalize CORS if user provided env as string
+    # Map legacy SQLALCHEMY_DATABASE_URL → DATABASE_URL if provided
+    if s.SQLALCHEMY_DATABASE_URL and not s.DATABASE_URL:
+        s.DATABASE_URL = s.SQLALCHEMY_DATABASE_URL
+
+    # Normalize CORS env if it was JSON/string
     if isinstance(s.BACKEND_CORS_ORIGINS, str):
-        s.BACKEND_CORS_ORIGINS = _parse_cors(s.BACKEND_CORS_ORIGINS)
+        try:
+            s.BACKEND_CORS_ORIGINS = json.loads(s.BACKEND_CORS_ORIGINS)
+        except Exception:
+            s.BACKEND_CORS_ORIGINS = [o.strip() for o in s.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
     return s
 
-# Export the same name your code already uses
-settings: Settings = _load_settings()
+settings = _load_settings()

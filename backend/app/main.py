@@ -20,12 +20,22 @@ app = FastAPI()
 # -----------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],  # restrict in production!
+    allow_origins=settings.BACKEND_CORS_ORIGINS or [
+        "http://localhost:5173", "http://127.0.0.1:5173"
+    ],
     allow_origin_regex=settings.BACKEND_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# quick one-liner to verify headers actually reach the API
+@app.get(f"{settings.API_PREFIX}/_debug/echo-auth")
+def echo_auth(request: Request):
+    return {
+        "authorization": request.headers.get("authorization"),
+        "query_access_token": request.query_params.get("access_token"),
+    }
 
 # -----------------------------------------------------------------------------
 # Routers (all under /api)

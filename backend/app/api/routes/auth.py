@@ -1,5 +1,4 @@
-# backend/app/api/routes/auth.py
-
+# app/api/routes/auth.py
 from fastapi import APIRouter, Depends, HTTPException, status, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -20,11 +19,10 @@ def whoami(user: User = Depends(get_current_user)):
 
 @router.post("/token", response_model=Token)
 def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db)):
-    """JSON login: { "username": "...", "password": "..." }"""
     user = db.scalar(select(User).where(User.username == payload.username))
     if not user or not user.is_active or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
-    token = create_access_token(sub=user.username)  # <-- sub is the username
+    token = create_access_token(sub=user.username)
     return {"access_token": token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
@@ -33,7 +31,6 @@ def login_alias(
     password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    """Form login (x-www-form-urlencoded)."""
     user = db.scalar(select(User).where(User.username == username))
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
