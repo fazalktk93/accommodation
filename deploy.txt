@@ -212,4 +212,5 @@ for t in ("user","houses","allotments"):
         print(f"{t}: (missing) ->", e)
 conn.close()
 PY
+q
 
