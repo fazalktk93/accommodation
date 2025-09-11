@@ -66,8 +66,17 @@ function asList(res) {
   return []
 }
 
-// -------- Houses --------
-export const listHouses = async ({ limit = 50, offset = 0, q, sector, type_code, status, sort = 'id', order = 'asc' } = {}) => {
+// =================== Houses ===================
+export const listHouses = async ({
+  limit = 50,
+  offset = 0,
+  q,
+  sector,
+  type_code,
+  status,
+  sort = 'id',
+  order = 'asc',
+} = {}) => {
   const r = await api.get('/houses', {
     params: { limit, offset, q, sector, type_code, status, sort, order },
   })
@@ -79,6 +88,23 @@ export const getHouse = async (id) => {
   return r.data
 }
 
+// NEW: create / update / delete (needed by pages)
+export const createHouse = async (payload) => {
+  const r = await api.post('/houses', payload)
+  return r.data
+}
+
+export const updateHouse = async (id, payload) => {
+  const r = await api.patch(`/houses/${id}`, payload)
+  return r.data
+}
+
+export const deleteHouse = async (id) => {
+  await api.delete(`/houses/${id}`)
+  return true
+}
+
+// existing utility endpoints you already had
 export const findHouseByFileNoStrict = async (file_no) => {
   if (!file_no) throw new Error('file_no required')
   const r = await api.get(`/houses/by-file/${encodeURIComponent(file_no)}`)
@@ -90,7 +116,7 @@ export const patchHouseStatus = async (id, status, extra = {}) => {
   return r.data
 }
 
-// -------- Allotments --------
+// =================== Allotments ===================
 export const listAllotments = async ({
   limit = 50,
   offset = 0,
@@ -130,7 +156,7 @@ export const deleteAllotment = async (id) => {
   return true
 }
 
-// -------- Files (movements) --------
+// =================== Files (movements) ===================
 export const listMovements = async ({ limit = 50, offset = 0, q, file_no, due_before, outstanding } = {}) => {
   const r = await api.get('/files', { params: { limit, offset, q, file_no, due_before, outstanding } })
   return asList(r.data)
