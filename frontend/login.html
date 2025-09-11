@@ -26,8 +26,7 @@
              background: color-mix(in oklab, var(--brand) 12%, transparent); border:1px solid color-mix(in oklab, var(--brand) 35%, transparent);
              padding: 2px 6px; border-radius: 6px; }
     .sub { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
-    label { display: block; font-size: 13px; margin: 12px 0 6px; color: #444; }
-    @media (prefers-color-scheme: dark){ label{color:#cbd5e1} }
+    label { display: block; font-size: 13px; margin: 12px 0 6px; }
     .field { display:flex; gap:8px; align-items: stretch; }
     input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: transparent; color: var(--text); }
     input:focus{ outline: 2px solid color-mix(in oklab, var(--ring) 45%, transparent); outline-offset: 1px; }
@@ -36,12 +35,13 @@
     .btn[disabled]{ opacity: .6; cursor: not-allowed; }
     .error { color: var(--error); font-size: 13px; margin-top: 10px; min-height: 18px; }
     .muted { color: var(--muted); font-size: 12px; margin-top: 10px; }
-    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
-    .caps { color: var(--error); font-size: 12px; margin-top: 6px; }
+    .hint  { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .caps  { color: var(--error); font-size: 12px; margin-top: 6px; }
     .right { text-align:right }
     .icon-btn { padding: 0 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; font-size:13px; }
     .icon-btn:hover{ color: var(--text); }
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: color-mix(in oklab, var(--text) 6%, transparent); padding: 1px 5px; border-radius: 4px; }
+    .debug { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #111; color: #9ef; padding: 10px; border-radius: 8px; margin-top: 10px; display:none; white-space:pre-wrap; }
   </style>
 </head>
 <body>
@@ -49,7 +49,7 @@
     <div class="card">
       <h1>
         Sign in
-        <span class="badge" title="This form will POST JSON to the API">POST JSON</span>
+        <span class="badge" title="This form will POST JSON to the API first, with a safe fallback.">POST JSON</span>
       </h1>
       <div class="sub">Enter your credentials to access the dashboard.</div>
 
@@ -72,7 +72,9 @@
         <div class="right muted">Posts JSON to <code>/api/auth/token</code></div>
 
         <div class="error" id="error" role="alert" aria-live="polite"></div>
-        <div class="hint">Having trouble? Check username/password and network access to the API.</div>
+        <div class="hint">If login fails, we’ll automatically retry a form-encoded request.</div>
+
+        <div id="debug" class="debug"></div>
       </form>
     </div>
   </div>
@@ -81,14 +83,10 @@
   <!-- <script>window.API_BASE_URL = "http://192.168.0.102:8000/api";</script> -->
 
   <script type="module">
-    // Minimal local auth util (keeps in sync with the app’s storage key)
+    // === constants & helpers ===
     const AUTH_STORAGE_KEY = "auth_token";
-
-    // Dev-safe base: use relative '/api' so Vite proxy forwards to backend
-    let API_BASE = "/api";
-    if (typeof window !== "undefined" && window.API_BASE_URL) {
-      API_BASE = window.API_BASE_URL;
-    }
+    let API_BASE = "/api"; // use Vite proxy by default
+    if (typeof window !== "undefined" && window.API_BASE_URL) API_BASE = window.API_BASE_URL;
 
     const $ = (id) => document.getElementById(id);
     const form = $("loginForm");
@@ -100,33 +98,38 @@
     const btnText = $("btnText");
     const btnSpinner = $("btnSpinner");
     const err = $("error");
+    const debug = $("debug");
 
-    const setBusy = (busy) => {
+    function logDebug(msg) {
+      try {
+        debug.style.display = "block";
+        debug.textContent += (typeof msg === "string" ? msg : JSON.stringify(msg, null, 2)) + "\n";
+      } catch {}
+    }
+
+    function setBusy(busy) {
       btn.disabled = busy;
       btnSpinner.hidden = !busy;
       btnText.textContent = busy ? "Signing in…" : "Login";
-    };
+    }
 
-    // Redirect if token already present
+    // redirect if already authed
     try {
       if (localStorage.getItem(AUTH_STORAGE_KEY)) {
         window.location.href = "/dashboard";
       }
     } catch {}
 
-    // CapsLock indicator
-    function updateCaps(e){
-      try {
-        const on = !!(e.getModifierState && e.getModifierState("CapsLock"));
-        caps.hidden = !on;
-      } catch { /* ignore */ }
+    // caps lock indicator
+    function syncCaps(e){
+      try { caps.hidden = !(e.getModifierState && e.getModifierState("CapsLock")); } catch {}
     }
-    user.addEventListener("keydown", updateCaps);
-    user.addEventListener("keyup", updateCaps);
-    pass.addEventListener("keydown", updateCaps);
-    pass.addEventListener("keyup", updateCaps);
+    for (const el of [user, pass]) {
+      el.addEventListener("keydown", syncCaps);
+      el.addEventListener("keyup", syncCaps);
+    }
 
-    // Show/Hide password
+    // show/hide password
     togglePwd.addEventListener("click", () => {
       const show = pass.type === "password";
       pass.type = show ? "text" : "password";
@@ -135,14 +138,38 @@
       pass.focus();
     });
 
-    // Submit handler (POST JSON)
+    async function postJson(url, body) {
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      });
+    }
+    async function postForm(url, fields) {
+      const p = new URLSearchParams();
+      Object.entries(fields).forEach(([k, v]) => p.append(k, v == null ? "" : String(v)));
+      if (!p.has("grant_type")) p.set("grant_type", "password");
+      if (!p.has("scope")) p.set("scope", "");
+      return fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        credentials: "same-origin",
+        body: p.toString(),
+      });
+    }
+
+    function pickToken(data) {
+      return data?.access_token || data?.token || data?.access || data?.data?.access_token || null;
+    }
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       err.textContent = "";
+      debug.textContent = "";
 
       const username = user.value.trim();
       const password = pass.value;
-
       if (!username || !password) {
         err.textContent = "Please enter username and password.";
         return;
@@ -150,31 +177,36 @@
 
       setBusy(true);
       try {
-        const res = await fetch(`${API_BASE}/auth/token`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ username, password }),
-        });
+        // 1) JSON first (as required by your UI note)
+        logDebug(`POST JSON → ${API_BASE}/auth/token`);
+        let res = await postJson(`${API_BASE}/auth/token`, { username, password });
+
+        // If the server rejects JSON (401/415/404), fallback to form-encoded
+        if (!res.ok && [401, 404, 415, 422, 405].includes(res.status)) {
+          logDebug(`Fallback: POST FORM → ${API_BASE}/auth/token`);
+          res = await postForm(`${API_BASE}/auth/token`, { username, password });
+        }
 
         if (!res.ok) {
           let msg = `Login failed (${res.status})`;
           try {
             const j = await res.json();
+            logDebug(j);
             msg = j?.detail || j?.message || msg;
           } catch {}
           throw new Error(msg);
         }
 
         const data = await res.json();
-        const token = data?.access_token || data?.token || data?.access;
+        logDebug(data);
+        const token = pickToken(data);
         if (!token) throw new Error("Invalid token response from server.");
 
-        // persist & go
         localStorage.setItem(AUTH_STORAGE_KEY, token);
         window.location.href = "/dashboard";
       } catch (ex) {
         err.textContent = ex?.message || "Login failed";
+        logDebug(ex?.message || ex);
       } finally {
         setBusy(false);
       }
