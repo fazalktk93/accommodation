@@ -16,12 +16,11 @@ export default defineConfig({
     alias: isDev ? { 'react/jsx-runtime': 'react/jsx-dev-runtime' } : {},
   },
   server: {
-    host: true,   // expose to LAN
+    host: true,
     port: 5173,
     proxy: {
       '/api': {
-        // IMPORTANT: NO /api on the target — backend already serves /api
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8000', // <-- NO '/api' here
         changeOrigin: true,
         secure: false,
       },
