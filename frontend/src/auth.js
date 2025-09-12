@@ -96,5 +96,5 @@ export const auth = {
 };
 export default auth;
 
-// 👉 Add this line to fix "does not provide an export named 'authFetch'"
+// also export a NAMED helper for files importing { authFetch }
 export { authFetch };
