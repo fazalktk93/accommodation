@@ -95,3 +95,6 @@ export const auth = {
   fetch: authFetch,
 };
 export default auth;
+
+// 👉 Add this line to fix "does not provide an export named 'authFetch'"
+export { authFetch };
