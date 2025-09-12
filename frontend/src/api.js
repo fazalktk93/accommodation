@@ -36,7 +36,6 @@ async function request(method, path, { params, data, headers } = {}) {
     credentials: "include",
   });
 
-  // fallback if env is /app-api but backend serves /api
   if (res.status === 404 && API_PREFIX === "/app-api") {
     const url2 = url.replace("/app-api/", "/api/");
     res = await fetch(url2, {
@@ -66,7 +65,6 @@ export async function login(username, password) {
   const res = await request("POST", "/auth/login", { data: { username, password } });
   return await getJson(res);
 }
-
 export async function me() {
   const res = await request("GET", "/auth/me");
   return await getJson(res);
@@ -77,8 +75,7 @@ export async function getHouses(params) {
   const res = await request("GET", "/houses", { params });
   return asList(await getJson(res));
 }
-
-// 👇 Alias for backwards-compatibility
+// alias for compatibility
 export const listHouses = getHouses;
 
 export async function getHouse(id) {
@@ -103,8 +100,20 @@ export async function getAllotments(params) {
   const res = await request("GET", "/allotments", { params });
   return asList(await getJson(res));
 }
+export async function getAllotment(id) {
+  const res = await request("GET", `/allotments/${id}`);
+  return await getJson(res);
+}
+export async function createAllotment(payload) {
+  const res = await request("POST", "/allotments", { data: payload });
+  return await getJson(res);
+}
 export async function updateAllotment(id, payload) {
   const res = await request("PUT", `/allotments/${id}`, { data: payload });
+  return await getJson(res);
+}
+export async function deleteAllotment(id) {
+  const res = await request("DELETE", `/allotments/${id}`);
   return await getJson(res);
 }
 
@@ -113,12 +122,42 @@ export async function getFiles(params) {
   const res = await request("GET", "/files", { params });
   return asList(await getJson(res));
 }
+export async function getFile(id) {
+  const res = await request("GET", `/files/${id}`);
+  return await getJson(res);
+}
 export async function issueFile(payload) {
   const res = await request("POST", "/files", { data: payload });
   return await getJson(res);
 }
 export async function returnFile(id, returned_date = null) {
   const res = await request("POST", `/files/${id}/return`, { data: { returned_date } });
+  return await getJson(res);
+}
+export async function deleteFile(id) {
+  const res = await request("DELETE", `/files/${id}`);
+  return await getJson(res);
+}
+
+// --- USERS (optional if backend exposes) ---
+export async function getUsers(params) {
+  const res = await request("GET", "/users", { params });
+  return asList(await getJson(res));
+}
+export async function getUser(id) {
+  const res = await request("GET", `/users/${id}`);
+  return await getJson(res);
+}
+export async function createUser(payload) {
+  const res = await request("POST", "/users", { data: payload });
+  return await getJson(res);
+}
+export async function updateUser(id, payload) {
+  const res = await request("PUT", `/users/${id}`, { data: payload });
+  return await getJson(res);
+}
+export async function deleteUser(id) {
+  const res = await request("DELETE", `/users/${id}`);
   return await getJson(res);
 }
 
