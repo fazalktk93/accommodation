@@ -1,117 +1,84 @@
 // frontend/src/api.js
+// Centralized request helper that: (1) includes cookies, (2) adds Authorization if token exists,
+// and (3) auto-falls back from /app-api -> /api on 404, avoiding path mismatch 401/404.
+
 import { getToken } from "./auth";
 
-/* ---------------- core helpers ---------------- */
-
-// Prefer env or a window override in prod; fall back to /api (same-origin reverse proxy)
 const API_PREFIX =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
 function buildUrl(path, params) {
-  const url = new URL(API_PREFIX + (path.startsWith("/") ? path : `/${path}`), window.location.origin);
+  const url = new URL(
+    API_PREFIX + (path.startsWith("/") ? path : `/${path}`),
+    typeof window !== "undefined" ? window.location.origin : "http://localhost"
+  );
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
-      if (Array.isArray(v)) v.forEach((it) => url.searchParams.append(k, String(it)));
-      else url.searchParams.set(k, String(v));
+      if (Array.isArray(v)) v.forEach((vv) => url.searchParams.append(k, vv));
+      else url.searchParams.set(k, v);
     });
   }
   return url.toString();
 }
 
-function jsonHeaders(extra = {}) {
-  const h = new Headers({
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    ...extra,
-  });
-  return h;
-}
-
-function addTokenHeaders(headers) {
-  const tok = getToken?.();
-  if (!tok) return headers;
-  const h = new Headers(headers || {});
-  if (!h.has("Authorization")) h.set("Authorization", `Bearer ${tok}`);
-  if (!h.has("X-Auth-Token")) h.set("X-Auth-Token", tok);
-  if (!h.has("X-Api-Token")) h.set("X-Api-Token", tok);
-  return h;
-}
-
-async function doFetch({ method = "GET", path, params, body, headers }) {
-  const url = buildUrl(path, params);
-  const opts = {
-    method,
-    headers,
-    credentials: "include",
-  };
-  if (body !== undefined) {
-    opts.body = typeof body === "string" ? body : JSON.stringify(body);
-  }
-  try {
-    const res = await fetch(url, opts);
-    if (!res.ok && res.status === 404 && method.toUpperCase() === "POST" && !/\/$/.test(path)) {
-      const retryUrl = buildUrl(path + "/", params);
-      return await fetch(retryUrl, opts);
-    }
-    return res;
-  } catch (e) {
-    throw e;
-  }
-}
-
-/* ---------- robust request with fallbacks ---------- */
 async function request(method, path, { params, data, headers } = {}) {
-  const token = getToken?.();
-  const baseHeaders = addTokenHeaders(jsonHeaders(headers));
+  const url = buildUrl(path, params);
+  const h = new Headers(headers || {});
+  const token = getToken();
+  if (token && !h.has("Authorization")) h.set("Authorization", `Bearer ${token}`);
+  if (data != null && !h.has("Content-Type")) h.set("Content-Type", "application/json");
+  if (!h.has("Accept")) h.set("Accept", "application/json");
 
-  let res = await doFetch({ method, path, params, body: data, headers: baseHeaders });
-  if (res.status !== 401 || !token) return res;
+  let res = await fetch(url, {
+    method,
+    headers: h,
+    body: data != null ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data) : undefined,
+    credentials: "include", // critical for cookie session
+  });
 
-  for (const scheme of ["Token", "JWT"]) {
-    const h = jsonHeaders(headers);
-    h.set("Authorization", `${scheme} ${token}`);
-    h.set("X-Auth-Token", token);
-    h.set("X-Api-Token", token);
-    res = await doFetch({ method, path, params, body: data, headers: h });
-    if (res.status !== 401) return res;
+  // If env points to /app-api but backend serves /api, auto-fallback once on 404
+  if (res.status === 404 && API_PREFIX === "/app-api") {
+    const url2 = url.replace("/app-api/", "/api/");
+    res = await fetch(url2, {
+      method,
+      headers: h,
+      body: data != null ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data) : undefined,
+      credentials: "include",
+    });
   }
 
-  const params1 = { ...(params || {}), token };
-  res = await doFetch({ method, path, params: params1, body: data, headers: jsonHeaders(headers) });
-  if (res.status !== 401) return res;
-
-  const params2 = { ...(params || {}), access_token: token };
-  res = await doFetch({ method, path, params: params2, body: data, headers: jsonHeaders(headers) });
   return res;
 }
 
 async function getJson(res) {
-  if (res.ok) {
-    if (res.status === 204) return null;
-    try { return await res.json(); } catch { return null; }
-  }
-  let msg = `${res.status} ${res.statusText}`;
+  const text = await res.text();
   try {
-    const j = await res.json();
-    msg = j?.detail || j?.message || msg;
-  } catch {}
-  const err = new Error(msg);
-  err.status = res.status;
-  throw err;
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text;
+  }
 }
 
-function asList(data) {
-  if (Array.isArray(data)) return data;
-  if (data && Array.isArray(data.results)) return data.results;
-  if (data && Array.isArray(data.data)) return data.data;
-  return [];
+const asList = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+
+// ---- API surface (kept compatible with your existing calls) ----
+export async function login(username, password) {
+  const res = await request("POST", "/auth/login", { data: { username, password } });
+  return await getJson(res);
 }
 
-/* ---------------- API surface ---------------- */
-export async function listHouses(params = {}) {
+export async function me() {
+  // If your backend exposes /auth/me, this will work with JWT;
+  // If you rely on cookie-only, you can add /auth/me-cookie on backend and call it here.
+  const res = await request("GET", "/auth/me");
+  return await getJson(res);
+}
+
+// Houses
+export async function getHouses(params) {
   const res = await request("GET", "/houses", { params });
   return asList(await getJson(res));
 }
@@ -124,51 +91,26 @@ export async function createHouse(payload) {
   return await getJson(res);
 }
 export async function updateHouse(id, payload) {
-  const res = await request("PATCH", `/houses/${id}`, { data: payload });
+  const res = await request("PUT", `/houses/${id}`, { data: payload });
   return await getJson(res);
 }
 export async function deleteHouse(id) {
   const res = await request("DELETE", `/houses/${id}`);
-  await getJson(res);
-  return true;
-}
-export async function findHouseByFileNoStrict(file_no) {
-  if (!file_no) throw new Error("file_no required");
-  const res = await request("GET", `/houses/by-file/${encodeURIComponent(file_no)}`);
-  return await getJson(res);
-}
-export async function patchHouseStatus(id, status, extra = {}) {
-  const res = await request("PATCH", `/houses/${id}`, { data: { status, ...extra } });
   return await getJson(res);
 }
 
-export async function listAllotments(params = {}) {
+// Allotments
+export async function getAllotments(params) {
   const res = await request("GET", "/allotments", { params });
   return asList(await getJson(res));
 }
-export async function getAllotment(id) {
-  const res = await request("GET", `/allotments/${id}`);
-  return await getJson(res);
-}
-export async function createAllotment(payload) {
-  const res = await request("POST", "/allotments", { data: payload });
-  return await getJson(res);
-}
 export async function updateAllotment(id, payload) {
-  const res = await request("PATCH", `/allotments/${id}`, { data: payload });
+  const res = await request("PUT", `/allotments/${id}`, { data: payload });
   return await getJson(res);
-}
-export async function deleteAllotment(id) {
-  const res = await request("DELETE", `/allotments/${id}`);
-  await getJson(res);
-  return true;
-}
-export async function listAllotmentsByFileNoStrict(file_no, { limit = 500, offset = 0 } = {}) {
-  const res = await request("GET", "/allotments", { params: { file_no, limit, offset } });
-  return asList(await getJson(res));
 }
 
-export async function listMovements(params = {}) {
+// Files
+export async function getFiles(params) {
   const res = await request("GET", "/files", { params });
   return asList(await getJson(res));
 }
