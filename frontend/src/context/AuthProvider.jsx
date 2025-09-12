@@ -4,9 +4,10 @@ import auth, { authFetch, isLoggedIn as hasToken, login as rawLogin, logout as r
 
 const Ctx = createContext(null);
 
+// Probe a bunch of "who am I" endpoints; some projects only expose one of them.
 async function fetchCurrentUser() {
-  const paths = ["/auth/me", "/users/me", "/me"];
-  for (const p of paths) {
+  const probes = ["/auth/me", "/users/me", "/me", "/auth/user", "/profile/me"];
+  for (const p of probes) {
     try {
       const res = await authFetch(p);
       if (!res.ok) continue;
@@ -21,33 +22,21 @@ export function AuthProvider({ children }) {
   const [isAuthed, setIsAuthed] = useState(false);
   const [user, setUser]         = useState(null);
 
-  // on mount: try JWT, then cookie session via /auth/me
   useEffect(() => {
     let alive = true;
     (async () => {
-      // If we already have a JWT, we’re likely logged in
-      if (hasToken()) {
-        const u = await fetchCurrentUser().catch(() => null);
-        if (!alive) return;
+      const u = await fetchCurrentUser().catch(() => null);
+      if (!alive) return;
+      if (u) {
         setUser(u);
         setIsAuthed(true);
-        setLoading(false);
       } else {
-        // Maybe cookie session exists
-        const u = await fetchCurrentUser().catch(() => null);
-        if (!alive) return;
-        if (u) {
-          setUser(u);
-          setIsAuthed(true);
-        } else {
-          setIsAuthed(false);
-          setUser(null);
-        }
-        setLoading(false);
+        // if JWT exists, we still try to treat as logged in (backend may not have /me)
+        setIsAuthed(hasToken());
       }
+      setLoading(false);
     })();
 
-    // sync across tabs
     const onStorage = (e) => { if (e.key === "auth_token") window.location.reload(); };
     window.addEventListener("storage", onStorage);
     return () => { alive = false; window.removeEventListener("storage", onStorage); };
@@ -56,7 +45,6 @@ export function AuthProvider({ children }) {
   async function login(username, password) {
     const r = await rawLogin(username, password);
     if (!r.ok) throw new Error(r.error || "Login failed");
-    // after any login attempt (JWT or cookie), populate user
     const u = await fetchCurrentUser().catch(() => null);
     setUser(u);
     setIsAuthed(!!u || hasToken());
