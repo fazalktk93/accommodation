@@ -8,6 +8,7 @@ import HouseAllotmentsPage from './pages/HouseAllotmentsPage.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Login from './pages/Login.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import HouseAllotmentHistory from "./pages/HouseAllotmentHistory";
 import { useAuth } from './context/AuthProvider'; // <-- use context (not raw isLoggedIn/logout)
 
 export default function App() {
@@ -49,6 +50,8 @@ export default function App() {
             <Route path="/allotments" element={<AllotmentsPage />} />
             <Route path="/files" element={<FilesPage />} />
             <Route path="/houses/:fileNo/allotments" element={<HouseAllotmentsPage />} />
+            <Route path="/history/file/:fileNo" element={<HouseAllotmentHistory />} />
+            <Route path="/history/house/:houseId" element={<HouseAllotmentHistory />} />
           </Route>
         </Routes>
       </div>
