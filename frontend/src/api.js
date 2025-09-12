@@ -1,17 +1,15 @@
 // frontend/src/api.js
-// Mirrors backend routes under /api/* exactly, adds common aliases so pages don't break.
+// Mirrors backend routes under /api/* exactly, and provides aliases
+// so older pages (HousesPage, AllotmentsPage, FilesPage) don’t break.
 
 import { getToken } from "./auth";
 
-// Base URL (prefers Vite env, then window override, then /api)
 const API_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
-// ---------------------------------------------------------
-// Low-level helpers
-// ---------------------------------------------------------
+// -------------------- helpers --------------------
 function makeUrl(path, params) {
   const url = new URL(
     path.startsWith("http") ? path : API_BASE + (path.startsWith("/") ? path : "/" + path),
@@ -37,17 +35,21 @@ async function request(method, path, { params, data, headers } = {}) {
   let res = await fetch(makeUrl(path, params), {
     method,
     headers: h,
-    body: data != null ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data) : undefined,
+    body: data != null
+      ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data)
+      : undefined,
     credentials: "include",
   });
 
-  // Auto-fallback if someone configured /app-api but server serves /api
+  // fallback if someone configured /app-api but server serves /api
   if (res.status === 404 && API_BASE === "/app-api") {
-    let fallback = makeUrl(path.replace(/^\/?/, "/").replace("/app-api/", "/api/"), params);
+    const fallback = makeUrl(path.replace(/^\/?/, "/").replace("/app-api/", "/api/"), params);
     res = await fetch(fallback, {
       method,
       headers: h,
-      body: data != null ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data) : undefined,
+      body: data != null
+        ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data)
+        : undefined,
       credentials: "include",
     });
   }
@@ -62,27 +64,22 @@ async function jsonOrText(res) {
 
 const listify = (x) => (Array.isArray(x) ? x : x ? [x] : []);
 
-// ---------------------------------------------------------
-// AUTH  (/api/auth/*)  — backend exposes /auth/login, /auth/jwt/login, /auth/token, /auth/me
-// ---------------------------------------------------------
+// -------------------- AUTH --------------------
 export async function login(username, password) {
-  // Try cookie-first login, then jwt, then oauth2 token, trying form+json
   const attempts = [
     { path: "/auth/login", type: "json" },
     { path: "/auth/login", type: "form" },
     { path: "/auth/jwt/login", type: "json" },
     { path: "/auth/jwt/login", type: "form" },
-    { path: "/auth/token", type: "form" }, // OAuth2 token
+    { path: "/auth/token", type: "form" },
   ];
   let lastErr = null;
   for (const a of attempts) {
     try {
       const headers = new Headers();
-      let body;
       if (a.type === "form") {
         headers.set("Content-Type", "application/x-www-form-urlencoded");
-        body = new URLSearchParams({ username, password });
-        const res = await request("POST", a.path, { headers, data: body });
+        const res = await request("POST", a.path, { headers, data: new URLSearchParams({ username, password }) });
         if (!res.ok) { lastErr = await res.text().catch(() => String(res.status)); continue; }
         return await jsonOrText(res);
       } else {
@@ -103,19 +100,14 @@ export async function me() {
   return await jsonOrText(res);
 }
 
-// ---------------------------------------------------------
-// HEALTH
-// ---------------------------------------------------------
+// -------------------- HEALTH --------------------
 export async function health() {
   const res = await request("GET", "/health");
   return await jsonOrText(res);
 }
 
-// ---------------------------------------------------------
-// HOUSES  (/api/houses/*)
-// ---------------------------------------------------------
+// -------------------- HOUSES (/api/houses/*) --------------------
 export async function getHouses(params) {
-  // backend defines @router.get("/") so include trailing slash
   const res = await request("GET", "/houses/", { params });
   return listify(await jsonOrText(res));
 }
@@ -132,7 +124,6 @@ export async function createHouse(payload) {
 }
 
 export async function updateHouse(id, payload) {
-  // backend uses PATCH
   const res = await request("PATCH", `/houses/${id}`, { data: payload });
   return await jsonOrText(res);
 }
@@ -145,9 +136,7 @@ export async function deleteHouse(id) {
 }
 export const removeHouse = deleteHouse;
 
-// ---------------------------------------------------------
-// ALLOTMENTS  (/api/allotments/*)
-// ---------------------------------------------------------
+// -------------------- ALLOTMENTS (/api/allotments/*) --------------------
 export async function getAllotments(params) {
   const res = await request("GET", "/allotments/", { params });
   return listify(await jsonOrText(res));
@@ -178,25 +167,28 @@ export async function deleteAllotment(id) {
 }
 export const removeAllotment = deleteAllotment;
 
-// ---------------------------------------------------------
-// FILE MOVEMENTS  (/api/files/*)
-// ---------------------------------------------------------
+// -------------------- FILE MOVEMENTS (/api/files/*) --------------------
 export async function getFiles(params) {
   const res = await request("GET", "/files/", { params });
   return listify(await jsonOrText(res));
 }
 export const listFiles = getFiles;
 
+// ✅ “Movements” aliases expected by FilesPage.jsx and others
+export const listMovements = getFiles;
+
 export async function getFile(id) {
   const res = await request("GET", `/files/${id}`);
   return await jsonOrText(res);
 }
+export const getMovement = getFile;
 
 export async function createFile(payload) {
   const res = await request("POST", "/files/", { data: payload });
   return await jsonOrText(res);
 }
-export const issueFile = createFile; // alias used in some pages
+export const issueFile = createFile;
+export const createMovement = createFile;
 
 export async function updateFile(id, payload) {
   const res = await request("PATCH", `/files/${id}`, { data: payload });
@@ -204,22 +196,23 @@ export async function updateFile(id, payload) {
 }
 export const patchFile = updateFile;
 export const editFile = updateFile;
+export const updateMovement = updateFile;
 
 export async function returnFile(id, returned_date = null) {
   const data = returned_date ? { returned_date } : {};
   const res = await request("POST", `/files/${id}/return`, { data });
   return await jsonOrText(res);
 }
+export const returnMovement = returnFile;
 
 export async function deleteFile(id) {
   const res = await request("DELETE", `/files/${id}`);
   return await jsonOrText(res);
 }
 export const removeFile = deleteFile;
+export const deleteMovement = deleteFile;
 
-// ---------------------------------------------------------
-// USERS  (/api/users/*) – backend exposes only list + create
-// ---------------------------------------------------------
+// -------------------- USERS (/api/users/*) --------------------
 export async function getUsers(params) {
   const res = await request("GET", "/users/", { params });
   return listify(await jsonOrText(res));
@@ -232,6 +225,6 @@ export async function createUser(payload) {
 }
 export const addUser = createUser;
 
-// ---------------------------------------------------------
+// -------------------- export low-level helpers --------------------
 export const api = { request, makeUrl };
 export default api;
