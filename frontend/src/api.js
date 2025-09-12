@@ -1,6 +1,9 @@
 // frontend/src/api.js
-// Mirrors backend routes under /api/* exactly, and provides aliases
-// so older pages (HousesPage, AllotmentsPage, FilesPage) don’t break.
+// Mirrors backend routes and enforces each route's pagination constraints:
+// - /houses/  -> { offset, limit<=200 }
+// - /allotments/ -> { skip, limit<=1000 }
+// - /files/ -> { skip, limit>=1 }
+// Also provides aliases for old component imports.
 
 import { getToken } from "./auth";
 
@@ -35,9 +38,12 @@ async function request(method, path, { params, data, headers } = {}) {
   let res = await fetch(makeUrl(path, params), {
     method,
     headers: h,
-    body: data != null
-      ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data)
-      : undefined,
+    body:
+      data != null
+        ? h.get("Content-Type")?.includes("json")
+          ? JSON.stringify(data)
+          : data
+        : undefined,
     credentials: "include",
   });
 
@@ -47,9 +53,12 @@ async function request(method, path, { params, data, headers } = {}) {
     res = await fetch(fallback, {
       method,
       headers: h,
-      body: data != null
-        ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data)
-        : undefined,
+      body:
+        data != null
+          ? h.get("Content-Type")?.includes("json")
+            ? JSON.stringify(data)
+            : data
+          : undefined,
       credentials: "include",
     });
   }
@@ -59,10 +68,89 @@ async function request(method, path, { params, data, headers } = {}) {
 
 async function jsonOrText(res) {
   const text = await res.text();
-  try { return text ? JSON.parse(text) : null; } catch { return text; }
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text;
+  }
 }
 
 const listify = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+
+// Normalize pagination params for each resource
+function normalizeHousesParams(params = {}) {
+  const out = { ...params };
+  // Accept page/pageSize or skip/offset; backend expects offset+limit (limit<=200)
+  const page = Number(params.page ?? params.p);
+  const pageSize = Number(params.pageSize ?? params.ps);
+  let offset =
+    params.offset != null
+      ? Number(params.offset)
+      : params.skip != null
+      ? Number(params.skip)
+      : Number.isFinite(page) && Number.isFinite(pageSize)
+      ? Math.max(0, page * pageSize)
+      : Number(params.offset ?? 0);
+  let limit = Number(
+    params.limit ?? params.size ?? params.pageSize ?? 50
+  );
+  // clamp per backend: 1..200
+  if (!Number.isFinite(limit) || limit < 1) limit = 50;
+  if (limit > 200) limit = 200;
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+  out.offset = offset;
+  out.limit = limit;
+
+  // Pass through supported filters if present
+  // (q, sector, type_code, status, sort, order)
+  return out;
+}
+
+function normalizeAllotmentsParams(params = {}) {
+  const out = { ...params };
+  // Backend expects skip+limit (limit<=1000)
+  const page = Number(params.page ?? params.p);
+  const pageSize = Number(params.pageSize ?? params.ps);
+  let skip =
+    params.skip != null
+      ? Number(params.skip)
+      : params.offset != null
+      ? Number(params.offset)
+      : Number.isFinite(page) && Number.isFinite(pageSize)
+      ? Math.max(0, page * pageSize)
+      : 0;
+  let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 100);
+  if (!Number.isFinite(limit) || limit < 1) limit = 100;
+  if (limit > 1000) limit = 1000;
+  if (!Number.isFinite(skip) || skip < 0) skip = 0;
+
+  out.skip = skip;
+  out.limit = limit;
+  return out;
+}
+
+function normalizeFilesParams(params = {}) {
+  const out = { ...params };
+  // Backend expects skip+limit (limit>=1, backend default 5000)
+  const page = Number(params.page ?? params.p);
+  const pageSize = Number(params.pageSize ?? params.ps);
+  let skip =
+    params.skip != null
+      ? Number(params.skip)
+      : params.offset != null
+      ? Number(params.offset)
+      : Number.isFinite(page) && Number.isFinite(pageSize)
+      ? Math.max(0, page * pageSize)
+      : 0;
+  let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 5000);
+  if (!Number.isFinite(limit) || limit < 1) limit = 5000;
+  if (!Number.isFinite(skip) || skip < 0) skip = 0;
+
+  out.skip = skip;
+  out.limit = limit;
+  return out;
+}
 
 // -------------------- AUTH --------------------
 export async function login(username, password) {
@@ -79,13 +167,25 @@ export async function login(username, password) {
       const headers = new Headers();
       if (a.type === "form") {
         headers.set("Content-Type", "application/x-www-form-urlencoded");
-        const res = await request("POST", a.path, { headers, data: new URLSearchParams({ username, password }) });
-        if (!res.ok) { lastErr = await res.text().catch(() => String(res.status)); continue; }
+        const res = await request("POST", a.path, {
+          headers,
+          data: new URLSearchParams({ username, password }),
+        });
+        if (!res.ok) {
+          lastErr = await res.text().catch(() => String(res.status));
+          continue;
+        }
         return await jsonOrText(res);
       } else {
         headers.set("Content-Type", "application/json");
-        const res = await request("POST", a.path, { headers, data: { username, password } });
-        if (!res.ok) { lastErr = await res.text().catch(() => String(res.status)); continue; }
+        const res = await request("POST", a.path, {
+          headers,
+          data: { username, password },
+        });
+        if (!res.ok) {
+          lastErr = await res.text().catch(() => String(res.status));
+          continue;
+        }
         return await jsonOrText(res);
       }
     } catch (e) {
@@ -108,7 +208,8 @@ export async function health() {
 
 // -------------------- HOUSES (/api/houses/*) --------------------
 export async function getHouses(params) {
-  const res = await request("GET", "/houses/", { params });
+  const qp = normalizeHousesParams(params);
+  const res = await request("GET", "/houses/", { params: qp });
   return listify(await jsonOrText(res));
 }
 export const listHouses = getHouses;
@@ -138,7 +239,8 @@ export const removeHouse = deleteHouse;
 
 // -------------------- ALLOTMENTS (/api/allotments/*) --------------------
 export async function getAllotments(params) {
-  const res = await request("GET", "/allotments/", { params });
+  const qp = normalizeAllotmentsParams(params);
+  const res = await request("GET", "/allotments/", { params: qp });
   return listify(await jsonOrText(res));
 }
 export const listAllotments = getAllotments;
@@ -169,12 +271,11 @@ export const removeAllotment = deleteAllotment;
 
 // -------------------- FILE MOVEMENTS (/api/files/*) --------------------
 export async function getFiles(params) {
-  const res = await request("GET", "/files/", { params });
+  const qp = normalizeFilesParams(params);
+  const res = await request("GET", "/files/", { params: qp });
   return listify(await jsonOrText(res));
 }
 export const listFiles = getFiles;
-
-// ✅ “Movements” aliases expected by FilesPage.jsx and others
 export const listMovements = getFiles;
 
 export async function getFile(id) {
