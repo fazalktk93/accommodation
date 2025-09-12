@@ -1,9 +1,8 @@
 // frontend/src/api.js
-// Mirrors backend routes and enforces each route's pagination constraints:
-// - /houses/  -> { offset, limit<=200 }
-// - /allotments/ -> { skip, limit<=1000 }
-// - /files/ -> { skip, limit>=1 }
-// Also provides aliases for old component imports.
+// Full client for your backend, with:
+// - Transparent chunked fetch for Houses when limit > 200 (no backend change needed)
+// - One-time 401 retry after /auth/me check
+// - Aliases kept so older pages (HousesPage, AllotmentsPage, FilesPage) don’t break
 
 import { getToken } from "./auth";
 
@@ -28,7 +27,7 @@ function makeUrl(path, params) {
   return url.toString();
 }
 
-async function request(method, path, { params, data, headers } = {}) {
+async function rawFetch(method, path, { params, data, headers } = {}) {
   const h = new Headers(headers || {});
   const token = getToken();
   if (token && !h.has("Authorization")) h.set("Authorization", `Bearer ${token}`);
@@ -66,6 +65,23 @@ async function request(method, path, { params, data, headers } = {}) {
   return res;
 }
 
+// One-time 401 retry after /auth/me to refresh/confirm session
+async function request(method, path, opts = {}) {
+  let res = await rawFetch(method, path, opts);
+  if (res.status !== 401) return res;
+
+  // Try to confirm/refresh session, then retry once
+  try {
+    const me = await rawFetch("GET", "/auth/me");
+    if (me.ok) {
+      res = await rawFetch(method, path, opts);
+    }
+  } catch {
+    /* ignore */
+  }
+  return res;
+}
+
 async function jsonOrText(res) {
   const text = await res.text();
   try {
@@ -74,13 +90,11 @@ async function jsonOrText(res) {
     return text;
   }
 }
-
 const listify = (x) => (Array.isArray(x) ? x : x ? [x] : []);
 
-// Normalize pagination params for each resource
-function normalizeHousesParams(params = {}) {
+// -------------------- pagination normalizers --------------------
+function normHouses(params = {}) {
   const out = { ...params };
-  // Accept page/pageSize or skip/offset; backend expects offset+limit (limit<=200)
   const page = Number(params.page ?? params.p);
   const pageSize = Number(params.pageSize ?? params.ps);
   let offset =
@@ -91,25 +105,15 @@ function normalizeHousesParams(params = {}) {
       : Number.isFinite(page) && Number.isFinite(pageSize)
       ? Math.max(0, page * pageSize)
       : Number(params.offset ?? 0);
-  let limit = Number(
-    params.limit ?? params.size ?? params.pageSize ?? 50
-  );
-  // clamp per backend: 1..200
+  let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 50);
   if (!Number.isFinite(limit) || limit < 1) limit = 50;
-  if (limit > 200) limit = 200;
   if (!Number.isFinite(offset) || offset < 0) offset = 0;
-
   out.offset = offset;
   out.limit = limit;
-
-  // Pass through supported filters if present
-  // (q, sector, type_code, status, sort, order)
   return out;
 }
-
-function normalizeAllotmentsParams(params = {}) {
+function normAllotments(params = {}) {
   const out = { ...params };
-  // Backend expects skip+limit (limit<=1000)
   const page = Number(params.page ?? params.p);
   const pageSize = Number(params.pageSize ?? params.ps);
   let skip =
@@ -122,17 +126,13 @@ function normalizeAllotmentsParams(params = {}) {
       : 0;
   let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 100);
   if (!Number.isFinite(limit) || limit < 1) limit = 100;
-  if (limit > 1000) limit = 1000;
   if (!Number.isFinite(skip) || skip < 0) skip = 0;
-
   out.skip = skip;
   out.limit = limit;
   return out;
 }
-
-function normalizeFilesParams(params = {}) {
+function normFiles(params = {}) {
   const out = { ...params };
-  // Backend expects skip+limit (limit>=1, backend default 5000)
   const page = Number(params.page ?? params.p);
   const pageSize = Number(params.pageSize ?? params.ps);
   let skip =
@@ -146,7 +146,6 @@ function normalizeFilesParams(params = {}) {
   let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 5000);
   if (!Number.isFinite(limit) || limit < 1) limit = 5000;
   if (!Number.isFinite(skip) || skip < 0) skip = 0;
-
   out.skip = skip;
   out.limit = limit;
   return out;
@@ -207,10 +206,38 @@ export async function health() {
 }
 
 // -------------------- HOUSES (/api/houses/*) --------------------
+// If asked for limit <= 200 → single call.
+// If asked for limit > 200 → chunk into multiple calls of 200 and merge.
 export async function getHouses(params) {
-  const qp = normalizeHousesParams(params);
-  const res = await request("GET", "/houses/", { params: qp });
-  return listify(await jsonOrText(res));
+  const qp = normHouses(params);
+  const MAX_PER_CALL = 200; // backend validation cap
+
+  const want = qp.limit;
+  const start = qp.offset;
+
+  if (want <= MAX_PER_CALL) {
+    const res = await request("GET", "/houses/", { params: { ...qp, limit: Math.min(want, MAX_PER_CALL) } });
+    return listify(await jsonOrText(res));
+  }
+
+  // multi-chunk
+  const chunks = [];
+  let fetched = 0;
+  while (fetched < want) {
+    const thisLimit = Math.min(MAX_PER_CALL, want - fetched);
+    const thisOffset = start + fetched;
+    const res = await request("GET", "/houses/", { params: { ...qp, offset: thisOffset, limit: thisLimit } });
+    if (!res.ok) {
+      // bubble error from server (could be 401 etc.)
+      const errBody = await jsonOrText(res);
+      throw new Error(typeof errBody === "string" ? errBody : JSON.stringify(errBody));
+    }
+    const data = listify(await jsonOrText(res));
+    chunks.push(...data);
+    if (data.length < thisLimit) break; // no more rows on server
+    fetched += thisLimit;
+  }
+  return chunks;
 }
 export const listHouses = getHouses;
 
@@ -239,7 +266,7 @@ export const removeHouse = deleteHouse;
 
 // -------------------- ALLOTMENTS (/api/allotments/*) --------------------
 export async function getAllotments(params) {
-  const qp = normalizeAllotmentsParams(params);
+  const qp = normAllotments(params);
   const res = await request("GET", "/allotments/", { params: qp });
   return listify(await jsonOrText(res));
 }
@@ -271,7 +298,7 @@ export const removeAllotment = deleteAllotment;
 
 // -------------------- FILE MOVEMENTS (/api/files/*) --------------------
 export async function getFiles(params) {
-  const qp = normalizeFilesParams(params);
+  const qp = normFiles(params);
   const res = await request("GET", "/files/", { params: qp });
   return listify(await jsonOrText(res));
 }
