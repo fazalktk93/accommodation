@@ -1,6 +1,6 @@
-// frontend/src/auth.js
-// Export surface kept: getToken, setToken, isLoggedIn, logout, login, auth.fetch
-// Added: named export authFetch to satisfy imports expecting it.
+// src/auth.js
+// Keeps your export surface: getToken, setToken, isLoggedIn, logout, login, auth.fetch
+// Also exports named `authFetch` so imports like { authFetch } work.
 
 const AUTH_STORAGE_KEY = "auth_token";
 
@@ -9,115 +9,93 @@ let RAW_BASE =
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
-// --- normalize base once (no trailing slash) ---
+// --- normalize "/api" once (no trailing slash, no double /api) ---
 function normBase(b) {
   if (!b) return "/api";
-  // ensure it starts with "/" or "http"
   if (!/^https?:\/\//i.test(b) && !b.startsWith("/")) b = "/" + b;
-  // collapse duplicate "api" like "/api/api"
-  b = b.replace(/\/{2,}/g, "/");
-  b = b.replace(/\/api\/?api(\/|$)/, "/api$1");
+  b = b.replace(/\/{2,}/g, "/");                // collapse //
+  b = b.replace(/\/api\/?api(\/|$)/, "/api$1"); // drop duplicate api
   if (b.endsWith("/")) b = b.slice(0, -1);
   return b;
 }
 const API_BASE = normBase(RAW_BASE);
 
-// ---------- token helpers ----------
+/* ---------- token helpers ---------- */
 export function getToken() {
-  try {
-    return localStorage.getItem(AUTH_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(AUTH_STORAGE_KEY); } catch { return null; }
 }
 export function setToken(v) {
-  try {
-    if (v) localStorage.setItem(AUTH_STORAGE_KEY, v);
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
+  try { v ? localStorage.setItem(AUTH_STORAGE_KEY, v) : localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
 }
-export function isLoggedIn() {
-  return !!getToken();
-}
+export function isLoggedIn() { return !!getToken(); }
 export function logout() {
   setToken(null);
   if (typeof window !== "undefined") window.location.href = "/login";
 }
 
-// ---------- URL join that avoids "/api/api" ----------
+// join base + path without producing "/api/api"
 function joinUrl(base, path) {
   if (/^https?:\/\//i.test(path)) return path;
-  const p = path || "";
-  const baseNoSlash = base.endsWith("/") ? base.slice(0, -1) : base;
-  const pathNoSlash = p.startsWith("/") ? p : "/" + p;
-
-  // If base already ends with "/api" AND path begins with "/api/", drop one "api"
-  if (baseNoSlash.endsWith("/api") && pathNoSlash.startsWith("/api/")) {
-    return baseNoSlash + pathNoSlash.replace(/^\/api/, "");
-  }
-  return (baseNoSlash + pathNoSlash).replace(/\/{2,}/g, "/");
+  const baseNo = base.endsWith("/") ? base.slice(0, -1) : base;
+  let rel = path.startsWith("/") ? path : `/${path}`;
+  if (baseNo.endsWith("/api") && rel.startsWith("/api/")) rel = rel.replace(/^\/api/, "");
+  return (baseNo + rel).replace(/\/{2,}/g, "/");
 }
 
-// ---------- internal fetch helper (always includes cookies) ----------
+// low-level fetch that always sends cookies
 async function doFetch(url, options = {}) {
   const finalUrl = joinUrl(API_BASE, url);
-  const res = await fetch(finalUrl, { credentials: "include", ...options });
-  return res;
+  return fetch(finalUrl, { credentials: "include", ...options });
 }
 
-// Authorized fetch: attaches Bearer token if present and always sends cookies
+// Authorized fetch: attach Bearer if present (cookie still goes either way)
 export async function authFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  const token = getToken();
-  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  const tok = getToken();
+  if (tok && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${tok}`);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
-  const opts = { ...options, headers };
-  return doFetch(path, opts);
+  return doFetch(path, { ...options, headers });
 }
 
-// Login that works with JSON/form and multiple common endpoints
-// Fixes 422/401 in mixed backends
+// ---- Login that matches THIS backend: tries JSON + form + cookie session ----
 export async function login(username, password) {
   const attempts = [
-    { path: "/auth/login", type: "json" },
-    { path: "/auth/login", type: "form" },
-    { path: "/auth/jwt/login", type: "json" },
-    { path: "/auth/jwt/login", type: "form" },
-    { path: "/auth/token", type: "form" },
-    { path: "/login", type: "form" },
+    // exact matches for your backend
+    { path: "/auth/token",      type: "json" }, // expects JSON {username,password}
+    { path: "/auth/login",      type: "form" },
+    { path: "/auth/jwt/login",  type: "form" },
+    { path: "/auth/cookie-login", type: "form" }, // sets HttpOnly cookie
+    // harmless fallbacks
+    { path: "/login",           type: "form" },
   ];
 
   let lastErr = null;
   for (const a of attempts) {
     try {
-      const headers = new Headers();
+      const h = new Headers();
       let body;
       if (a.type === "form") {
-        headers.set("Content-Type", "application/x-www-form-urlencoded");
+        h.set("Content-Type", "application/x-www-form-urlencoded");
         body = new URLSearchParams({ username, password });
       } else {
-        headers.set("Content-Type", "application/json");
+        h.set("Content-Type", "application/json");
         body = JSON.stringify({ username, password });
       }
 
-      const res = await doFetch(a.path, { method: "POST", headers, body });
-      if (!res.ok) {
-        lastErr = await res.text().catch(() => String(res.status));
-        continue;
-      }
-      // Parse and capture token if present
-      const dataText = await res.text();
-      let data = null;
-      try { data = dataText ? JSON.parse(dataText) : null; } catch { /* text */ }
+      const res = await doFetch(a.path, { method: "POST", headers: h, body });
+      const text = await res.text();
+      if (!res.ok) { lastErr = text || `${res.status}`; continue; }
+
+      let data = null; try { data = text ? JSON.parse(text) : null; } catch {}
+
       const accessToken =
         data?.access_token ||
         data?.token ||
         data?.data?.access_token ||
         null;
+
       if (accessToken) setToken(accessToken);
-      // even if no token, cookie session may be set—still OK
+      // Even if there is no token, cookie session may be set (via /auth/cookie-login).
       return { ok: true, data: data ?? {} };
     } catch (e) {
       lastErr = String(e);
@@ -127,15 +105,12 @@ export async function login(username, password) {
 }
 
 export const auth = {
-  get token() {
-    return getToken();
-  },
-  set token(v) {
-    setToken(v);
-  },
+  get token() { return getToken(); },
+  set token(v) { setToken(v); },
   isLoggedIn,
   logout,
   login,
   fetch: authFetch,
 };
+
 export default auth;
