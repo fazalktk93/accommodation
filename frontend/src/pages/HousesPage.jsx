@@ -5,7 +5,8 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
-const PAGE_SIZE = 50; // fixed; backend caps handled in api layer
+// Fixed pagination: 50 per page
+const PAGE_SIZE = 50;
 
 function useQuery() {
   const { search } = useLocation();
@@ -26,7 +27,7 @@ export default function HousesPage() {
   const navigate = useNavigate();
   const query = useQuery();
 
-  // page & query are URL-driven so refresh/share keeps state
+  // URL-driven state so refresh/share preserves context
   const [page, setPage] = useState(Number(query.get("page") || 0)); // zero-based
   const [q, setQ] = useState(query.get("q") || "");
 
@@ -48,7 +49,7 @@ export default function HousesPage() {
     navigate({ search: sp.toString() ? `?${sp.toString()}` : "" }, { replace: true });
   };
 
-  // load data (use low-level api.request to read X-Total-Count)
+  // Load houses: read X-Total-Count header for accurate pagination
   const load = async () => {
     setLoading(true);
     setError("");
@@ -57,11 +58,10 @@ export default function HousesPage() {
       const params = {
         offset,
         limit: PAGE_SIZE,
-        // fan-out single query so backend matches supported fields
+        // fan-out single query to backend-supported filters
         q: q || undefined,
         qtr: q || undefined,
         qtr_no: q || undefined,
-        quarter: q || undefined,
         file_no: q || undefined,
         fileNo: q || undefined,
         cnic: q || undefined,
@@ -97,7 +97,7 @@ export default function HousesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q]);
 
-  // navigation to history
+  // go to house history page
   const openHistoryFor = (row) => {
     const dest = row.file_no
       ? `/history/file/${encodeURIComponent(row.file_no)}`
@@ -105,7 +105,7 @@ export default function HousesPage() {
     navigate(dest);
   };
 
-  // ---------- CRUD (admin) ----------
+  // ---------- CRUD (admin only UI) ----------
   const openAdd = () => {
     setForm(emptyHouse);
     setAdding(true);
@@ -137,7 +137,6 @@ export default function HousesPage() {
     try {
       await createHouse(form);
       closeModals();
-      // reload first page so the new row is visible (or stay on same page if you prefer)
       setPage(0);
       await load();
     } catch (err) {
@@ -164,7 +163,7 @@ export default function HousesPage() {
     }
   };
 
-  // pagination helpers
+  // pagination
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const canPrev = page > 0;
   const canNext = page + 1 < totalPages;
@@ -199,9 +198,7 @@ export default function HousesPage() {
         </button>
       </form>
 
-      {error && (
-        <div style={errorBox}>{error}</div>
-      )}
+      {error && <div style={errorBox}>{error}</div>}
 
       <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 10 }}>
         <table style={table}>
@@ -225,11 +222,7 @@ export default function HousesPage() {
               <tr key={r.id} style={tr}>
                 <td style={td}>{r.id}</td>
                 <td style={td}>
-                  <button
-                    onClick={() => openHistoryFor(r)}
-                    title="Open allotment history"
-                    style={linkBtn}
-                  >
+                  <button onClick={() => openHistoryFor(r)} style={linkBtn} title="Open allotment history">
                     {r.file_no ?? "-"}
                   </button>
                 </td>
@@ -255,7 +248,7 @@ export default function HousesPage() {
 
       {/* bottom pager */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-        <div style={{ color: "#555" }}>
+        <div style={{ color: "#222" }}>
           Page <strong>{page + 1}</strong> of <strong>{totalPages}</strong>
           {Number.isFinite(total) ? <> &nbsp;•&nbsp; Total <strong>{total}</strong></> : null}
         </div>
@@ -322,24 +315,27 @@ export default function HousesPage() {
   );
 }
 
-/* ---------- tiny UI primitives (modern look, no external lib) ---------- */
+/* ---------- tiny UI primitives (high-contrast buttons/text) ---------- */
 const input = {
   flex: 1,
   padding: "10px 12px",
   border: "1px solid #d9d9d9",
   borderRadius: 8,
   outline: "none",
+  color: "#111",
+  background: "#fff",
 };
 
 const btn = {
   padding: "10px 14px",
   borderRadius: 8,
   border: "1px solid #d9d9d9",
-  background: "#fff",
+  background: "#ffffff",
   cursor: "pointer",
+  color: "#111", // ensure text visible
 };
 
-const btnGhost = { ...btn, background: "#f7f7f7" };
+const btnGhost = { ...btn, background: "#f3f4f6" };
 
 const btnPrimary = {
   padding: "10px 14px",
@@ -376,16 +372,11 @@ const th = {
   position: "sticky",
   top: 0,
   zIndex: 1,
+  color: "#111",
 };
 
-const tr = {
-  borderBottom: "1px solid #f1f1f1",
-};
-
-const td = {
-  padding: "10px 12px",
-  verticalAlign: "top",
-};
+const tr = { borderBottom: "1px solid #f1f1f1" };
+const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
 
 const errorBox = {
   background: "#fdecea",
@@ -404,11 +395,9 @@ function Field({ label, value, onChange, type = "text", required = false }) {
     </label>
   );
 }
-
 function Row({ children }) {
   return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>{children}</div>;
 }
-
 function Select({ label, value, onChange, options }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
@@ -421,7 +410,6 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
-
 function Checkbox({ label, checked, onChange }) {
   return (
     <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
@@ -430,7 +418,6 @@ function Checkbox({ label, checked, onChange }) {
     </label>
   );
 }
-
 function Actions({ onCancel, submitText }) {
   return (
     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
