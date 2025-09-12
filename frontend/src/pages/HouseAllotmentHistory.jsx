@@ -25,28 +25,31 @@ const asList = (d) =>
 
 const fmt = (d) => (d ? String(d) : "-");
 
+// strip a leading "/api" if someone accidentally includes it
+function toRelativeApiPath(p) {
+  if (!p) return "/";
+  if (/^https?:\/\//i.test(p)) return p;      // already absolute (rare)
+  let rel = p.startsWith("/") ? p : `/${p}`;
+  if (rel.startsWith("/api/")) rel = rel.slice(4); // -> remove leading "/api"
+  return rel; // e.g. "/houses/123"
+}
+
+// ALWAYS go through auth.fetch to avoid CORS and to include cookies/token.
+// Also avoids "/api/api" by normalizing the path above.
 async function getJson(path, opts = {}) {
-  // ALWAYS go through auth.fetch so cookies/Bearer are attached
-  const res = await auth.fetch(
-    path.startsWith("http") ? path : `${API_BASE}${path}`,
-    {
-      credentials: "include",
-      ...opts,
-      headers: {
-        Accept: "application/json",
-        ...(opts.headers || {}),
-      },
-    }
-  );
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText} ${t}`.trim());
-  }
-  const txt = await res.text();
+  const url = toRelativeApiPath(path);
+  const res = await authFetch(url, {
+    ...opts,
+    headers: { Accept: "application/json", ...(opts.headers || {}) },
+  });
+
+  const text = await res.text();
+  if (!res.ok) throw new Error(text || `${res.status} ${res.statusText}`);
+
   try {
-    return txt ? JSON.parse(txt) : null;
+    return text ? JSON.parse(text) : null;
   } catch {
-    return txt;
+    return text;
   }
 }
 
