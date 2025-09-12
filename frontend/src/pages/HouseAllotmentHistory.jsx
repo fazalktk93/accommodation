@@ -1,34 +1,103 @@
 // frontend/src/pages/HouseAllotmentHistory.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import auth from "../auth"; // ===== use the same auth wrapper (sends cookies & Authorization)
 
 const SHOW_STATUS_COLS = false;
-const API = `${window.location.protocol}//${window.location.hostname}:8000/api`;
 
-const asList = (d) => (Array.isArray(d) ? d : (d?.results ?? []));
+// unified API base (relative → goes through your proxy, no CORS)
+const API_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+  (typeof window !== "undefined" && window.API_BASE_URL) ||
+  "/api";
+
+// ---- helpers ----
+const asList = (d) =>
+  Array.isArray(d)
+    ? d
+    : Array.isArray(d?.items)
+    ? d.items
+    : Array.isArray(d?.results)
+    ? d.results
+    : Array.isArray(d?.data)
+    ? d.data
+    : [];
+
 const fmt = (d) => (d ? String(d) : "-");
+
+async function getJson(path, opts = {}) {
+  // ALWAYS go through auth.fetch so cookies/Bearer are attached
+  const res = await auth.fetch(
+    path.startsWith("http") ? path : `${API_BASE}${path}`,
+    {
+      credentials: "include",
+      ...opts,
+      headers: {
+        Accept: "application/json",
+        ...(opts.headers || {}),
+      },
+    }
+  );
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText} ${t}`.trim());
+  }
+  const txt = await res.text();
+  try {
+    return txt ? JSON.parse(txt) : null;
+  } catch {
+    return txt;
+  }
+}
 
 function Badge({ children }) {
   return (
-    <span style={{
-      padding: "2px 8px",
-      borderRadius: 12,
-      background: "#eee",
-      fontSize: 12,
-      border: "1px solid #ddd",
-      verticalAlign: "middle"
-    }}>{children}</span>
+    <span
+      style={{
+        padding: "2px 8px",
+        borderRadius: 12,
+        background: "#eee",
+        fontSize: 12,
+        border: "1px solid #ddd",
+        verticalAlign: "middle",
+      }}
+    >
+      {children}
+    </span>
   );
 }
 
 function Modal({ title, children, onClose }) {
   return (
-    <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,.35)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000
-    }}>
-      <div style={{ background: "#fff", padding: 16, borderRadius: 8, width: "min(720px,96vw)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "#fff",
+          padding: 16,
+          borderRadius: 8,
+          width: "min(720px,96vw)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
           <h3 style={{ margin: 0 }}>{title}</h3>
           <button onClick={onClose}>✕</button>
         </div>
@@ -39,15 +108,27 @@ function Modal({ title, children, onClose }) {
 }
 
 const emptyAllotment = {
-  person_name: "", designation: "", directorate: "", cnic: "",
-  pool: "", medium: "", bps: "",
-  allotment_date: "", occupation_date: "", vacation_date: "",
-  dob: "", dor: "", retention_until: "", retention_last: "",
-  qtr_status: "active", allottee_status: "in_service", notes: "",
+  person_name: "",
+  designation: "",
+  directorate: "",
+  cnic: "",
+  pool: "",
+  medium: "",
+  bps: "",
+  allotment_date: "",
+  occupation_date: "",
+  vacation_date: "",
+  dob: "",
+  dor: "",
+  retention_until: "",
+  retention_last: "",
+  qtr_status: "active",
+  allottee_status: "in_service",
+  notes: "",
 };
 
 export default function HouseAllotmentHistory() {
-  // support fileNo as primary; fall back to id/houseId
+  // supports /history/file/:fileNo and /history/house/:houseId and /history/:id
   const { fileNo, houseId, id } = useParams();
   const resolvedHouseId = houseId ?? id;
 
@@ -64,84 +145,45 @@ export default function HouseAllotmentHistory() {
   const [editData, setEditData] = useState(emptyAllotment);
   const [forceEndOnEdit, setForceEndOnEdit] = useState(false);
 
-  const api = useMemo(() => ({
-    async getHouse(id) {
-      const r = await fetch(`${API}/houses/${id}`);
-      if (!r.ok) throw new Error(`Failed to load house: ${r.status}`);
-      return r.json();
-    },
-    async getHouseByFile(file_no) {
-      const r = await fetch(`${API}/houses/by-file/${encodeURIComponent(file_no)}`);
-      if (!r.ok) throw new Error(`Failed to load house by file: ${r.status}`);
-      return r.json();
-    },
-    async listAllotmentsByHouseNested(house_id) {
-      const r = await fetch(`${API}/houses/${house_id}/allotments`);
-      if (!r.ok) throw new Error(`Failed to load allotments (nested): ${r.status}`);
-      return r.json();
-    },
-    async listAllotmentsByHouseId(house_id) {
-      const u = new URL(`${API}/allotments/`);
-      u.searchParams.set("house_id", house_id);
-      const r = await fetch(u.toString());
-      if (!r.ok) throw new Error(`Failed to load allotments: ${r.status}`);
-      const data = await r.json();
-      return asList(data);
-    },
-    async listAllotmentsByFileNo(file_no) {
-      const r = await fetch(`${API}/allotments/history/by-file/${encodeURIComponent(file_no)}`);
-      if (!r.ok) throw new Error(`Failed to load allotments (by file): ${r.status}`);
-      return r.json();
-    },
-    async patchHouseStatus(id, status) {
-      const r = await fetch(`${API}/houses/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, status_manual: true }),
-      });
-      if (!r.ok) throw new Error(`Failed to update house status: ${r.status}`);
-      return r.json();
-    },
-    async createAllotment(payload, forceEnd) {
-      const u = new URL(`${API}/allotments/`);
-      if (forceEnd) u.searchParams.set("force_end_previous", "true");
-      const r = await fetch(u.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          ...(forceEnd ? { force_end_previous: true } : {}),
+  const api = useMemo(
+    () => ({
+      getHouse: (hid) => getJson(`/houses/${hid}`),
+      getHouseByFile: (fno) => getJson(`/houses/by-file/${encodeURIComponent(fno)}`),
+      listAllotmentsByHouseNested: (hid) => getJson(`/houses/${hid}/allotments`),
+      listAllotmentsByHouseId: (hid) =>
+        getJson(`/allotments/?house_id=${encodeURIComponent(hid)}`).then(asList),
+      listAllotmentsByFileNo: (fno) =>
+        getJson(`/allotments/history/by-file/${encodeURIComponent(fno)}`),
+      patchHouseStatus: (hid, status) =>
+        getJson(`/houses/${hid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, status_manual: true }),
         }),
-      });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Create failed (${r.status}): ${t}`);
-      }
-      return r.json();
-    },
-    async updateAllotment(id, payload, forceEnd) {
-      const u = new URL(`${API}/allotments/${id}`);
-      if (forceEnd) u.searchParams.set("force_end_previous", "true");
-      const r = await fetch(u.toString(), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          ...(forceEnd ? { force_end_previous: true } : {}),
-        }),
-      });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`Update failed (${r.status}): ${t}`);
-      }
-      return r.json();
-    },
-    async endAllotment(id) {
-      const r = await fetch(`${API}/allotments/${id}/end`, { method: "POST" });
-      if (!r.ok) throw new Error(`End failed: ${r.status}`);
-      return r.json();
-    }
-  }), []);
+      createAllotment: (payload, forceEnd) => {
+        const qs = forceEnd ? "?force_end_previous=true" : "";
+        return getJson(`/allotments/${qs}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            forceEnd ? { ...payload, force_end_previous: true } : payload
+          ),
+        });
+      },
+      updateAllotment: (aid, payload, forceEnd) => {
+        const qs = forceEnd ? "?force_end_previous=true" : "";
+        return getJson(`/allotments/${aid}${qs}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            forceEnd ? { ...payload, force_end_previous: true } : payload
+          ),
+        });
+      },
+      endAllotment: (aid) => getJson(`/allotments/${aid}/end`, { method: "POST" }),
+    }),
+    []
+  );
 
   async function load() {
     try {
@@ -149,21 +191,21 @@ export default function HouseAllotmentHistory() {
       setErr("");
 
       if (fileNo) {
-        // Load house header by file number
         const h = await api.getHouseByFile(fileNo);
         setHouse(h);
-
-        // ✅ CHANGED: use nested route by house.id (this one returns history in your backend)
+        // nested endpoint returns full history (no CORS, cookies included)
         const nested = await api.listAllotmentsByHouseNested(h.id);
         setRows(Array.isArray(nested) ? nested : []);
         return;
       }
 
-      // Legacy fallback: load by id
+      // fallback: by house id
       const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
       const nested = await api.listAllotmentsByHouseNested(h.id);
-      setRows(Array.isArray(nested) && nested.length ? nested : await api.listAllotmentsByHouseId(h.id));
+      setRows(Array.isArray(nested) && nested.length
+        ? nested
+        : await api.listAllotmentsByHouseId(h.id));
     } catch (e) {
       setErr(e.message || String(e));
       setRows([]);
@@ -172,14 +214,14 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [fileNo, resolvedHouseId]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileNo, resolvedHouseId]);
 
   async function submitAdd() {
     try {
-      await api.createAllotment(
-        { ...addData, house_id: house.id },
-        true
-      );
+      await api.createAllotment({ ...addData, house_id: house.id }, true);
       setShowAdd(false);
       setAddData(emptyAllotment);
       await load();
@@ -198,10 +240,10 @@ export default function HouseAllotmentHistory() {
     }
   }
 
-  async function endAllotmentQuick(id) {
+  async function endAllotmentQuick(aid) {
     if (!window.confirm("Mark this allotment as ended?")) return;
     try {
-      await api.endAllotment(id);
+      await api.endAllotment(aid);
       await load();
     } catch (e) {
       alert(e.message);
@@ -222,7 +264,7 @@ export default function HouseAllotmentHistory() {
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
-        <Link to="/">Houses</Link>
+        <Link to="/houses">Houses</Link>
         <span style={{ margin: "0 8px" }}>Allotments</span>
         <Link to="/files">File Movement</Link>
       </div>
@@ -230,22 +272,55 @@ export default function HouseAllotmentHistory() {
       <h1>House — Allotment History</h1>
 
       {err && (
-        <div style={{ background: "#fde2e1", border: "1px solid #f5b5b2", padding: 10, borderRadius: 6, marginBottom: 12 }}>
+        <div
+          style={{
+            background: "#fde2e1",
+            border: "1px solid #f5b5b2",
+            padding: 10,
+            borderRadius: 6,
+            marginBottom: 12,
+          }}
+        >
           {err}
         </div>
       )}
 
       {house && (
-        <section style={{ border: "1px solid #e5e5e5", borderRadius: 6, padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <section
+          style={{
+            border: "1px solid #e5e5e5",
+            borderRadius: 6,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <div>
-              <div><strong>File No:</strong> {fmt(house.file_no)}</div>
-              <div><strong>Quarter:</strong> {fmt(house.qtr_no)}</div>
-              <div><strong>Street:</strong> {fmt(house.street)} &nbsp; <strong>Sector:</strong> {fmt(house.sector)}</div>
-              <div><strong>Type:</strong> {fmt(house.type_code)} &nbsp; <strong>Status:</strong> <Badge>{fmt(house.status)}</Badge></div>
+              <div>
+                <strong>File No:</strong> {fmt(house.file_no)}
+              </div>
+              <div>
+                <strong>Quarter:</strong> {fmt(house.qtr_no)}
+              </div>
+              <div>
+                <strong>Street:</strong> {fmt(house.street)} &nbsp; <strong>Sector:</strong>{" "}
+                {fmt(house.sector)}
+              </div>
+              <div>
+                <strong>Type:</strong> {fmt(house.type_code)} &nbsp; <strong>Status:</strong>{" "}
+                <Badge>{fmt(house.status)}</Badge>
+              </div>
             </div>
             <div>
-              <label style={{ fontSize: 12, color: "#666", marginRight: 8 }}>Set status:</label>
+              <label style={{ fontSize: 12, color: "#666", marginRight: 8 }}>
+                Set status:
+              </label>
               <select
                 value={house.status || "vacant"}
                 onChange={(e) => updateHouseStatus(e.target.value)}
@@ -265,7 +340,13 @@ export default function HouseAllotmentHistory() {
       <section style={{ border: "1px solid #e5e5e5", borderRadius: 6, padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h2 style={{ margin: 0 }}>Previous Allotments</h2>
-          <button onClick={() => { setAddData(emptyAllotment); setForceEndPrev(true); setShowAdd(true); }}>
+          <button
+            onClick={() => {
+              setAddData(emptyAllotment);
+              setForceEndPrev(true);
+              setShowAdd(true);
+            }}
+          >
             Add Allotment
           </button>
         </div>
@@ -290,7 +371,11 @@ export default function HouseAllotmentHistory() {
             </thead>
             <tbody>
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={COLS} style={{ padding: 12, color: "#777" }}>No allotment history yet for this house.</td></tr>
+                <tr>
+                  <td colSpan={COLS} style={{ padding: 12, color: "#777" }}>
+                    No allotment history yet for this house.
+                  </td>
+                </tr>
               )}
               {rows.map((r) => (
                 <tr key={r.id} style={{ borderBottom: "1px solid #f2f2f2" }}>
@@ -338,14 +423,16 @@ export default function HouseAllotmentHistory() {
                     >
                       Edit
                     </button>
-                    <button onClick={() => endAllotmentQuick(r.id)}>
-                      End
-                    </button>
+                    <button onClick={() => endAllotmentQuick(r.id)}>End</button>
                   </td>
                 </tr>
               ))}
               {loading && (
-                <tr><td colSpan={COLS} style={{ padding: 12 }}>Loading…</td></tr>
+                <tr>
+                  <td colSpan={COLS} style={{ padding: 12 }}>
+                    Loading…
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
