@@ -39,18 +39,15 @@ export default function HousesPage() {
   const [offset, setOffset] = useState(Number(query.get("offset") || 0));
   const [limit, setLimit] = useState(Number(query.get("limit") || DEFAULT_LIMIT));
 
-  // search
-  const [qtr, setQtr] = useState(query.get("qtr") || query.get("quarter") || "");
-  const [fileNo, setFileNo] = useState(query.get("file_no") || query.get("fileNo") || "");
-  const [cnic, setCnic] = useState(query.get("cnic") || "");
-  const [allottee, setAllottee] = useState(query.get("allottee") || query.get("allottee_name") || "");
+  // 🔎 single search value (persisted in URL as ?q=)
+  const [q, setQ] = useState(query.get("q") || "");
 
   // modals
   const [editing, setEditing] = useState(null); // object | null
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(emptyHouse);
 
-  // load
+  // ---- data load ----
   const fetchData = async () => {
     setLoading(true);
     setError("");
@@ -58,18 +55,21 @@ export default function HousesPage() {
       const params = {
         offset,
         limit,
-        qtr: qtr || undefined,
-        quarter: qtr || undefined,
-        file_no: fileNo || undefined,
-        fileNo: fileNo || undefined,
-        cnic: cnic || undefined,
-        allottee_name: allottee || undefined,
-        allottee: allottee || undefined,
+        // fan-out the single query to all supported filters
+        q: q || undefined,
+        qtr: q || undefined,
+        quarter: q || undefined,
+        file_no: q || undefined,
+        fileNo: q || undefined,
+        cnic: q || undefined,
+        allottee_name: q || undefined,
+        allottee: q || undefined,
       };
       const data = await listHouses(params);
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(String(e));
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -78,37 +78,36 @@ export default function HousesPage() {
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offset, limit]);
+  }, [offset, limit, q]);
 
-  const pushParamsToUrl = () => {
+  // keep URL in sync (for refresh/share)
+  const pushParamsToUrl = (nextQ = q) => {
     const sp = new URLSearchParams();
     sp.set("offset", String(offset));
     sp.set("limit", String(limit));
-    if (qtr) sp.set("qtr", qtr);
-    if (fileNo) sp.set("file_no", fileNo);
-    if (cnic) sp.set("cnic", cnic);
-    if (allottee) sp.set("allottee", allottee);
+    if (nextQ) sp.set("q", nextQ);
     navigate({ search: `?${sp.toString()}` }, { replace: true });
   };
 
-  const onSearch = async (e) => {
+  const onSearch = (e) => {
     e?.preventDefault();
-    pushParamsToUrl();
-    await fetchData();
+    pushParamsToUrl(q.trim());
+    fetchData();
   };
 
-  const onClear = async () => {
-    setQtr("");
-    setFileNo("");
-    setCnic("");
-    setAllottee("");
+  const onClear = () => {
+    setQ("");
     setOffset(0);
-    navigate({ search: `?offset=0&limit=${limit}` }, { replace: true });
-    await fetchData();
+    pushParamsToUrl("");
+    fetchData();
   };
 
-  const openAllotmentsForHouse = (houseId) => {
-    navigate(`/allotments?house_id=${encodeURIComponent(houseId)}&limit=1000`);
+  // 📜 history page navigation from File No
+  const openHistoryForRow = (row) => {
+    const dest = row.file_no
+      ? `/history/file/${encodeURIComponent(row.file_no)}`
+      : `/history/house/${row.id}`;
+    navigate(dest);
   };
 
   // ----- CRUD (admin) -----
@@ -179,28 +178,19 @@ export default function HousesPage() {
         </AdminOnly>
       </div>
 
-      {/* Search */}
-      <form onSubmit={onSearch} style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", margin: "12px 0" }}>
-        <div>
-          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>Qtr</label>
-          <input value={qtr} onChange={(e) => setQtr(e.target.value)} placeholder="e.g. A-12" />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>File No</label>
-          <input value={fileNo} onChange={(e) => setFileNo(e.target.value)} placeholder="e.g. FN-1234" />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>CNIC</label>
-          <input value={cnic} onChange={(e) => setCnic(e.target.value)} placeholder="35202-XXXXXXX-X" />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>Allottee Name</label>
-          <input value={allottee} onChange={(e) => setAllottee(e.target.value)} placeholder="Ali Khan" />
-        </div>
-        <div style={{ alignSelf: "end", display: "flex", gap: 8 }}>
-          <button type="submit">Search</button>
-          <button type="button" onClick={onClear}>Clear</button>
-        </div>
+      {/* 🔎 Single search bar (matches your inline CSS style) */}
+      <form
+        onSubmit={onSearch}
+        style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}
+      >
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search qtr / file no / CNIC / allottee name"
+          style={{ flex: 1, padding: "8px 10px", border: "1px solid #ddd", borderRadius: 6 }}
+        />
+        <button type="submit">Search</button>
+        <button type="button" onClick={onClear}>Clear</button>
       </form>
 
       {/* Pager */}
@@ -235,7 +225,7 @@ export default function HousesPage() {
                 <td>{h.id}</td>
                 <td>
                   <button
-                    onClick={() => openAllotmentsForHouse(h.id)}
+                    onClick={() => openHistoryForRow(h)}
                     style={{ background: "none", border: "none", color: "#0b65c2", cursor: "pointer", textDecoration: "underline" }}
                     title="View allotment history"
                   >
@@ -256,8 +246,11 @@ export default function HousesPage() {
                 </AdminOnly>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {rows.length === 0 && !loading && (
               <tr><td colSpan={9} style={{ textAlign: "center" }}>No houses</td></tr>
+            )}
+            {loading && (
+              <tr><td colSpan={9} style={{ textAlign: "center", padding: 12 }}>Loading…</td></tr>
             )}
           </tbody>
         </table>
