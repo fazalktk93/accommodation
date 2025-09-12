@@ -1,41 +1,61 @@
-// frontend/src/components/Modal.jsx
-import React, { useEffect, useRef } from "react";
+// src/components/Modal.jsx
+import React, { useEffect } from "react";
 
-/**
- * Accessible lightweight modal using <dialog>
- * Fallbacks to a div if <dialog> isn't supported.
- */
-export default function Modal({ open, title, onClose, children, actions }) {
-  const ref = useRef(null);
-
+export default function Modal({ open, title, onClose, children, maxWidth = 560 }) {
   useEffect(() => {
-    const dlg = ref.current;
-    if (!dlg) return;
-    if (open) {
-      if (typeof dlg.showModal === "function") dlg.showModal();
-      else dlg.setAttribute("open", "open");
-      const onCancel = (e) => {
-        e.preventDefault();
-        onClose?.();
-      };
-      dlg.addEventListener("cancel", onCancel);
-      return () => dlg.removeEventListener("cancel", onCancel);
-    } else {
-      if (typeof dlg.close === "function") dlg.close();
-      else dlg.removeAttribute("open");
-    }
-  }, [open]);
+    if (!open) return;
+    const onKey = (e) => e.key === "Escape" && onClose?.();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
 
   return (
-    <dialog ref={ref} className="modal">
-      <form method="dialog" className="modal__surface" onSubmit={(e)=>e.preventDefault()}>
-        <header className="modal__header">
-          <strong className="modal__title">{title}</strong>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">×</button>
-        </header>
-        <div className="modal__content">{children}</div>
-        {actions && <footer className="modal__footer">{actions}</footer>}
-      </form>
-    </dialog>
+    <div
+      aria-modal
+      role="dialog"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: 12,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 10,
+          width: "100%",
+          maxWidth,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+        }}
+      >
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid #eee", display: "flex", alignItems: "center" }}>
+          <div style={{ fontWeight: 600, fontSize: 16, flex: 1 }}>{title}</div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: "transparent",
+              border: 0,
+              fontSize: 20,
+              lineHeight: 1,
+              cursor: "pointer",
+              opacity: 0.6,
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div style={{ padding: 18 }}>{children}</div>
+      </div>
+    </div>
   );
 }

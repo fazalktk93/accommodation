@@ -1,152 +1,313 @@
-// frontend/src/pages/HousesPage.jsx
-import React, { useEffect, useState } from "react";
-import { listHouses, createHouse, updateHouse, deleteHouse } from "../api";
-import { hasPerm } from "../authz";
+// src/pages/HousesPage.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
+import {
+  listHouses,
+  createHouse,
+  updateHouse,
+  deleteHouse,
+} from "../api";
+
+const DEFAULT_LIMIT = 500;
+
+function useQuery() {
+  const { search } = useLocation();
+  return useMemo(() => new URLSearchParams(search), [search]);
+}
+
+const emptyHouse = {
+  name: "",
+  address: "",
+  sector: "",
+  type_code: "",
+  status: "",
+  qtr: "",
+  file_no: "",
+};
 
 export default function HousesPage() {
-  const [list, setList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const navigate = useNavigate();
+  const query = useQuery();
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({
-    file_no: "",
-    sector: "",
-    type_code: "",
-    status: "Vacant",
-  });
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
 
-  const canWrite = hasPerm("houses:create") || hasPerm("houses:update");
+  // pagination
+  const [offset, setOffset] = useState(Number(query.get("offset") || 0));
+  const [limit, setLimit] = useState(Number(query.get("limit") || DEFAULT_LIMIT));
 
-  async function load() {
+  // search
+  const [qtr, setQtr] = useState(query.get("qtr") || query.get("quarter") || "");
+  const [fileNo, setFileNo] = useState(query.get("file_no") || query.get("fileNo") || "");
+  const [cnic, setCnic] = useState(query.get("cnic") || "");
+  const [allottee, setAllottee] = useState(query.get("allottee") || query.get("allottee_name") || "");
+
+  // modals
+  const [editing, setEditing] = useState(null); // object | null
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState(emptyHouse);
+
+  // load
+  const fetchData = async () => {
+    setLoading(true);
+    setError("");
     try {
-      setLoading(true);
-      setErr("");
-      const data = await listHouses({ limit: 5000 });
-      setList(Array.isArray(data) ? data : []);
+      const params = {
+        offset,
+        limit,
+        qtr: qtr || undefined,
+        quarter: qtr || undefined,
+        file_no: fileNo || undefined,
+        fileNo: fileNo || undefined,
+        cnic: cnic || undefined,
+        allottee_name: allottee || undefined,
+        allottee: allottee || undefined,
+      };
+      const data = await listHouses(params);
+      setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      setErr(e?.message || "Failed to load houses");
+      setError(String(e));
     } finally {
       setLoading(false);
     }
-  }
-  useEffect(() => { load(); }, []);
+  };
 
-  function openNew() {
-    setEditing(null);
-    setForm({ file_no: "", sector: "", type_code: "", status: "Vacant" });
-    setModalOpen(true);
-  }
-  function openEdit(h) {
-    setEditing(h);
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offset, limit]);
+
+  const pushParamsToUrl = () => {
+    const sp = new URLSearchParams();
+    sp.set("offset", String(offset));
+    sp.set("limit", String(limit));
+    if (qtr) sp.set("qtr", qtr);
+    if (fileNo) sp.set("file_no", fileNo);
+    if (cnic) sp.set("cnic", cnic);
+    if (allottee) sp.set("allottee", allottee);
+    navigate({ search: `?${sp.toString()}` }, { replace: true });
+  };
+
+  const onSearch = async (e) => {
+    e?.preventDefault();
+    pushParamsToUrl();
+    await fetchData();
+  };
+
+  const onClear = async () => {
+    setQtr("");
+    setFileNo("");
+    setCnic("");
+    setAllottee("");
+    setOffset(0);
+    navigate({ search: `?offset=0&limit=${limit}` }, { replace: true });
+    await fetchData();
+  };
+
+  const openAllotmentsForHouse = (houseId) => {
+    navigate(`/allotments?house_id=${encodeURIComponent(houseId)}&limit=1000`);
+  };
+
+  // ----- CRUD (admin) -----
+  const openAddModal = () => {
+    setForm(emptyHouse);
+    setAdding(true);
+  };
+
+  const openEditModal = (house) => {
+    setEditing(house);
     setForm({
-      file_no: h.file_no || "",
-      sector: h.sector || "",
-      type_code: h.type_code || "",
-      status: h.status || "Vacant",
+      name: house.name ?? "",
+      address: house.address ?? "",
+      sector: house.sector ?? "",
+      type_code: house.type_code ?? "",
+      status: house.status ?? "",
+      qtr: house.qtr ?? house.quarter ?? "",
+      file_no: house.file_no ?? "",
     });
-    setModalOpen(true);
-  }
+  };
 
-  async function onSubmit(e) {
+  const closeModals = () => {
+    setAdding(false);
+    setEditing(null);
+    setForm(emptyHouse);
+  };
+
+  const handleChange = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const submitAdd = async (e) => {
     e.preventDefault();
     try {
-      if (editing?.id) {
-        await updateHouse(editing.id, form);
-      } else {
-        await createHouse(form);
-      }
-      setModalOpen(false);
-      await load();
-    } catch (e) {
-      alert(e?.message || "Save failed");
+      await createHouse(form);
+      closeModals();
+      await fetchData();
+    } catch (err) {
+      alert(`Create failed: ${err}`);
     }
-  }
+  };
 
-  async function onDelete(h) {
-    if (!confirm("Delete this house?")) return;
+  const submitEdit = async (e) => {
+    e.preventDefault();
     try {
-      await deleteHouse(h.id);
-      await load();
-    } catch (e) {
-      alert(e?.message || "Delete failed");
+      await updateHouse(editing.id, form);
+      closeModals();
+      await fetchData();
+    } catch (err) {
+      alert(`Update failed: ${err}`);
     }
-  }
+  };
+
+  const onDelete = async (house) => {
+    if (!window.confirm(`Delete house "${house.name || house.id}"?`)) return;
+    try {
+      await deleteHouse(house.id);
+      await fetchData();
+    } catch (err) {
+      alert(`Delete failed: ${err}`);
+    }
+  };
 
   return (
-    <div>
-      <h1>Houses</h1>
-
-      {err && <div className="card" style={{ borderLeft: "4px solid #e53935", color: "#b71c1c" }}>{err}</div>}
-
-      <div style={{ marginBottom: 8 }}>
-        {canWrite && <button className="btn primary" onClick={openNew}>+ New House</button>}
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <h2 style={{ margin: 0, flex: 1 }}>Houses</h2>
+        <AdminOnly>
+          <button onClick={openAddModal}>+ Add House</button>
+        </AdminOnly>
       </div>
 
-      <div className="card" style={{ overflowX: "auto" }}>
-        <table className="table">
+      {/* Search */}
+      <form onSubmit={onSearch} style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", margin: "12px 0" }}>
+        <div>
+          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>Qtr</label>
+          <input value={qtr} onChange={(e) => setQtr(e.target.value)} placeholder="e.g. A-12" />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>File No</label>
+          <input value={fileNo} onChange={(e) => setFileNo(e.target.value)} placeholder="e.g. FN-1234" />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>CNIC</label>
+          <input value={cnic} onChange={(e) => setCnic(e.target.value)} placeholder="35202-XXXXXXX-X" />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, opacity: 0.7 }}>Allottee Name</label>
+          <input value={allottee} onChange={(e) => setAllottee(e.target.value)} placeholder="Ali Khan" />
+        </div>
+        <div style={{ alignSelf: "end", display: "flex", gap: 8 }}>
+          <button type="submit">Search</button>
+          <button type="button" onClick={onClear}>Clear</button>
+        </div>
+      </form>
+
+      {/* Pager */}
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center" }}>
+        <label>Limit:</label>
+        <input type="number" min={1} value={limit} onChange={(e) => setLimit(Number(e.target.value || DEFAULT_LIMIT))} />
+        <label>Offset:</label>
+        <input type="number" min={0} value={offset} onChange={(e) => setOffset(Number(e.target.value || 0))} />
+        <button onClick={fetchData} disabled={loading}>Refresh</button>
+      </div>
+
+      {error && <div style={{ color: "crimson", marginBottom: 8 }}>{error}</div>}
+
+      <div style={{ overflowX: "auto" }}>
+        <table border="1" cellPadding="6" cellSpacing="0" style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th>File #</th>
+              <th>ID</th>
+              <th>File No</th>
+              <th>Qtr</th>
+              <th>Name</th>
+              <th>Address</th>
               <th>Sector</th>
               <th>Type</th>
               <th>Status</th>
-              {canWrite && <th>Actions</th>}
+              <AdminOnly><th>Actions</th></AdminOnly>
             </tr>
           </thead>
           <tbody>
-            {list.map((h) => (
+            {rows.map((h) => (
               <tr key={h.id}>
-                <td>{h.file_no}</td>
-                <td>{h.sector}</td>
-                <td>{h.type_code}</td>
-                <td>{h.status}</td>
-                {canWrite && (
-                  <td>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button className="btn" onClick={() => openEdit(h)}>Edit</button>
-                      {hasPerm("houses:delete") && (
-                        <button className="btn danger" onClick={() => onDelete(h)}>Delete</button>
-                      )}
-                    </div>
+                <td>{h.id}</td>
+                <td>
+                  <button
+                    onClick={() => openAllotmentsForHouse(h.id)}
+                    style={{ background: "none", border: "none", color: "#0b65c2", cursor: "pointer", textDecoration: "underline" }}
+                    title="View allotment history"
+                  >
+                    {h.file_no ?? "-"}
+                  </button>
+                </td>
+                <td>{h.qtr ?? h.quarter ?? "-"}</td>
+                <td>{h.name ?? "-"}</td>
+                <td>{h.address ?? "-"}</td>
+                <td>{h.sector ?? "-"}</td>
+                <td>{h.type_code ?? "-"}</td>
+                <td>{h.status ?? "-"}</td>
+                <AdminOnly>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button onClick={() => openEditModal(h)}>Edit</button>{" "}
+                    <button onClick={() => onDelete(h)} style={{ color: "crimson" }}>Delete</button>
                   </td>
-                )}
+                </AdminOnly>
               </tr>
             ))}
-            {!list.length && (
-              <tr><td colSpan={canWrite ? 5 : 4} style={{ textAlign: "center", color: "#607d8b" }}>No records</td></tr>
+            {rows.length === 0 && (
+              <tr><td colSpan={9} style={{ textAlign: "center" }}>No houses</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit House" : "New House"}>
-        <form onSubmit={onSubmit} className="grid gap-2">
-          <label>File #
-            <input value={form.file_no} onChange={(e) => setForm({ ...form, file_no: e.target.value })} required />
-          </label>
-          <label>Sector
-            <input value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })} />
-          </label>
-          <label>Type
-            <input value={form.type_code} onChange={(e) => setForm({ ...form, type_code: e.target.value })} />
-          </label>
-          <label>Status
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-              <option>Vacant</option>
-              <option>Occupied</option>
-              <option>Under Maintenance</option>
-            </select>
-          </label>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <button className="btn primary" type="submit">{editing ? "Save" : "Create"}</button>
-            <button className="btn" type="button" onClick={() => setModalOpen(false)}>Cancel</button>
-          </div>
+      {/* Add Modal */}
+      <Modal open={adding} onClose={closeModals} title="Add House">
+        <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
+          <Field label="Name" value={form.name} onChange={handleChange("name")} />
+          <Field label="Address" value={form.address} onChange={handleChange("address")} />
+          <Field label="Sector" value={form.sector} onChange={handleChange("sector")} />
+          <Field label="Type Code" value={form.type_code} onChange={handleChange("type_code")} />
+          <Field label="Status" value={form.status} onChange={handleChange("status")} />
+          <Field label="Qtr" value={form.qtr} onChange={handleChange("qtr")} />
+          <Field label="File No" value={form.file_no} onChange={handleChange("file_no")} />
+          <Actions onCancel={closeModals} submitText="Create" />
         </form>
       </Modal>
+
+      {/* Edit Modal */}
+      <Modal open={!!editing} onClose={closeModals} title={editing ? `Edit House #${editing.id}` : "Edit"}>
+        <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
+          <Field label="Name" value={form.name} onChange={handleChange("name")} />
+          <Field label="Address" value={form.address} onChange={handleChange("address")} />
+          <Field label="Sector" value={form.sector} onChange={handleChange("sector")} />
+          <Field label="Type Code" value={form.type_code} onChange={handleChange("type_code")} />
+          <Field label="Status" value={form.status} onChange={handleChange("status")} />
+          <Field label="Qtr" value={form.qtr} onChange={handleChange("qtr")} />
+          <Field label="File No" value={form.file_no} onChange={handleChange("file_no")} />
+          <Actions onCancel={closeModals} submitText="Save" />
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, type = "text", required = false }) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
+      <input type={type} value={value || ""} onChange={onChange} required={required} />
+    </label>
+  );
+}
+
+function Actions({ onCancel, submitText }) {
+  return (
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+      <button type="button" onClick={onCancel}>Cancel</button>
+      <button type="submit">{submitText}</button>
     </div>
   );
 }
