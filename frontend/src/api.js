@@ -1,7 +1,4 @@
 // frontend/src/api.js
-// Centralized request helper that: (1) includes cookies, (2) adds Authorization if token exists,
-// and (3) auto-falls back from /app-api -> /api on 404, avoiding path mismatch 401/404.
-
 import { getToken } from "./auth";
 
 const API_PREFIX =
@@ -36,10 +33,10 @@ async function request(method, path, { params, data, headers } = {}) {
     method,
     headers: h,
     body: data != null ? (h.get("Content-Type")?.includes("json") ? JSON.stringify(data) : data) : undefined,
-    credentials: "include", // critical for cookie session
+    credentials: "include",
   });
 
-  // If env points to /app-api but backend serves /api, auto-fallback once on 404
+  // fallback if env is /app-api but backend serves /api
   if (res.status === 404 && API_PREFIX === "/app-api") {
     const url2 = url.replace("/app-api/", "/api/");
     res = await fetch(url2, {
@@ -64,24 +61,26 @@ async function getJson(res) {
 
 const asList = (x) => (Array.isArray(x) ? x : x ? [x] : []);
 
-// ---- API surface (kept compatible with your existing calls) ----
+// --- AUTH ---
 export async function login(username, password) {
   const res = await request("POST", "/auth/login", { data: { username, password } });
   return await getJson(res);
 }
 
 export async function me() {
-  // If your backend exposes /auth/me, this will work with JWT;
-  // If you rely on cookie-only, you can add /auth/me-cookie on backend and call it here.
   const res = await request("GET", "/auth/me");
   return await getJson(res);
 }
 
-// Houses
+// --- HOUSES ---
 export async function getHouses(params) {
   const res = await request("GET", "/houses", { params });
   return asList(await getJson(res));
 }
+
+// 👇 Alias for backwards-compatibility
+export const listHouses = getHouses;
+
 export async function getHouse(id) {
   const res = await request("GET", `/houses/${id}`);
   return await getJson(res);
@@ -99,7 +98,7 @@ export async function deleteHouse(id) {
   return await getJson(res);
 }
 
-// Allotments
+// --- ALLOTMENTS ---
 export async function getAllotments(params) {
   const res = await request("GET", "/allotments", { params });
   return asList(await getJson(res));
@@ -109,7 +108,7 @@ export async function updateAllotment(id, payload) {
   return await getJson(res);
 }
 
-// Files
+// --- FILES ---
 export async function getFiles(params) {
   const res = await request("GET", "/files", { params });
   return asList(await getJson(res));
