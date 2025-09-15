@@ -1,15 +1,9 @@
 // frontend/src/pages/HouseAllotmentHistory.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import auth from "../auth"; // ===== use the same auth wrapper (sends cookies & Authorization)
 
 const SHOW_STATUS_COLS = false;
-
-// unified API base (relative → goes through your proxy, no CORS)
-const API_BASE =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-  (typeof window !== "undefined" && window.API_BASE_URL) ||
-  "/api";
 
 // ---- helpers ----
 const asList = (d) =>
@@ -25,22 +19,32 @@ const asList = (d) =>
 
 const fmt = (d) => (d ? String(d) : "-");
 
-// strip a leading "/api" if someone accidentally includes it
-function toRelativeApiPath(p) {
-  if (!p) return "/";
-  if (/^https?:\/\//i.test(p)) return p;      // already absolute (rare)
+// Ensure we always hit the backend via Vite proxy at /api/* (and avoid /api/api)
+function toApiPath(p) {
+  if (!p) return "/api/";
+  if (/^https?:\/\//i.test(p)) return p; // absolute URL, leave as-is
   let rel = p.startsWith("/") ? p : `/${p}`;
-  if (rel.startsWith("/api/")) rel = rel.slice(4); // -> remove leading "/api"
-  return rel; // e.g. "/houses/123"
+  if (rel.startsWith("/api/")) return rel; // already correct
+  return `/api${rel}`; // prepend /api
 }
 
-// ALWAYS go through auth.fetch to avoid CORS and to include cookies/token.
-// Also avoids "/api/api" by normalizing the path above.
+// ALWAYS go through auth.fetch to include cookies/token.
 async function getJson(path, opts = {}) {
-  const url = toRelativeApiPath(path);
-  const res = await authFetch(url, {
-    ...opts,
-    headers: { Accept: "application/json", ...(opts.headers || {}) },
+  const { params, ...rest } = opts || {};
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+
+  const urlObj = new URL(toApiPath(path), origin);
+  if (params && typeof params === "object") {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v == null || v === "") return;
+      if (Array.isArray(v)) v.forEach((vv) => urlObj.searchParams.append(k, vv));
+      else urlObj.searchParams.set(k, v);
+    });
+  }
+
+  const res = await auth.fetch(urlObj.toString(), {
+    ...rest,
+    headers: { Accept: "application/json", ...(rest.headers || {}) },
   });
 
   const text = await res.text();
@@ -52,6 +56,7 @@ async function getJson(path, opts = {}) {
     return text;
   }
 }
+
 
 function Badge({ children }) {
   return (
@@ -151,12 +156,14 @@ export default function HouseAllotmentHistory() {
   const api = useMemo(
     () => ({
       getHouse: (hid) => getJson(`/houses/${hid}`),
-      getHouseByFile: (fno) => getJson(`/houses/by-file/${encodeURIComponent(fno)}`),
-      listAllotmentsByHouseNested: (hid) => getJson(`/houses/${hid}/allotments`),
+      // backend supports searching by file_no via list endpoint
+      getHouseByFile: async (fno) => {
+        const res = await getJson(`/houses/`, { params: { file_no: fno, limit: 1 } });
+        const items = asList(res);
+        return items[0] || null;
+      },
       listAllotmentsByHouseId: (hid) =>
-        getJson(`/allotments/?house_id=${encodeURIComponent(hid)}`).then(asList),
-      listAllotmentsByFileNo: (fno) =>
-        getJson(`/allotments/history/by-file/${encodeURIComponent(fno)}`),
+        getJson(`/allotments/`, { params: { house_id: hid, skip: 0, limit: 1000 } }).then(asList),
       patchHouseStatus: (hid, status) =>
         getJson(`/houses/${hid}`, {
           method: "PATCH",
@@ -197,18 +204,16 @@ export default function HouseAllotmentHistory() {
         const h = await api.getHouseByFile(fileNo);
         setHouse(h);
         // nested endpoint returns full history (no CORS, cookies included)
-        const nested = await api.listAllotmentsByHouseNested(h.id);
-        setRows(Array.isArray(nested) ? nested : []);
+        const list = await api.listAllotmentsByHouseId(h.id);
+        setRows(list);
         return;
       }
 
       // fallback: by house id
       const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
-      const nested = await api.listAllotmentsByHouseNested(h.id);
-      setRows(Array.isArray(nested) && nested.length
-        ? nested
-        : await api.listAllotmentsByHouseId(h.id));
+     const list = await api.listAllotmentsByHouseId(h.id);
+     setRows(list);
     } catch (e) {
       setErr(e.message || String(e));
       setRows([]);
@@ -266,12 +271,6 @@ export default function HouseAllotmentHistory() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ marginBottom: 16 }}>
-        <Link to="/houses">Houses</Link>
-        <span style={{ margin: "0 8px" }}>Allotments</span>
-        <Link to="/files">File Movement</Link>
-      </div>
-
       <h1>House — Allotment History</h1>
 
       {err && (
@@ -318,22 +317,6 @@ export default function HouseAllotmentHistory() {
               <div>
                 <strong>Type:</strong> {fmt(house.type_code)} &nbsp; <strong>Status:</strong>{" "}
                 <Badge>{fmt(house.status)}</Badge>
-              </div>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "#666", marginRight: 8 }}>
-                Set status:
-              </label>
-              <select
-                value={house.status || "vacant"}
-                onChange={(e) => updateHouseStatus(e.target.value)}
-              >
-                <option value="vacant">vacant</option>
-                <option value="occupied">occupied</option>
-                <option value="maintenance">maintenance</option>
-              </select>
-              <div style={{ fontSize: 11, color: "#777", marginTop: 4 }}>
-                (Manual override; backend sets <code>status_manual=true</code>)
               </div>
             </div>
           </div>

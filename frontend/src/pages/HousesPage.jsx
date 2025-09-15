@@ -19,6 +19,7 @@ const emptyHouse = {
   street: "",
   sector: "",
   type_code: "",
+  pool: "", // default
   status: "vacant",
   status_manual: false,
 };
@@ -118,6 +119,7 @@ export default function HousesPage() {
       street: row.street ?? "",
       sector: row.sector ?? "",
       type_code: row.type_code ?? "",
+      pool: row.pool ?? "",
       status: row.status ?? "vacant",
       status_manual: !!row.status_manual,
     });
@@ -210,6 +212,7 @@ export default function HousesPage() {
               <th style={th}>Street</th>
               <th style={th}>Sector</th>
               <th style={th}>Type</th>
+              <th style={th}>Pool</th>
               <th style={th}>Status</th>
               <AdminOnly><th style={th}>Actions</th></AdminOnly>
             </tr>
@@ -230,6 +233,7 @@ export default function HousesPage() {
                 <td style={td}>{r.street ?? "-"}</td>
                 <td style={td}>{r.sector ?? "-"}</td>
                 <td style={td}>{r.type_code ?? "-"}</td>
+                <td style={td}>{r.pool ?? "-"}</td>
                 <td style={td}>{r.status ?? "-"}</td>
                 <AdminOnly>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
@@ -269,7 +273,28 @@ export default function HousesPage() {
           <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
           <Field label="Street" value={form.street} onChange={onChange("street")} />
           <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
-          <Field label="Type Code" value={form.type_code} onChange={onChange("type_code")} />
+              <Select
+                label="Type"
+                value={form.type_code}
+                onChange={onChange("type_code")}
+                options={[
+                  { value: "A", label: "A" }, { value: "B", label: "B" },
+                  { value: "C", label: "C" }, { value: "D", label: "D" },
+                  { value: "E", label: "E" }, { value: "F", label: "F" },
+                  { value: "G", label: "G" }, { value: "H", label: "H" },
+                  { value: "SITE", label: "SITE" },
+                ]}
+              />
+              <Select
+                label="Pool"
+                value={form.pool}
+                onChange={onChange("pool")}
+                options={[
+                  { value: "CDA", label: "CDA" },
+                  { value: "ESTATE OFFICE", label: "ESTATE OFFICE" },
+                  // add more options here if you have them
+                ]}
+          />
           <Row>
             <Select
               label="Status"

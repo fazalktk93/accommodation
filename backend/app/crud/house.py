@@ -58,3 +58,9 @@ def update(db: Session, house_id: int, obj_in: HouseUpdate) -> House:
 def delete(db: Session, house_id: int) -> None:
     obj = get(db, house_id)
     db.delete(obj); db.commit()
+
+def get_by_file_opt(db: Session, file_no: str) -> Optional[House]:
+    """Return the house for this file_no, or None if it doesn't exist."""
+    return db.execute(
+        select(House).where(House.file_no == file_no)
+    ).scalar_one_or_none()

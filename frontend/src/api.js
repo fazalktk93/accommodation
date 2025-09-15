@@ -6,17 +6,35 @@
 
 import { getToken } from "./auth";
 
-const API_BASE =
+const RAW_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
+// remove trailing slashes; e.g. "http://host:8000/api/" -> "http://host:8000/api"
+const API_BASE = String(RAW_BASE).replace(/\/+$/, "");
 
 // -------------------- helpers --------------------
 function makeUrl(path, params) {
-  const url = new URL(
-    path.startsWith("http") ? path : API_BASE + (path.startsWith("/") ? path : "/" + path),
-    (typeof window !== "undefined" ? window.location.origin : "http://localhost")
-  );
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  // absolute URL? just use it
+  if (/^https?:\/\//i.test(path)) {
+    const url = new URL(path);
+    if (params && typeof params === "object") {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v == null || v === "") return;
+        Array.isArray(v) ? v.forEach((vv) => url.searchParams.append(k, vv))
+                         : url.searchParams.set(k, v);
+      });
+    }
+    return url.toString();
+  }
+
+  // normalize relative paths and avoid "/api/api/*"
+  let rel = path.startsWith("/") ? path : `/${path}`;
+  if (rel.startsWith("/api/") && /\/api$/i.test(API_BASE)) {
+    rel = rel.slice(4); // drop the leading "/api"
+  }
+  const url = new URL(`${API_BASE}${rel}`, origin);
   if (params && typeof params === "object") {
     Object.entries(params).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
@@ -45,22 +63,6 @@ async function rawFetch(method, path, { params, data, headers } = {}) {
         : undefined,
     credentials: "include",
   });
-
-  // fallback if someone configured /app-api but server serves /api
-  if (res.status === 404 && API_BASE === "/app-api") {
-    const fallback = makeUrl(path.replace(/^\/?/, "/").replace("/app-api/", "/api/"), params);
-    res = await fetch(fallback, {
-      method,
-      headers: h,
-      body:
-        data != null
-          ? h.get("Content-Type")?.includes("json")
-            ? JSON.stringify(data)
-            : data
-          : undefined,
-      credentials: "include",
-    });
-  }
 
   return res;
 }
@@ -265,10 +267,42 @@ export async function deleteHouse(id) {
 export const removeHouse = deleteHouse;
 
 // -------------------- ALLOTMENTS (/api/allotments/*) --------------------
+// If limit <= 1000 → single call. If > 1000 → chunked fetch in 1000s and merge.
 export async function getAllotments(params) {
   const qp = normAllotments(params);
-  const res = await request("GET", "/allotments/", { params: qp });
-  return listify(await jsonOrText(res));
+  const MAX_PER_CALL = 1000; // matches backend: Query(..., le=1000)
+
+  const want = qp.limit;
+  const start = qp.skip ?? qp.offset ?? 0;
+
+  if (want <= MAX_PER_CALL) {
+    const res = await request("GET", "/allotments/", {
+      params: { ...qp, limit: Math.min(want, MAX_PER_CALL) },
+    });
+    return listify(await jsonOrText(res));
+  }
+
+  // multi-chunk fetch
+  const chunks = [];
+  let fetched = 0;
+  while (fetched < want) {
+    const thisLimit = Math.min(MAX_PER_CALL, want - fetched);
+    const thisSkip = start + fetched;
+    const res = await request("GET", "/allotments/", {
+      params: { ...qp, skip: thisSkip, limit: thisLimit },
+    });
+    if (!res.ok) {
+      const errBody = await jsonOrText(res);
+      throw new Error(
+        typeof errBody === "string" ? errBody : JSON.stringify(errBody)
+      );
+    }
+    const data = listify(await jsonOrText(res));
+    chunks.push(...data);
+    if (data.length < thisLimit) break; // no more rows on server
+    fetched += thisLimit;
+  }
+  return chunks;
 }
 export const listAllotments = getAllotments;
 

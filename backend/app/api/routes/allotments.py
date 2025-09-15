@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, require_permissions
@@ -12,6 +12,7 @@ from app.crud import allotment as crud
 from app.crud import house as crud_house
 from app.models import House, Allotment, QtrStatus, AllotteeStatus
 from app.models.user import Role
+
 
 router = APIRouter(prefix="/allotments", tags=["allotments"])
 
@@ -43,7 +44,7 @@ def _maybe_auto_retention(db: Session, a: Allotment) -> bool:
 @router.get("/", response_model=List[s.AllotmentOut])
 def list_allotments(
     skip: int = 0,
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(100, ge=1),
     house_id: Optional[int] = None,
     active: Optional[bool] = None,
     person_name: Optional[str] = None,
@@ -158,3 +159,20 @@ def delete_allotment(
 ):
     crud.delete(db, allotment_id)
     return None
+
+class EndPayload(s.BaseModel if hasattr(s, "BaseModel") else object):  # fallback if you don't re-export BaseModel
+    notes: Optional[str] = None
+    vacation_date: Optional[date] = None
+
+@router.post("/{allotment_id}/end", response_model=getattr(s, "AllotmentOut", None))
+def end_allotment(
+    allotment_id: int,
+    payload: Optional[EndPayload] = Body(None),
+    db: Session = Depends(get_db),
+):
+    return crud.allotment.end(
+        db,
+        allotment_id,
+        notes=(payload.notes if payload else None),
+        vacation_date=(payload.vacation_date if payload else None),
+    )
