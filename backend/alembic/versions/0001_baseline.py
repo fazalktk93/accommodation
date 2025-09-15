@@ -8,7 +8,7 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    # houses table
+    # houses
     op.create_table(
         "houses",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -25,7 +25,7 @@ def upgrade():
     op.create_index("ix_houses_street", "houses", ["street"])
     op.create_index("ix_houses_sector", "houses", ["sector"])
 
-    # allotments table
+    # allotments
     op.create_table(
         "allotments",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -35,7 +35,7 @@ def upgrade():
         sa.Column("date_to", sa.Date),
     )
 
-    # file_movements table
+    # file_movements
     op.create_table(
         "file_movements",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -45,7 +45,7 @@ def upgrade():
         sa.Column("moved_on", sa.DateTime),
     )
 
-    # user table
+    # user
     op.create_table(
         "user",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -53,7 +53,6 @@ def upgrade():
         sa.Column("password", sa.String, nullable=False),
         sa.Column("is_superuser", sa.Boolean, nullable=False, server_default="0"),
     )
-
 
 def downgrade():
     op.drop_table("file_movements")
