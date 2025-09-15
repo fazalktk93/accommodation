@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "allow"
 
     @property
     def DB_URL(self) -> str:
