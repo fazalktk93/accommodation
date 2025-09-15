@@ -163,7 +163,7 @@ export default function HouseAllotmentHistory() {
         return items[0] || null;
       },
       listAllotmentsByHouseId: (hid) =>
-        getJson(`/allotments/`, { params: { house_id: hid, skip: 0, limit: 1000 } }).then(asList),
+        getJson(`/allotments/`, { params: { house_id: hid, skip: 0, limit: 10000 } }).then(asList),
       patchHouseStatus: (hid, status) =>
         getJson(`/houses/${hid}`, {
           method: "PATCH",

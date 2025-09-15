@@ -117,7 +117,7 @@ def main():
     ap.add_argument("--db", default=None, help="SQLAlchemy URL (e.g. sqlite:////E:/accommodation/backend/accommodation.db)")
     ap.add_argument("--table", default="houses")
     ap.add_argument("--unique", nargs="+", default=["file_no","qtr_no"])
-    ap.add_argument("--batch", type=int, default=1000)
+    ap.add_argument("--batch", type=int, default=10000)
     ap.add_argument("--dry", action="store_true")
     # headerless support
     ap.add_argument("--no-header", action="store_true", help="CSV has no header row")

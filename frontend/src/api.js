@@ -270,7 +270,7 @@ export const removeHouse = deleteHouse;
 // If limit <= 1000 → single call. If > 1000 → chunked fetch in 1000s and merge.
 export async function getAllotments(params) {
   const qp = normAllotments(params);
-  const MAX_PER_CALL = 1000; // matches backend: Query(..., le=1000)
+  const MAX_PER_CALL = 10000; // matches backend: Query(..., le=10000)
 
   const want = qp.limit;
   const start = qp.skip ?? qp.offset ?? 0;
