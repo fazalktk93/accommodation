@@ -3,8 +3,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
-url = settings.DB_URL
-connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+url = settings.DB_URL  # <- normalized absolute URL
+connect_args = {}
+
+if url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
 
 engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -15,6 +18,5 @@ try:
 except Exception:
     pass
 
-def get_session():
-    """Return a new SQLAlchemy session. Remember to close() it."""
-    return SessionLocal()
+
+from contextlib import contextmanager
