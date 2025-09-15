@@ -35,28 +35,23 @@ def _normalize_sqlite_url(url: str) -> str:
 
 
 class Settings(BaseSettings):
-    # ✅ v2-style config: this is what makes .env load!
     model_config = SettingsConfigDict(
-        env_file=".env",      # load environment variables from .env
-        extra="allow",        # allow unexpected extras (they will be accessible via .model_extra)
+        env_file=".env",
+        extra="allow",
     )
 
     # ----- App basics -----
     PROJECT_NAME: str = "Accommodation"
+    API_PREFIX: str = "/api"   # <<< add this field with default
 
-    # Accept either a JSON-style list or a comma-separated string via .env
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = Field(default_factory=list)
 
     # ----- Security -----
-    # will read SECRET_KEY from environment/.env
-    SECRET_KEY: str = Field(default="")   # set in .env: SECRET_KEY=your-long-random-string
-    # (add other auth settings if you use them)
-    # ALGORITHM: str = "HS256"
-    # ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    SECRET_KEY: str = Field(default="")   # should be set in .env
 
     # ----- Database -----
-    DATABASE_URL: str = ""                      # preferred
-    SQLALCHEMY_DATABASE_URL: str | None = None  # backwards-compat
+    DATABASE_URL: str = ""
+    SQLALCHEMY_DATABASE_URL: str | None = None
 
     # Parse comma-separated CORS list like: http://localhost:3000,https://example.com
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
