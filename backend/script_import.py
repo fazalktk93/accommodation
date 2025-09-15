@@ -36,34 +36,40 @@ STATUS_MAP = {
 }
 
 def _clean(v: Any) -> Optional[str]:
+    """Return stripped string or None."""
     if v is None: return None
     s = str(v).strip()
     return s if s != "" else None
 
-def _sector(v: Any) -> Optional[str]:
+def _clean_or_blank(v: Any) -> str:
+    """Return stripped string, or '' if missing."""
     s = _clean(v)
-    return s.upper() if s else None
+    return s if s is not None else ""
+
+def _sector(v: Any) -> str:
+    s = _clean(v)
+    return (s.upper() if s else "")
 
 def _qtr(v: Any) -> Optional[str]:
     s = _clean(v)
-    if not s: return None
+    if not s: return None  # keep keys strict; missing keys cause row skip
     s = re.sub(r"\s*-\s*", "-", s)
     s = re.sub(r"\s+", " ", s)
     return s
 
-def _type(v: Any) -> Optional[str]:
+def _type(v: Any) -> str:
     s = _clean(v)
-    if not s: return None
+    if not s: return ""
     s = re.sub(r"[^A-Za-z]", "", s.upper())
-    return s[:1] if s else None
+    return s[:1] if s else ""
 
-def _status(v: Any, keep_empty: bool) -> Optional[str]:
-    # keep "" if requested to satisfy NOT NULL without a default
+def _status(v: Any) -> str:
+    """Return normalized status, or '' if missing."""
     if v is None:
-        return "" if keep_empty else None
+        return ""
     s = str(v).strip()
     if s == "":
-        return "" if keep_empty else None
+        return ""
     key = re.sub(r"\s+", " ", s.lower().replace("-", " ").strip())
     return STATUS_MAP.get(key, key)
 
@@ -83,7 +89,10 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
             return "skip_nokey"
         conds.append(table.c[k] == v)
     hit = conn.execute(select(table.c.id).where(and_(*conds)).limit(1)).fetchone()
+
+    # Only include columns that exist in the table
     payload = {k: row.get(k) for k in row.keys() if k in table.c}
+
     if hit:
         conn.execute(update(table).where(table.c.id == hit[0]).values(**payload))
         return "update"
@@ -92,7 +101,7 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
         return "insert"
 
 def main():
-    ap = argparse.ArgumentParser(description="Smart import for house table (headerless, column order, keep-empty status).")
+    ap = argparse.ArgumentParser(description="Smart CSV import for a table (leaves missing non-key text columns blank).")
     ap.add_argument("--csv", required=True)
     ap.add_argument("--db", default=None)
     ap.add_argument("--table", default="house")
@@ -102,8 +111,6 @@ def main():
     # headerless support
     ap.add_argument("--no-header", action="store_true", help="CSV has no header row")
     ap.add_argument("--order", default="", help="Comma list when --no-header (e.g., file_no,qtr_no,street,sector,status,type_code)")
-    # keep-empty controls
-    ap.add_argument("--keep-empty-status", action="store_true", help="Keep empty string for status (avoid NOT NULL failure)")
     # preview
     ap.add_argument("--peek", type=int, default=0, help="Print first N parsed rows then exit")
     args = ap.parse_args()
@@ -116,13 +123,17 @@ def main():
         def get(key):
             i = order.index(key) if key in order else -1
             return vals[i] if (i >= 0 and i < len(vals)) else None
+        # Keys (must be present, or row will be skipped)
+        file_no = _clean(get('file_no'))
+        qtr_no  = _qtr(get('qtr_no'))
+        # Non-key text columns: leave blank if missing
         return {
-            'file_no':   _clean(get('file_no')),
-            'qtr_no':    _qtr(get('qtr_no')),
+            'file_no':   file_no,
+            'qtr_no':    qtr_no,
             'sector':    _sector(get('sector')),
-            'street':    _clean(get('street')),
+            'street':    _clean_or_blank(get('street')),
             'type_code': _type(get('type_code')),
-            'status':    _status(get('status'), keep_empty=args.keep_empty_status),
+            'status':    _status(get('status')),
         }
 
     inserts=updates=skip_nokey=skip_allblank=0
@@ -147,9 +158,11 @@ def main():
             shown = 0
             for raw in rdr:
                 row = build_row_from_list(raw, order)
-                if not any(v not in (None, "") for v in row.values()):  # all None or ""
+                # Skip rows with everything empty
+                if not any(v not in (None, "") for v in row.values()):
                     skip_allblank += 1
                     continue
+                # Skip rows missing unique keys
                 if not all(row.get(k) for k in args.unique):
                     skip_nokey += 1
                     continue
@@ -170,13 +183,14 @@ def main():
                 print(f"  {c!r} -> {mapping.get(c, '(ignored)')}")
             for raw in rdr:
                 rv = lambda k: (raw[idx[k]] if k in idx and idx[k] < len(raw) else None)
+                # Keys strict; non-keys blank if missing
                 row = {
                     'file_no':   _clean(rv('file_no')),
                     'qtr_no':    _qtr(rv('qtr_no')),
                     'sector':    _sector(rv('sector')),
-                    'street':    _clean(rv('street')),
+                    'street':    _clean_or_blank(rv('street')),
                     'type_code': _type(rv('type_code')),
-                    'status':    _status(rv('status'), keep_empty=args.keep_empty_status),
+                    'status':    _status(rv('status')),
                 }
                 if not any(v not in (None, "") for v in row.values()):
                     skip_allblank += 1
