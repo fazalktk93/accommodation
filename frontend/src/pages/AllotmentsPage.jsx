@@ -5,7 +5,7 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 5000;
 
 function useQuery() {
   const { search } = useLocation();

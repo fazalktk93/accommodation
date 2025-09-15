@@ -108,7 +108,7 @@ function normHouses(params = {}) {
       ? Math.max(0, page * pageSize)
       : Number(params.offset ?? 0);
   let limit = Number(params.limit ?? params.size ?? params.pageSize ?? 50);
-  if (!Number.isFinite(limit) || limit < 1) limit = 50;
+  if (!Number.isFinite(limit) || limit < 1) limit = 5000;
   if (!Number.isFinite(offset) || offset < 0) offset = 0;
   out.offset = offset;
   out.limit = limit;
