@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 10
 
     # Accept both names, prefer DATABASE_URL
-    DATABASE_URL: str = Field("sqlite:///./app.db", env="DATABASE_URL")
+    DATABASE_URL: str = Field("sqlite:///./accommodation.db", env="DATABASE_URL")
     SQLALCHEMY_DATABASE_URL: Optional[str] = Field(None, env="SQLALCHEMY_DATABASE_URL")
 
     BACKEND_CORS_ORIGINS: List[str] | str = Field(default_factory=list)
