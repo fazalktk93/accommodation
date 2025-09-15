@@ -1,15 +1,19 @@
+# app/db/session.py
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
-connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(settings.DATABASE_URL, echo=False, future=True, connect_args=connect_args)
+url = settings.DB_URL  # <- normalized absolute URL
+connect_args = {}
 
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
+if url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
 
-def get_session() -> Session:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Print once on startup so you always know which DB file is used
+try:
+    print(f"[DB] SQLAlchemy engine.url = {engine.url}")
+except Exception:
+    pass

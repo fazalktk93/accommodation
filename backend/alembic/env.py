@@ -3,11 +3,14 @@ import os, sys
 from logging.config import fileConfig
 from sqlalchemy import create_engine, pool
 from alembic import context
+from app.core.config import settings
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+
+config.set_main_option("sqlalchemy.url", settings.DB_URL)
 from app.models import Base
 
 config = context.config
