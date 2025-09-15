@@ -68,7 +68,7 @@ def get(db: Session, allotment_id: int) -> Allotment:
 def list(
     db: Session,
     skip: int = 0,
-    limit: int = 1000,  # keep sane default; your API caps to 1000
+    limit: int = 10000,  # keep sane default; your API caps to 10000
     house_id: Optional[int] = None,
     active: Optional[bool] = None,
     person_name: Optional[str] = None,
