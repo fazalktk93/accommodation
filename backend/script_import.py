@@ -52,7 +52,7 @@ def _sector(v: Any) -> str:
 
 def _qtr(v: Any) -> Optional[str]:
     s = _clean(v)
-    if not s: return None  # keep keys strict; missing keys cause row skip
+    if not s: return None  # key must be present
     s = re.sub(r"\s*-\s*", "-", s)
     s = re.sub(r"\s+", " ", s)
     return s
@@ -88,10 +88,20 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
         if v is None:
             return "skip_nokey"
         conds.append(table.c[k] == v)
-    hit = conn.execute(select(table.c.id).where(and_(*conds)).limit(1)).fetchone()
+
+    hit = conn.execute(
+        select(table.c.id).where(and_(*conds)).limit(1)
+    ).fetchone()
 
     # Only include columns that exist in the table
     payload = {k: row.get(k) for k in row.keys() if k in table.c}
+
+    # ---- DB-required fallbacks (avoid NOT NULL failures) ----
+    # Leave text columns blank (""), set boolean to 0 if missing
+    if 'status' in table.c and (payload.get('status') is None):
+        payload['status'] = ""                     # blank when no data
+    if 'status_manual' in table.c and (payload.get('status_manual') is None):
+        payload['status_manual'] = 0               # False
 
     if hit:
         conn.execute(update(table).where(table.c.id == hit[0]).values(**payload))
@@ -101,7 +111,7 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
         return "insert"
 
 def main():
-    ap = argparse.ArgumentParser(description="Smart CSV import for a table (leaves missing non-key text columns blank).")
+    ap = argparse.ArgumentParser(description="Smart CSV import for a table (leaves missing non-key text columns blank; sets status_manual=0 if needed).")
     ap.add_argument("--csv", required=True)
     ap.add_argument("--db", default=None)
     ap.add_argument("--table", default="house")
@@ -123,17 +133,15 @@ def main():
         def get(key):
             i = order.index(key) if key in order else -1
             return vals[i] if (i >= 0 and i < len(vals)) else None
-        # Keys (must be present, or row will be skipped)
-        file_no = _clean(get('file_no'))
-        qtr_no  = _qtr(get('qtr_no'))
-        # Non-key text columns: leave blank if missing
+        # keys must be present, non-keys: blank if missing
         return {
-            'file_no':   file_no,
-            'qtr_no':    qtr_no,
+            'file_no':   _clean(get('file_no')),
+            'qtr_no':    _qtr(get('qtr_no')),
             'sector':    _sector(get('sector')),
             'street':    _clean_or_blank(get('street')),
             'type_code': _type(get('type_code')),
             'status':    _status(get('status')),
+            # script does not set status_manual here; upsert() applies 0 if column exists
         }
 
     inserts=updates=skip_nokey=skip_allblank=0
@@ -183,7 +191,6 @@ def main():
                 print(f"  {c!r} -> {mapping.get(c, '(ignored)')}")
             for raw in rdr:
                 rv = lambda k: (raw[idx[k]] if k in idx and idx[k] < len(raw) else None)
-                # Keys strict; non-keys blank if missing
                 row = {
                     'file_no':   _clean(rv('file_no')),
                     'qtr_no':    _qtr(rv('qtr_no')),
