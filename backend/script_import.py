@@ -78,7 +78,7 @@ def reflect_table(engine: Engine, name: str) -> Table:
     meta = MetaData()
     meta.reflect(bind=engine, only=[name])
     if name not in meta.tables:
-        raise RuntimeError(f"Table '{name}' not found in DB.")
+        raise RuntimeError(f"Table '{name}' not found in DB. Existing: {list(meta.tables)}")
     return meta.tables[name]
 
 def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) -> str:
@@ -89,9 +89,7 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
             return "skip_nokey"
         conds.append(table.c[k] == v)
 
-    hit = conn.execute(
-        select(table.c.id).where(and_(*conds)).limit(1)
-    ).fetchone()
+    hit = conn.execute(select(table.c.id).where(and_(*conds)).limit(1)).fetchone()
 
     # Only include columns that exist in the table
     payload = {k: row.get(k) for k in row.keys() if k in table.c}
@@ -110,10 +108,13 @@ def upsert(conn, table: Table, row: Dict[str, Any], unique_by: Tuple[str, ...]) 
         conn.execute(insert(table).values(**payload))
         return "insert"
 
+# ---------- main ----------
 def main():
-    ap = argparse.ArgumentParser(description="Smart CSV import for a table (leaves missing non-key text columns blank; sets status_manual=0 if needed).")
+    ap = argparse.ArgumentParser(
+        description="CSV upsert importer (plural-first). Leaves missing text columns blank; sets status_manual=0 if needed."
+    )
     ap.add_argument("--csv", required=True)
-    ap.add_argument("--db", default=None)
+    ap.add_argument("--db", default=None, help="SQLAlchemy URL (e.g. sqlite:////E:/accommodation/backend/accommodation.db)")
     ap.add_argument("--table", default="houses")
     ap.add_argument("--unique", nargs="+", default=["file_no","qtr_no"])
     ap.add_argument("--batch", type=int, default=1000)
@@ -141,7 +142,7 @@ def main():
             'street':    _clean_or_blank(get('street')),
             'type_code': _type(get('type_code')),
             'status':    _status(get('status')),
-            # script does not set status_manual here; upsert() applies 0 if column exists
+            # status_manual handled in upsert()
         }
 
     inserts=updates=skip_nokey=skip_allblank=0
