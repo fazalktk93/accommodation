@@ -1,9 +1,8 @@
-# app/core/config.py
+# app/core/config.py  (Pydantic v1)
 from __future__ import annotations
-import pathlib, re
-from typing import List
-from pydantic import Field, field_validator, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os, pathlib, re, json
+from typing import List, Optional
+from pydantic import BaseSettings, AnyHttpUrl, validator
 
 def _normalize_sqlite_url(url: str) -> str:
     if not url or not url.startswith("sqlite"):
@@ -13,37 +12,40 @@ def _normalize_sqlite_url(url: str) -> str:
     if not m:
         return url
     _, rest = m.groups()
-    if re.match(r"^[A-Za-z]:/", rest):
+    if re.match(r"^[A-Za-z]:/", rest):   # Windows drive
         return f"sqlite:////{rest}"
     p = pathlib.Path(rest)
     if not p.is_absolute():
-        base = pathlib.Path(__file__).resolve().parents[2]
+        base = pathlib.Path(__file__).resolve().parents[2]  # .../backend
         abs_path = (base / rest).resolve().as_posix()
         return f"sqlite:///{abs_path}"
     return f"sqlite:///{p.as_posix()}"
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="allow")
-
     # ----- App basics -----
     PROJECT_NAME: str = "Accommodation"
     API_PREFIX: str = "/api"
 
-    # Make this lenient — accept *, IPs, bare hosts, with/without scheme
-    BACKEND_CORS_ORIGINS: List[str] = Field(default_factory=list)
+    # Be lenient: allow strings/CSV/JSON list; we’ll coerce to plain strings
+    BACKEND_CORS_ORIGINS: List[str] = []
+    # Optional regex string for origins (some apps use this)
+    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None
 
     # ----- Security -----
-    SECRET_KEY: str = Field(default="")  # set in .env
+    SECRET_KEY: str = ""  # set in .env
 
     # ----- Database -----
     DATABASE_URL: str = ""
-    SQLALCHEMY_DATABASE_URL: str | None = None
+    SQLALCHEMY_DATABASE_URL: Optional[str] = None  # compat alias
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    @classmethod
+    class Config:
+        env_file = ".env"
+        extra = "allow"
+
+    # Accept CSV / JSON / AnyHttpUrl lists and coerce to strings w/ scheme when missing
+    @validator("BACKEND_CORS_ORIGINS", pre=True)
     def _normalize_cors(cls, v):
-        # Accept JSON list or comma-separated string or single string
-        def _split(val):
+        def split(val):
             if isinstance(val, list):
                 return val
             if isinstance(val, str):
@@ -51,8 +53,6 @@ class Settings(BaseSettings):
                 if not s:
                     return []
                 if s.startswith("[") and s.endswith("]"):
-                    # JSON-style list string -> eval safely
-                    import json
                     try:
                         parsed = json.loads(s)
                         return parsed if isinstance(parsed, list) else [s]
@@ -61,22 +61,15 @@ class Settings(BaseSettings):
                 return [x.strip() for x in s.split(",") if x.strip()]
             return []
 
-        def _coerce_url(x: str) -> str:
-            if x == "*" or x.lower() == "null":
+        def coerce(x: str) -> str:
+            if x in ("*", "null", "NULL"):
                 return x
-            # Add scheme if missing
             if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", x):
-                # Allow bare hosts/IPs/localhost
                 x = "http://" + x
-            # strip trailing slash for consistency
-            if x.endswith("/"):
-                x = x[:-1]
-            return x
+            return x[:-1] if x.endswith("/") else x
 
-        items = _split(v)
-        return [_coerce_url(x) for x in items]
+        return [coerce(x) for x in split(v)]
 
-    @computed_field  # type: ignore[misc]
     @property
     def DB_URL(self) -> str:
         url = self.DATABASE_URL or (self.SQLALCHEMY_DATABASE_URL or "")
