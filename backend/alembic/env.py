@@ -39,15 +39,15 @@ target_metadata = Base.metadata
 
 
 def _resolve_db_url() -> str:
-    # 1) settings.DB_URL (if your settings exposes it)
-    if getattr(settings, "DB_URL", None):
-        return settings.DB_URL
-
-    # 2) common env var names
+    # 1) environment variables (highest priority)
     for key in ("SQLALCHEMY_DATABASE_URL", "DATABASE_URL", "DB_URL"):
         val = os.getenv(key)
         if val:
             return val
+
+    # 2) settings.DB_URL (if present)
+    if getattr(settings, "DB_URL", None):
+        return settings.DB_URL
 
     # 3) fallback to repo-local SQLite file under backend/ (absolute path)
     sqlite_path = os.path.join(BACKEND_DIR, "accommodation.db")
