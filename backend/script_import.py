@@ -114,7 +114,7 @@ def main():
     ap = argparse.ArgumentParser(description="Smart CSV import for a table (leaves missing non-key text columns blank; sets status_manual=0 if needed).")
     ap.add_argument("--csv", required=True)
     ap.add_argument("--db", default=None)
-    ap.add_argument("--table", default="house")
+    ap.add_argument("--table", default="houses")
     ap.add_argument("--unique", nargs="+", default=["file_no","qtr_no"])
     ap.add_argument("--batch", type=int, default=1000)
     ap.add_argument("--dry", action="store_true")
