@@ -1,16 +1,16 @@
 from alembic import op
 import sqlalchemy as sa
 
-# revision identifiers, used by Alembic.
+# revision identifiers
 revision = "0001_baseline"
 down_revision = None
 branch_labels = None
 depends_on = None
 
 def upgrade():
-    # houses
+    # house
     op.create_table(
-        "houses",
+        "house",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("file_no", sa.String, nullable=False, unique=True),
         sa.Column("qtr_no", sa.String),
@@ -20,24 +20,25 @@ def upgrade():
         sa.Column("status", sa.String, nullable=False),
         sa.Column("status_manual", sa.Boolean, nullable=False, server_default="0"),
     )
-    op.create_index("ix_houses_qtr_no", "houses", ["qtr_no"])
-    op.create_index("ix_houses_type_code", "houses", ["type_code"])
-    op.create_index("ix_houses_street", "houses", ["street"])
-    op.create_index("ix_houses_sector", "houses", ["sector"])
+    op.create_index("ix_house_qtr_no", "house", ["qtr_no"])
+    op.create_index("ix_house_type_code", "house", ["type_code"])
+    op.create_index("ix_house_street", "house", ["street"])
+    op.create_index("ix_house_sector", "house", ["sector"])
+    op.create_index("ix_house_file_no", "house", ["file_no"], unique=True)
 
-    # allotments
+    # allotment
     op.create_table(
-        "allotments",
+        "allotment",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("house_id", sa.Integer, sa.ForeignKey("houses.id")),
+        sa.Column("house_id", sa.Integer, sa.ForeignKey("house.id")),
         sa.Column("user_id", sa.Integer, sa.ForeignKey("user.id")),
         sa.Column("date_from", sa.Date),
         sa.Column("date_to", sa.Date),
     )
 
-    # file_movements
+    # file_movement
     op.create_table(
-        "file_movements",
+        "file_movement",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("file_no", sa.String, nullable=False),
         sa.Column("from_dept", sa.String),
@@ -55,7 +56,7 @@ def upgrade():
     )
 
 def downgrade():
-    op.drop_table("file_movements")
-    op.drop_table("allotments")
-    op.drop_table("houses")
+    op.drop_table("file_movement")
+    op.drop_table("allotment")
+    op.drop_table("house")
     op.drop_table("user")
