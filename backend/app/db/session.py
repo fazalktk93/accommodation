@@ -17,3 +17,15 @@ try:
     print(f"[DB] SQLAlchemy engine.url = {engine.url}")
 except Exception:
     pass
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def get_session():
+    """Yield a SQLAlchemy session and close it afterwards."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
