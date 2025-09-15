@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Accommodation"
     API_PREFIX: str = "/api"
 
-    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []  # strict AnyHttpUrl list
-    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None
+    BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
+    BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None   # <--- add this line
 
     SECRET_KEY: str = ""
 
@@ -56,6 +56,7 @@ class Settings(BaseSettings):
         if not url:
             url = "sqlite:///./accommodation.db"
         return _normalize_sqlite_url(url)
+
 
 
 settings = Settings()
