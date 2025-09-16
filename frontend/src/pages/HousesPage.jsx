@@ -6,7 +6,21 @@ import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
 // Fixed pagination: 50 per page
-const PAGE_SIZE = 50;
+const API_MAX_LIMIT = 1000;            // match your backend cap
+const PAGE_SIZE = 50;                  // your UI page size
+const BASE = "/api/houses/";           // trailing slash avoids 307
+
+export async function fetchHouses(page = 1) {
+  const safeLimit = Math.min(Math.max(PAGE_SIZE, 1), API_MAX_LIMIT);
+  const skip = (page - 1) * safeLimit;          // or offset
+  const url = `${BASE}?skip=${skip}&limit=${safeLimit}`;
+  const r = await fetch(url, { credentials: "include" });
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    throw new Error(`HTTP ${r.status} ${r.statusText} – ${detail}`);
+  }
+  return r.json();
+}
 
 function useQuery() {
   const { search } = useLocation();
