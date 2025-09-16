@@ -29,7 +29,7 @@ def upgrade():
     op.create_index("ix_house_sector", "house", ["sector"])
     op.create_index("ix_house_file_no", "house", ["file_no"], unique=True)
 
-    # user (updated schema)
+    # user
     op.create_table(
         "user",
         sa.Column("id", sa.Integer, primary_key=True),
@@ -39,8 +39,8 @@ def upgrade():
         sa.Column("hashed_password", sa.String, nullable=False),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
         sa.Column("role", sa.String, nullable=False, server_default="'viewer'"),
-        sa.Column("permissions", sa.Text, nullable=True),  # JSON → TEXT for SQLite
-        # legacy fields (optional, helps migrations)
+        sa.Column("permissions", sa.Text, nullable=True),  # JSON → TEXT in SQLite
+        # legacy fields
         sa.Column("password", sa.String, nullable=True),
         sa.Column("is_superuser", sa.Boolean, nullable=False, server_default="0"),
     )
@@ -55,6 +55,23 @@ def upgrade():
         sa.Column("user_id", sa.Integer, sa.ForeignKey("user.id")),
         sa.Column("date_from", sa.Date),
         sa.Column("date_to", sa.Date),
+        sa.Column("person_name", sa.String, nullable=True),
+        sa.Column("designation", sa.String, nullable=True),
+        sa.Column("directorate", sa.String, nullable=True),
+        sa.Column("cnic", sa.String, nullable=True),
+        sa.Column("pool", sa.String, nullable=True),
+        sa.Column("medium", sa.String, nullable=True),
+        sa.Column("bps", sa.Integer, nullable=True),
+        sa.Column("allotment_date", sa.Date, nullable=True),
+        sa.Column("occupation_date", sa.Date, nullable=True),
+        sa.Column("vacation_date", sa.Date, nullable=True),
+        sa.Column("dob", sa.Date, nullable=True),
+        sa.Column("dor", sa.Date, nullable=True),
+        sa.Column("retention_until", sa.Date, nullable=True),
+        sa.Column("retention_last", sa.Date, nullable=True),
+        sa.Column("qtr_status", sa.String, nullable=True),
+        sa.Column("allottee_status", sa.String, nullable=True),
+        sa.Column("notes", sa.Text, nullable=True),
     )
 
     # file_movement
