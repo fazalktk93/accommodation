@@ -1,15 +1,19 @@
-# app/api/deps.py
-from typing import Optional, Dict
-from fastapi import Query
+from typing import Generator, Dict
+from fastapi import Depends, Query
+from sqlalchemy.orm import Session
 
-# raise or lower to what you want the API to allow
+from app.db.session import get_session
+
 MAX_LIMIT = 5000
 
+def get_db() -> Generator[Session, None, None]:
+    """
+    Your routes already import this (sync). Keep it as a thin wrapper around SessionLocal.
+    """
+    yield from get_session()
+
 def pagination_params(
-    # accept BOTH names; prefer `offset` if present, otherwise `skip`
-    offset: Optional[int] = Query(None, ge=0, description="Alias: skip"),
-    skip: Optional[int]   = Query(None, ge=0, description="Alias: offset"),
-    limit: int            = Query(100, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=MAX_LIMIT, description="Max items to return (<=5000)"),
 ) -> Dict[str, int]:
-    _offset = offset if offset is not None else (skip or 0)
-    return {"offset": _offset, "limit": limit}
+    return {"offset": offset, "limit": limit}
