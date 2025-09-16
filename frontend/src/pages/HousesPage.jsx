@@ -6,7 +6,7 @@ import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
 // Fixed pagination: 50 per page
-const PAGE_SIZE = 5000;
+const PAGE_SIZE = 50;
 
 function useQuery() {
   const { search } = useLocation();
