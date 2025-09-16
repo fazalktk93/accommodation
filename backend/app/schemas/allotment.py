@@ -157,8 +157,15 @@ class AllotmentUpdate(BaseModel):
 # ---------- output ----------
 
 class AllotmentOut(AllotmentBase):
+    # override fields that can be NULL in DB to accept None in responses
+    person_name: Optional[str] = None
+    qtr_status: Optional[QtrStatus] = None
+    allottee_status: Optional[AllotteeStatus] = None
+
     id: int
     period_of_stay: Optional[int] = None
+
+    # denormalized house fields for the list page
     house_file_no: Optional[str] = None
     house_qtr_no: Optional[str] = None
     house_sector: Optional[str] = None
