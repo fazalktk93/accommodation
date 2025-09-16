@@ -2,13 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Allotment CSV importer (direct SQLite, Windows-friendly, .env-driven)
-- NO HTTP calls → NO CORS involved.
+Allotment CSV importer (no password hashing)
+- Creates users with a constant placeholder bcrypt-looking hash
+- Sets users is_active=0 by default (cannot log in)
 - Reads DB URL from: --db > DATABASE_URL > SQLALCHEMY_DATABASE_URL > SQLALCHEMY_DATABASE_URI
-- Normalizes sqlite URLs for Windows (drive letters / UNC) and POSIX.
-- Uses WAL + busy_timeout to avoid locks; commits in chunks to prevent long stalls.
-- Creates missing users for the new schema (hashed_password, is_active, role), but works if legacy cols exist.
-- Prints progress every N rows with --verbose.
+- Windows-safe sqlite URL handling (drive letters / UNC)
+- Chunked commits with progress
 """
 
 import csv
@@ -19,19 +18,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Iterable
 
-# ---------- .env ----------
-def load_env_files():
+# ---------- env ----------
+def load_env():
     try:
         from dotenv import load_dotenv
     except Exception:
         return
     here = Path(__file__).resolve().parent
-    for candidate in (here / ".env", here.parent / ".env"):
-        if candidate.exists():
-            load_dotenv(candidate, override=False)
+    for p in (here / ".env", here.parent / ".env"):
+        if p.exists():
+            load_dotenv(p, override=False)
     load_dotenv(override=False)
 
-# ---------- URL helpers ----------
+# ---------- sqlite URL helpers ----------
 def normalize_sqlite_url(url: str) -> str:
     if not url.startswith("sqlite:"):
         raise SystemExit(f"[FATAL] Only sqlite URLs are supported by this script. Got: {url!r}")
@@ -40,39 +39,36 @@ def normalize_sqlite_url(url: str) -> str:
         return "sqlite:///:memory:"
     m = re.match(r"^sqlite:(//+)(.*)$", url)
     if not m:
-        # e.g. "sqlite:relative.db" -> treat as relative
         rest = url.split(":", 1)[1].lstrip("/")
         return build_sqlite_url_from_path(rest)
     _, rest = m.groups()
-    if rest.startswith("//"):                 # UNC
+    if rest.startswith("//"):                     # UNC
         rest = rest.lstrip("/")
         return f"sqlite:////{rest}"
-    if re.match(r"^[A-Za-z]:/", rest):        # Windows drive
+    if re.match(r"^[A-Za-z]:/", rest):            # Windows drive
         return f"sqlite:///{rest}"
-    if rest.startswith("/"):                  # POSIX absolute
+    if rest.startswith("/"):                      # POSIX absolute
         return f"sqlite:////{rest}"
     return build_sqlite_url_from_path(rest)
 
 def build_sqlite_url_from_path(p: str) -> str:
     base = Path(__file__).resolve().parent.parent  # .../backend
-    abs_path = (base / p).resolve()
-    posix = abs_path.as_posix()
-    if re.match(r"^[A-Za-z]:/", posix):
-        return f"sqlite:///{posix}"
-    return f"sqlite:////{posix}"
+    abs_path = (base / p).resolve().as_posix()
+    if re.match(r"^[A-Za-z]:/", abs_path):         # Windows drive
+        return f"sqlite:///{abs_path}"
+    return f"sqlite:////{abs_path}"
 
 def sqlite_path_from_url(url: str) -> str:
-    assert url.startswith("sqlite:")
     rest = url.split(":", 1)[1].lstrip("/")
     if re.match(r"^[A-Za-z]:/", rest):            # drive
         return rest
     if rest.startswith("//"):                     # UNC
-        return rest
+        return f"//{rest}"
     if rest.startswith(":memory:"):
         return ":memory:"
     return "/" + rest
 
-# ---------- CSV / dates ----------
+# ---------- CSV / date ----------
 DATE_FROM_COL = "allotment_date"
 DATE_TO_COL   = "vacation_date"
 FILE_NO_COL   = "file_no"
@@ -111,7 +107,8 @@ def open_csv_with_fallback(path: Path, encodings: Iterable[str] = ("utf-8-sig","
     raise last_err or FileNotFoundError(path)
 
 # ---------- DB helpers ----------
-DEFAULT_PASSWORD = "changeme"
+# syntactically valid bcrypt string; verification will fail, but no hashing cost
+HASHED_PASSWORD_PLACEHOLDER = "$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # 60 chars
 
 def table_exists(cur, name: str) -> bool:
     return cur.execute(
@@ -125,19 +122,6 @@ def get_columns(cur, table: str) -> set[str]:
 def get_house_id(cur, file_no: str) -> Optional[int]:
     row = cur.execute("SELECT id FROM house WHERE file_no = ?", (file_no,)).fetchone()
     return row[0] if row else None
-
-def _hasher():
-    try:
-        from passlib.context import CryptContext
-        ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        return lambda p: ctx.hash(p)
-    except Exception:
-        try:
-            import bcrypt as _bcrypt
-            return lambda p: _bcrypt.hashpw(p.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
-        except Exception:
-            return lambda p: "$2b$12$" + ("x" * 53)  # dummy but bcrypt-like
-hash_password = _hasher()
 
 def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Optional[str]) -> Optional[int]:
     username = None
@@ -159,11 +143,11 @@ def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Opti
 
     add("username", username)
     add("full_name", name or None)
-    add("hashed_password", hash_password(DEFAULT_PASSWORD))  # NOT NULL in new schema
-    add("is_active", 1)
+    add("hashed_password", HASHED_PASSWORD_PLACEHOLDER)  # NOT NULL in new schema, no hashing
+    add("is_active", 0)                                  # keep disabled by default
     add("role", "viewer")
     add("permissions", None)
-    # legacy compatibility (harmless if present)
+    # legacy columns (harmless if present)
     add("password", None)
     add("is_superuser", 0)
 
@@ -174,29 +158,27 @@ def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Opti
 def main() -> int:
     import argparse, sqlite3
 
-    load_env_files()
+    load_env()
 
-    ap = argparse.ArgumentParser(description="Allotment CSV importer (direct DB, no CORS)")
+    ap = argparse.ArgumentParser(description="Allotment CSV importer (no password hashing)")
     ap.add_argument("--db", default=None, help="Override DB URL (e.g. sqlite:///C:/path/accommodation.db)")
     ap.add_argument("--csv", default=None, help="CSV path (env ALLOTMENT_CSV or allotment-data.csv)")
-    ap.add_argument("--commit-every", type=int, default=1000, help="Commit after N rows (improves responsiveness)")
-    ap.add_argument("--verbose", action="store_true", help="Print progress every --commit-every rows")
-    ap.add_argument("--dry", action="store_true", help="Parse and resolve ids but do not write to DB")
+    ap.add_argument("--commit-every", type=int, default=1000, help="Commit after N rows")
+    ap.add_argument("--verbose", action="store_true", help="Print progress every commit chunk")
+    ap.add_argument("--dry", action="store_true", help="Parse only; no DB writes")
     args = ap.parse_args()
 
-    # Resolve DB URL (no hardcoding)
     db_url = args.db \
         or os.getenv("DATABASE_URL") \
         or os.getenv("SQLALCHEMY_DATABASE_URL") \
         or os.getenv("SQLALCHEMY_DATABASE_URI")
     if not db_url:
-        print("[FATAL] No DB URL. Set DATABASE_URL in .env or pass --db sqlite:///C:/.../accommodation.db")
+        print("[FATAL] No DB URL. Set DATABASE_URL or pass --db")
         return 2
 
     db_url = normalize_sqlite_url(db_url)
     db_path = sqlite_path_from_url(db_url)
 
-    # Open DB (WAL + busy timeout)
     if db_path != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
@@ -204,28 +186,21 @@ def main() -> int:
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=5000;")
-    # optional speed tweaks:
-    conn.execute("PRAGMA temp_store=MEMORY;")
-    conn.execute("PRAGMA cache_size=-32000;")  # ~32MB
 
     cur = conn.cursor()
 
-    # Ensure tables exist
     for t in ("house", "user", "allotment"):
         if not table_exists(cur, t):
-            print(f"[FATAL] table '{t}' not found in DB. Aborting.")
+            print(f"[FATAL] table '{t}' not found in DB.")
             return 2
 
     user_cols = get_columns(cur, "user")
 
-    # CSV path resolution
     csv_env = args.csv or os.getenv("ALLOTMENT_CSV") or "allotment-data.csv"
     csv_path = Path(csv_env)
     if not csv_path.is_absolute():
-        if not csv_path.exists():
-            csv_path = (Path.cwd() / csv_env)
-        if not csv_path.exists():
-            csv_path = (Path(__file__).resolve().parent / csv_env)
+        if not csv_path.exists(): csv_path = (Path.cwd() / csv_env)
+        if not csv_path.exists(): csv_path = (Path(__file__).resolve().parent / csv_env)
     if not csv_path.exists():
         print(f"[FATAL] CSV not found: {csv_env}")
         return 2
@@ -264,10 +239,7 @@ def main() -> int:
             date_from = parse_date(r.get(DATE_FROM_COL, "") or "")
             date_to   = parse_date(r.get(DATE_TO_COL, "") or "")
 
-            if args.dry:
-                # skip DB writes
-                pass
-            else:
+            if not args.dry:
                 hit = cur.execute(
                     """SELECT id FROM allotment
                        WHERE house_id=? AND user_id=? AND IFNULL(date_from,'')=IFNULL(?, '')""",
@@ -284,18 +256,17 @@ def main() -> int:
                     )
                     inserts += 1
 
-            # Chunked commit + progress
             if not args.dry and (processed % args.commit_every == 0):
                 conn.commit()
                 if args.verbose:
                     print(f"[PROGRESS] rows={processed} inserts={inserts} updates={updates} "
-                          f"skipped_no_key={skip_no_key} skipped_no_house={skip_no_house}")
+                          f"skip_no_key={skip_no_key} skip_no_house={skip_no_house}")
 
     if not args.dry:
         conn.commit()
 
     print(f"[RESULT] rows={processed} inserts={inserts} updates={updates} "
-          f"skipped_no_key={skip_no_key} skipped_no_house={skip_no_house}")
+          f"skip_no_key={skip_no_key} skip_no_house={skip_no_house}")
     return 0
 
 if __name__ == "__main__":
