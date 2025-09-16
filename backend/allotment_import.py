@@ -1,71 +1,115 @@
 #!/usr/bin/env python3
-import csv, sqlite3, sys, os, re
+# -*- coding: utf-8 -*-
+
+"""
+Allotment CSV importer (Windows-friendly, .env-driven)
+
+- Reads DB URL from: --db > DATABASE_URL > SQLALCHEMY_DATABASE_URL > SQLALCHEMY_DATABASE_URI
+- Supports sqlite URLs on Windows (drive letters / UNC) and POSIX
+- Creates missing users using new schema (hashed_password, is_active, role)
+- Upserts allotments keyed by (house_id, user_id, date_from)
+"""
+
+import csv
+import os
+import re
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Iterable
 
-# --- env loading (no hardcoding) ---
-def load_env():
+# -----------------------
+# .env loading (optional)
+# -----------------------
+def load_env_files():
     try:
-        from dotenv import load_dotenv, find_dotenv
+        from dotenv import load_dotenv
     except Exception:
-        # dotenv not installed; that's fine if env vars are already set
         return
-    # Try: current dir, script dir, then default search
-    script_dir = Path(__file__).resolve().parent
-    for candidate in (script_dir / ".env", script_dir.parent / ".env"):
+    here = Path(__file__).resolve().parent
+    for candidate in (here / ".env", here.parent / ".env"):
         if candidate.exists():
             load_dotenv(candidate, override=False)
-    load_dotenv(override=False)  # final pass (walks up parents)
+    # final pass (walks up parents if not found above)
+    load_dotenv(override=False)
 
-def resolve_db_url(cli_db: Optional[str]) -> str:
-    """Prefer CLI, else .env/ENV. Fail loudly if not found."""
-    load_env()
-    for key in (cli_db,
-                os.getenv("DATABASE_URL"),
-                os.getenv("SQLALCHEMY_DATABASE_URL"),
-                os.getenv("SQLALCHEMY_DATABASE_URI")):
-        if key:
-            return key
-    raise SystemExit(
-        "No database URL provided.\n"
-        "Set DATABASE_URL (or SQLALCHEMY_DATABASE_URL/URI) in your .env, "
-        "or pass --db sqlite:////abs/path/to/accommodation.db"
-    )
+# -----------------------
+# URL / path helpers
+# -----------------------
+def normalize_sqlite_url(url: str) -> str:
+    """
+    Normalize sqlite URLs across Windows / POSIX.
 
-# --- config / mapping ---
+    Windows drive path   -> sqlite:///C:/path/db.sqlite   (3 slashes)
+    Windows UNC path     -> sqlite:////server/share/db.sqlite (4 slashes)
+    POSIX absolute path  -> sqlite:////abs/path/db.sqlite (4 slashes)
+    Relative path        -> sqlite:///relative.db         (3 slashes)
+    In-memory            -> sqlite:///:memory:
+    """
+    if not url.startswith("sqlite:"):
+        raise SystemExit(f"[FATAL] Only sqlite URLs are supported by this script. Got: {url!r}")
+
+    url = url.replace("\\", "/")
+    if url in ("sqlite://", "sqlite:///:memory:", "sqlite:///:memory"):
+        return "sqlite:///:memory:"
+
+    m = re.match(r"^sqlite:(//+)(.*)$", url)
+    if not m:
+        # e.g. "sqlite:relative.db" (missing slashes) → treat as relative
+        rest = url.split(":", 1)[1].lstrip("/")
+        return build_sqlite_url_from_path(rest)
+
+    _, rest = m.groups()  # after the slashes
+    if rest.startswith("//"):                 # UNC
+        rest = rest.lstrip("/")
+        return f"sqlite:////{rest}"
+    if re.match(r"^[A-Za-z]:/", rest):        # Windows drive
+        return f"sqlite:///{rest}"
+    if rest.startswith("/"):                  # POSIX absolute
+        return f"sqlite:////{rest}"
+    # relative path
+    return build_sqlite_url_from_path(rest)
+
+def build_sqlite_url_from_path(p: str) -> str:
+    base = Path(__file__).resolve().parent.parent  # repo/backend
+    abs_path = (base / p).resolve()
+    posix = abs_path.as_posix()
+    if re.match(r"^[A-Za-z]:/", posix):           # Windows drive
+        return f"sqlite:///{posix}"
+    return f"sqlite:////{posix}"
+
+def sqlite_path_from_url(url: str) -> str:
+    """Extract filesystem path from normalized sqlite URL."""
+    assert url.startswith("sqlite:")
+    rest = url.split(":", 1)[1]
+    rest = rest.lstrip("/")
+    # UNC: four slashes → path starts with server/share
+    # Drive letter path: starts like C:/...
+    if re.match(r"^[A-Za-z]:/", rest):
+        return rest
+    # UNC (server/share/...)
+    if re.match(r"^[^/]+/[^/]+/", rest):
+        return f"//{rest}"
+    # memory
+    if rest.startswith(":memory:"):
+        return ":memory:"
+    return "/" + rest  # POSIX absolute
+
+# -----------------------
+# CSV / date helpers
+# -----------------------
 DATE_FROM_COL = "allotment_date"
 DATE_TO_COL   = "vacation_date"
 FILE_NO_COL   = "file_no"
-CNIC_COL      = "cnic"          # create/find user by this
-NAME_COL      = "person_name"   # fallback identity if CNIC blank
-DEFAULT_PASSWORD = "changeme"
+CNIC_COL      = "cnic"
+NAME_COL      = "person_name"
 
-# --- hashing helpers (robust fallbacks) ---
-def _get_hasher():
-    try:
-        from passlib.context import CryptContext
-        ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        return lambda p: ctx.hash(p)
-    except Exception:
-        try:
-            import bcrypt as _bcrypt
-            def _hash(p: str) -> str:
-                return _bcrypt.hashpw(p.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
-            return _hash
-        except Exception:
-            # last resort: bcrypt-like string (OK if these users never log in)
-            def _dummy(p: str) -> str:
-                return "$2b$12$" + ("x"*53)
-            return _dummy
-
-hash_password = _get_hasher()
-
-# --- helpers ---
-def parse_date(s: str) -> str | None:
-    if not s: return None
+def parse_date(s: str) -> Optional[str]:
+    if not s:
+        return None
     s = s.strip()
-    if not s: return None
+    if not s:
+        return None
     for fmt in ("%Y-%m-%d","%d-%m-%Y","%d/%m/%Y","%m/%d/%Y","%d-%b-%Y","%d.%m.%Y"):
         try:
             return datetime.strptime(s, fmt).date().isoformat()
@@ -73,45 +117,61 @@ def parse_date(s: str) -> str | None:
             pass
     m = re.match(r"^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$", s)
     if m:
-        d,mn,yy = map(int, m.groups())
-        yyyy = 2000+yy if yy < 70 else 1900+yy
+        d, mn, yy = map(int, m.groups())
+        yyyy = 2000 + yy if yy < 70 else 1900 + yy
         try:
             return datetime(yyyy, mn, d).date().isoformat()
         except ValueError:
             return None
     return None
 
-def norm(s: str) -> str:
+def norm(s: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (s or "").strip())
 
-def sqlite_path_from_url(url: str) -> str:
-    if not url.startswith("sqlite:"):
-        raise SystemExit(f"Only sqlite URLs are supported by this script, got: {url!r}")
-    p = url.split(":",1)[1]
-    if p.startswith("////"): return p[3:]
-    if p.startswith("///"):  return p[2:]
-    if p.startswith("//"):   return p[1:]
-    return p
+def open_csv_with_fallback(path: Path, encodings: Iterable[str] = ("utf-8-sig","cp1252")):
+    last_err = None
+    for enc in encodings:
+        try:
+            return open(path, newline="", encoding=enc), enc
+        except UnicodeDecodeError as e:
+            last_err = e
+    raise last_err or FileNotFoundError(path)
 
-def open_db(url: str) -> sqlite3.Connection:
-    path = sqlite_path_from_url(url)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.execute("PRAGMA foreign_keys=ON;")
-    return conn
+# -----------------------
+# DB helpers (sqlite3)
+# -----------------------
+DEFAULT_PASSWORD = "changeme"
 
 def table_exists(cur, name: str) -> bool:
-    return cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+    return cur.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,)
+    ).fetchone() is not None
 
 def get_columns(cur, table: str) -> set[str]:
     return {r[1] for r in cur.execute(f"PRAGMA table_info('{table}')").fetchall()}
 
-def get_house_id(cur, file_no: str) -> int | None:
+def get_house_id(cur, file_no: str) -> Optional[int]:
     row = cur.execute("SELECT id FROM house WHERE file_no = ?", (file_no,)).fetchone()
     return row[0] if row else None
 
-def get_or_create_user(cur, user_cols: set[str], cnic: str | None, name: str | None) -> int | None:
-    # Build username from CNIC or normalized name
+def _hasher():
+    # prefer passlib; fallback to bcrypt; final fallback to dummy bcrypt-like
+    try:
+        from passlib.context import CryptContext
+        ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        return lambda p: ctx.hash(p)
+    except Exception:
+        try:
+            import bcrypt as _bcrypt
+            return lambda p: _bcrypt.hashpw(p.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+        except Exception:
+            return lambda p: "$2b$12$" + ("x" * 53)  # 60-ish chars
+
+hash_password = _hasher()
+
+def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Optional[str]) -> Optional[int]:
+    # username by CNIC or sanitized name
     username = None
     if cnic:
         username = norm(cnic)
@@ -124,11 +184,10 @@ def get_or_create_user(cur, user_cols: set[str], cnic: str | None, name: str | N
     if row:
         return row[0]
 
-    # Insert with new-schema fields when available
-    payload_cols, payload_vals = [], []
+    cols, vals = [], []
     def add(col, val):
         if col in user_cols:
-            payload_cols.append(col); payload_vals.append(val)
+            cols.append(col); vals.append(val)
 
     add("username", username)
     add("full_name", name or None)
@@ -136,33 +195,46 @@ def get_or_create_user(cur, user_cols: set[str], cnic: str | None, name: str | N
     add("is_active", 1)
     add("role", "viewer")
     add("permissions", None)
-    # legacy, if they exist
+    # legacy compatibility (harmless if present)
     add("password", None)
     add("is_superuser", 0)
 
-    cols_sql = ", ".join(payload_cols)
-    qs_sql   = ", ".join(["?"] * len(payload_cols))
-    cur.execute(f"INSERT INTO user ({cols_sql}) VALUES ({qs_sql})", payload_vals)
+    cur.execute(f"INSERT INTO user ({', '.join(cols)}) VALUES ({', '.join('?' for _ in vals)})", vals)
     return cur.lastrowid
 
-def main():
-    # Args
+# -----------------------
+# Main
+# -----------------------
+def main() -> int:
     import argparse
-    ap = argparse.ArgumentParser(description="Allotment CSV importer (uses .env for DB)")
-    ap.add_argument("--db", default=None, help="Override DB URL (e.g. sqlite:////.../accommodation.db)")
-    ap.add_argument("--csv", default=None, help="CSV path (default: env ALLOTMENT_CSV or allotment-data.csv)")
+    load_env_files()
+
+    ap = argparse.ArgumentParser(description="Allotment CSV importer (.env-driven, Windows-friendly)")
+    ap.add_argument("--db", default=None, help="Override DB URL (e.g. sqlite:///C:/path/accommodation.db)")
+    ap.add_argument("--csv", default=None, help="CSV path (defaults: ALLOTMENT_CSV env or allotment-data.csv)")
     args = ap.parse_args()
 
-    db_url = resolve_db_url(args.db)
-    csv_path = args.csv or os.getenv("ALLOTMENT_CSV") or "allotment-data.csv"
+    # Resolve DB URL (no hardcoding)
+    db_url = args.db \
+        or os.getenv("DATABASE_URL") \
+        or os.getenv("SQLALCHEMY_DATABASE_URL") \
+        or os.getenv("SQLALCHEMY_DATABASE_URI")
+    if not db_url:
+        print("[FATAL] No DB URL. Set DATABASE_URL in .env or pass --db sqlite:///C:/.../accommodation.db")
+        return 2
 
-    print("[INFO] DB:", db_url)
-    print("[INFO] CSV:", csv_path)
+    db_url = normalize_sqlite_url(db_url)
+    db_path = sqlite_path_from_url(db_url)
 
-    conn = open_db(db_url)
+    # Open DB
+    import sqlite3
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys=ON;")
     cur = conn.cursor()
 
-    # quick schema check
+    # Schema check
     for t in ("house", "user", "allotment"):
         if not table_exists(cur, t):
             print(f"[FATAL] table '{t}' not found in DB. Aborting.")
@@ -170,13 +242,30 @@ def main():
 
     user_cols = get_columns(cur, "user")
 
+    # CSV path
+    csv_env = args.csv or os.getenv("ALLOTMENT_CSV") or "allotment-data.csv"
+    csv_path = Path(csv_env)
+    if not csv_path.is_absolute():
+        # try CWD, then script dir
+        if not csv_path.exists():
+            csv_path = (Path.cwd() / csv_env)
+        if not csv_path.exists():
+            csv_path = (Path(__file__).resolve().parent / csv_env)
+    if not csv_path.exists():
+        print(f"[FATAL] CSV not found: {csv_env}")
+        return 2
+
     inserts = updates = skip_no_house = skip_no_key = 0
 
-    with open(csv_path, newline="", encoding="utf-8-sig") as f:
+    f, used_enc = open_csv_with_fallback(csv_path)
+    print(f"[INFO] DB: {db_url}")
+    print(f"[INFO] CSV: {csv_path}  (encoding={used_enc})")
+
+    with f:
         rdr = csv.DictReader(f)
         for col in (FILE_NO_COL, CNIC_COL, NAME_COL, DATE_FROM_COL, DATE_TO_COL):
-            if col not in rdr.fieldnames:
-                print(f"[WARN] column '{col}' not in CSV; continuing (not all are required)")
+            if col not in (rdr.fieldnames or []):
+                print(f"[WARN] column '{col}' not in CSV; continuing")
 
         for r in rdr:
             file_no = norm(r.get(FILE_NO_COL, ""))
@@ -199,14 +288,15 @@ def main():
             date_from = parse_date(r.get(DATE_FROM_COL, "") or "")
             date_to   = parse_date(r.get(DATE_TO_COL, "") or "")
 
-            row = cur.execute(
+            # unique-by: (house_id, user_id, date_from)
+            hit = cur.execute(
                 """SELECT id FROM allotment
                    WHERE house_id=? AND user_id=? AND IFNULL(date_from,'')=IFNULL(?, '')""",
                 (house_id, user_id, date_from)
             ).fetchone()
 
-            if row:
-                cur.execute("UPDATE allotment SET date_to=? WHERE id=?", (date_to, row[0]))
+            if hit:
+                cur.execute("UPDATE allotment SET date_to=? WHERE id=?", (date_to, hit[0]))
                 updates += 1
             else:
                 cur.execute(
