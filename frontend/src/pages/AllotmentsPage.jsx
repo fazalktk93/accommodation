@@ -5,7 +5,37 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
-const PAGE_SIZE = 50;
+const API_MAX_LIMIT = 1000;           // match backend cap
+const PAGE_SIZE = 50;                 // UI page size
+const BASE = "/api/allotments/";      // trailing slash avoids 307
+
+/**
+ * Fetch one page of allotments.
+ * @param {number} page - 1-based page number
+ * @param {{ q?: string }} opts - optional filters (e.g. free-text search)
+ */
+export async function fetchAllotments(page = 1, opts = {}) {
+  const safeLimit = Math.min(Math.max(PAGE_SIZE, 1), API_MAX_LIMIT);
+  const skip = (page - 1) * safeLimit;
+
+  const params = new URLSearchParams({
+    skip: String(skip),
+    limit: String(safeLimit),
+  });
+  if (opts.q) params.set("q", opts.q);
+
+  const url = `${BASE}?${params.toString()}`;
+  const r = await fetch(url, { credentials: "include" });
+
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    throw new Error(`HTTP ${r.status} ${r.statusText} – ${detail}`);
+  }
+
+  const items = await r.json();
+  const total = Number(r.headers.get("X-Total-Count") || items.length);
+  return { items, total, pageSize: safeLimit, page };
+}
 
 function useQuery() {
   const { search } = useLocation();
