@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Allotment CSV importer (Windows-friendly, .env-driven)
-
+Allotment CSV importer (direct SQLite, Windows-friendly, .env-driven)
+- NO HTTP calls → NO CORS involved.
 - Reads DB URL from: --db > DATABASE_URL > SQLALCHEMY_DATABASE_URL > SQLALCHEMY_DATABASE_URI
-- Supports sqlite URLs on Windows (drive letters / UNC) and POSIX
-- Creates missing users using new schema (hashed_password, is_active, role)
-- Upserts allotments keyed by (house_id, user_id, date_from)
+- Normalizes sqlite URLs for Windows (drive letters / UNC) and POSIX.
+- Uses WAL + busy_timeout to avoid locks; commits in chunks to prevent long stalls.
+- Creates missing users for the new schema (hashed_password, is_active, role), but works if legacy cols exist.
+- Prints progress every N rows with --verbose.
 """
 
 import csv
@@ -18,9 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Iterable
 
-# -----------------------
-# .env loading (optional)
-# -----------------------
+# ---------- .env ----------
 def load_env_files():
     try:
         from dotenv import load_dotenv
@@ -30,36 +29,21 @@ def load_env_files():
     for candidate in (here / ".env", here.parent / ".env"):
         if candidate.exists():
             load_dotenv(candidate, override=False)
-    # final pass (walks up parents if not found above)
     load_dotenv(override=False)
 
-# -----------------------
-# URL / path helpers
-# -----------------------
+# ---------- URL helpers ----------
 def normalize_sqlite_url(url: str) -> str:
-    """
-    Normalize sqlite URLs across Windows / POSIX.
-
-    Windows drive path   -> sqlite:///C:/path/db.sqlite   (3 slashes)
-    Windows UNC path     -> sqlite:////server/share/db.sqlite (4 slashes)
-    POSIX absolute path  -> sqlite:////abs/path/db.sqlite (4 slashes)
-    Relative path        -> sqlite:///relative.db         (3 slashes)
-    In-memory            -> sqlite:///:memory:
-    """
     if not url.startswith("sqlite:"):
         raise SystemExit(f"[FATAL] Only sqlite URLs are supported by this script. Got: {url!r}")
-
     url = url.replace("\\", "/")
     if url in ("sqlite://", "sqlite:///:memory:", "sqlite:///:memory"):
         return "sqlite:///:memory:"
-
     m = re.match(r"^sqlite:(//+)(.*)$", url)
     if not m:
-        # e.g. "sqlite:relative.db" (missing slashes) → treat as relative
+        # e.g. "sqlite:relative.db" -> treat as relative
         rest = url.split(":", 1)[1].lstrip("/")
         return build_sqlite_url_from_path(rest)
-
-    _, rest = m.groups()  # after the slashes
+    _, rest = m.groups()
     if rest.startswith("//"):                 # UNC
         rest = rest.lstrip("/")
         return f"sqlite:////{rest}"
@@ -67,37 +51,28 @@ def normalize_sqlite_url(url: str) -> str:
         return f"sqlite:///{rest}"
     if rest.startswith("/"):                  # POSIX absolute
         return f"sqlite:////{rest}"
-    # relative path
     return build_sqlite_url_from_path(rest)
 
 def build_sqlite_url_from_path(p: str) -> str:
-    base = Path(__file__).resolve().parent.parent  # repo/backend
+    base = Path(__file__).resolve().parent.parent  # .../backend
     abs_path = (base / p).resolve()
     posix = abs_path.as_posix()
-    if re.match(r"^[A-Za-z]:/", posix):           # Windows drive
+    if re.match(r"^[A-Za-z]:/", posix):
         return f"sqlite:///{posix}"
     return f"sqlite:////{posix}"
 
 def sqlite_path_from_url(url: str) -> str:
-    """Extract filesystem path from normalized sqlite URL."""
     assert url.startswith("sqlite:")
-    rest = url.split(":", 1)[1]
-    rest = rest.lstrip("/")
-    # UNC: four slashes → path starts with server/share
-    # Drive letter path: starts like C:/...
-    if re.match(r"^[A-Za-z]:/", rest):
+    rest = url.split(":", 1)[1].lstrip("/")
+    if re.match(r"^[A-Za-z]:/", rest):            # drive
         return rest
-    # UNC (server/share/...)
-    if re.match(r"^[^/]+/[^/]+/", rest):
-        return f"//{rest}"
-    # memory
+    if rest.startswith("//"):                     # UNC
+        return rest
     if rest.startswith(":memory:"):
         return ":memory:"
-    return "/" + rest  # POSIX absolute
+    return "/" + rest
 
-# -----------------------
-# CSV / date helpers
-# -----------------------
+# ---------- CSV / dates ----------
 DATE_FROM_COL = "allotment_date"
 DATE_TO_COL   = "vacation_date"
 FILE_NO_COL   = "file_no"
@@ -105,11 +80,9 @@ CNIC_COL      = "cnic"
 NAME_COL      = "person_name"
 
 def parse_date(s: str) -> Optional[str]:
-    if not s:
-        return None
+    if not s: return None
     s = s.strip()
-    if not s:
-        return None
+    if not s: return None
     for fmt in ("%Y-%m-%d","%d-%m-%Y","%d/%m/%Y","%m/%d/%Y","%d-%b-%Y","%d.%m.%Y"):
         try:
             return datetime.strptime(s, fmt).date().isoformat()
@@ -137,9 +110,7 @@ def open_csv_with_fallback(path: Path, encodings: Iterable[str] = ("utf-8-sig","
             last_err = e
     raise last_err or FileNotFoundError(path)
 
-# -----------------------
-# DB helpers (sqlite3)
-# -----------------------
+# ---------- DB helpers ----------
 DEFAULT_PASSWORD = "changeme"
 
 def table_exists(cur, name: str) -> bool:
@@ -156,7 +127,6 @@ def get_house_id(cur, file_no: str) -> Optional[int]:
     return row[0] if row else None
 
 def _hasher():
-    # prefer passlib; fallback to bcrypt; final fallback to dummy bcrypt-like
     try:
         from passlib.context import CryptContext
         ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -166,12 +136,10 @@ def _hasher():
             import bcrypt as _bcrypt
             return lambda p: _bcrypt.hashpw(p.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
         except Exception:
-            return lambda p: "$2b$12$" + ("x" * 53)  # 60-ish chars
-
+            return lambda p: "$2b$12$" + ("x" * 53)  # dummy but bcrypt-like
 hash_password = _hasher()
 
 def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Optional[str]) -> Optional[int]:
-    # username by CNIC or sanitized name
     username = None
     if cnic:
         username = norm(cnic)
@@ -202,16 +170,18 @@ def get_or_create_user(cur, user_cols: set[str], cnic: Optional[str], name: Opti
     cur.execute(f"INSERT INTO user ({', '.join(cols)}) VALUES ({', '.join('?' for _ in vals)})", vals)
     return cur.lastrowid
 
-# -----------------------
-# Main
-# -----------------------
+# ---------- Main ----------
 def main() -> int:
-    import argparse
+    import argparse, sqlite3
+
     load_env_files()
 
-    ap = argparse.ArgumentParser(description="Allotment CSV importer (.env-driven, Windows-friendly)")
+    ap = argparse.ArgumentParser(description="Allotment CSV importer (direct DB, no CORS)")
     ap.add_argument("--db", default=None, help="Override DB URL (e.g. sqlite:///C:/path/accommodation.db)")
-    ap.add_argument("--csv", default=None, help="CSV path (defaults: ALLOTMENT_CSV env or allotment-data.csv)")
+    ap.add_argument("--csv", default=None, help="CSV path (env ALLOTMENT_CSV or allotment-data.csv)")
+    ap.add_argument("--commit-every", type=int, default=1000, help="Commit after N rows (improves responsiveness)")
+    ap.add_argument("--verbose", action="store_true", help="Print progress every --commit-every rows")
+    ap.add_argument("--dry", action="store_true", help="Parse and resolve ids but do not write to DB")
     args = ap.parse_args()
 
     # Resolve DB URL (no hardcoding)
@@ -226,15 +196,21 @@ def main() -> int:
     db_url = normalize_sqlite_url(db_url)
     db_path = sqlite_path_from_url(db_url)
 
-    # Open DB
-    import sqlite3
+    # Open DB (WAL + busy timeout)
     if db_path != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    # optional speed tweaks:
+    conn.execute("PRAGMA temp_store=MEMORY;")
+    conn.execute("PRAGMA cache_size=-32000;")  # ~32MB
+
     cur = conn.cursor()
 
-    # Schema check
+    # Ensure tables exist
     for t in ("house", "user", "allotment"):
         if not table_exists(cur, t):
             print(f"[FATAL] table '{t}' not found in DB. Aborting.")
@@ -242,11 +218,10 @@ def main() -> int:
 
     user_cols = get_columns(cur, "user")
 
-    # CSV path
+    # CSV path resolution
     csv_env = args.csv or os.getenv("ALLOTMENT_CSV") or "allotment-data.csv"
     csv_path = Path(csv_env)
     if not csv_path.is_absolute():
-        # try CWD, then script dir
         if not csv_path.exists():
             csv_path = (Path.cwd() / csv_env)
         if not csv_path.exists():
@@ -255,11 +230,11 @@ def main() -> int:
         print(f"[FATAL] CSV not found: {csv_env}")
         return 2
 
-    inserts = updates = skip_no_house = skip_no_key = 0
-
     f, used_enc = open_csv_with_fallback(csv_path)
-    print(f"[INFO] DB: {db_url}")
+    print(f"[INFO] DB:  {db_url}")
     print(f"[INFO] CSV: {csv_path}  (encoding={used_enc})")
+
+    inserts = updates = skip_no_house = skip_no_key = processed = 0
 
     with f:
         rdr = csv.DictReader(f)
@@ -268,6 +243,7 @@ def main() -> int:
                 print(f"[WARN] column '{col}' not in CSV; continuing")
 
         for r in rdr:
+            processed += 1
             file_no = norm(r.get(FILE_NO_COL, ""))
             if not file_no:
                 skip_no_key += 1
@@ -288,26 +264,35 @@ def main() -> int:
             date_from = parse_date(r.get(DATE_FROM_COL, "") or "")
             date_to   = parse_date(r.get(DATE_TO_COL, "") or "")
 
-            # unique-by: (house_id, user_id, date_from)
-            hit = cur.execute(
-                """SELECT id FROM allotment
-                   WHERE house_id=? AND user_id=? AND IFNULL(date_from,'')=IFNULL(?, '')""",
-                (house_id, user_id, date_from)
-            ).fetchone()
-
-            if hit:
-                cur.execute("UPDATE allotment SET date_to=? WHERE id=?", (date_to, hit[0]))
-                updates += 1
+            if args.dry:
+                # skip DB writes
+                pass
             else:
-                cur.execute(
-                    "INSERT INTO allotment (house_id, user_id, date_from, date_to) VALUES (?,?,?,?)",
-                    (house_id, user_id, date_from, date_to)
-                )
-                inserts += 1
+                hit = cur.execute(
+                    """SELECT id FROM allotment
+                       WHERE house_id=? AND user_id=? AND IFNULL(date_from,'')=IFNULL(?, '')""",
+                    (house_id, user_id, date_from)
+                ).fetchone()
 
-    conn.commit()
-    print(f"[RESULT] inserts={inserts}, updates={updates}, skipped_no_key={skip_no_key}, skipped_no_house={skip_no_house}")
-    return 0
+                if hit:
+                    cur.execute("UPDATE allotment SET date_to=? WHERE id=?", (date_to, hit[0]))
+                    updates += 1
+                else:
+                    cur.execute(
+                        "INSERT INTO allotment (house_id, user_id, date_from, date_to) VALUES (?,?,?,?)",
+                        (house_id, user_id, date_from, date_to)
+                    )
+                    inserts += 1
 
-if __name__ == "__main__":
-    sys.exit(main())
+            # Chunked commit + progress
+            if not args.dry and (processed % args.commit_every == 0):
+                conn.commit()
+                if args.verbose:
+                    print(f"[PROGRESS] rows={processed} inserts={inserts} updates={updates} "
+                          f"skipped_no_key={skip_no_key} skipped_no_house={skip_no_house}")
+
+    if not args.dry:
+        conn.commit()
+
+    print(f"[RESULT] rows={processed} inserts={inserts} updates={updates} "
+          f"skipped_no_key={skip_no_key} sk
