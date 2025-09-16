@@ -1,3 +1,5 @@
+"""baseline with full schema"""
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -6,6 +8,7 @@ revision = "0001_baseline"
 down_revision = None
 branch_labels = None
 depends_on = None
+
 
 def upgrade():
     # house
@@ -25,6 +28,24 @@ def upgrade():
     op.create_index("ix_house_street", "house", ["street"])
     op.create_index("ix_house_sector", "house", ["sector"])
     op.create_index("ix_house_file_no", "house", ["file_no"], unique=True)
+
+    # user (updated schema)
+    op.create_table(
+        "user",
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("username", sa.String, nullable=False, unique=True),
+        sa.Column("full_name", sa.String, nullable=True),
+        sa.Column("email", sa.String, nullable=True, unique=True),
+        sa.Column("hashed_password", sa.String, nullable=False),
+        sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
+        sa.Column("role", sa.String, nullable=False, server_default="'viewer'"),
+        sa.Column("permissions", sa.Text, nullable=True),  # JSON → TEXT for SQLite
+        # legacy fields (optional, helps migrations)
+        sa.Column("password", sa.String, nullable=True),
+        sa.Column("is_superuser", sa.Boolean, nullable=False, server_default="0"),
+    )
+    op.create_index("ix_user_username", "user", ["username"], unique=True)
+    op.create_index("ix_user_email", "user", ["email"], unique=True)
 
     # allotment
     op.create_table(
@@ -46,14 +67,6 @@ def upgrade():
         sa.Column("moved_on", sa.DateTime),
     )
 
-    # user
-    op.create_table(
-        "user",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("username", sa.String, nullable=False, unique=True),
-        sa.Column("password", sa.String, nullable=False),
-        sa.Column("is_superuser", sa.Boolean, nullable=False, server_default="0"),
-    )
 
 def downgrade():
     op.drop_table("file_movement")
