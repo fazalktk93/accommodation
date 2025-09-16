@@ -295,4 +295,8 @@ def main() -> int:
         conn.commit()
 
     print(f"[RESULT] rows={processed} inserts={inserts} updates={updates} "
-          f"skipped_no_key={skip_no_key} sk
+          f"skipped_no_key={skip_no_key} skipped_no_house={skip_no_house}")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
