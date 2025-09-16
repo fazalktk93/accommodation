@@ -1,63 +1,57 @@
-# app/core/config.py  (Pydantic v1)
+# app/core/config.py  (keep the rest of your file; just replace the normalizer)
 
 import pathlib
 import re
-from typing import List, Optional
-
-from pydantic import BaseSettings, AnyHttpUrl
-
+import json
+from typing import List, Optional, Any
+from pydantic import BaseSettings, AnyHttpUrl, Field, validator
 
 def _normalize_sqlite_url(url: Optional[str]) -> Optional[str]:
     """
-    Normalize sqlite URLs so they are always valid & absolute on this machine.
+    Normalize sqlite URLs across Windows / POSIX.
 
-    Accepts forms like:
-      - sqlite:///./accommodation.db        (relative)
-      - sqlite:////home/user/app/db.sqlite  (absolute)
-      - sqlite:///home/user/app/db.sqlite   (absolute but 3 slashes)
-      - sqlite:///:memory:                  (memory)
-      - sqlite://home/user/app/db.sqlite    (bad: missing slash before 'home') -> fixed
-
-    Returns a normalized URL, or the original value for non-sqlite schemes.
+    Windows drive path   -> sqlite:///C:/path/db.sqlite   (3 slashes)
+    Windows UNC path     -> sqlite:////server/share/db.sqlite (4 slashes)
+    POSIX absolute path  -> sqlite:////abs/path/db.sqlite (4 slashes)
+    Relative path        -> sqlite:///relative.db         (3 slashes)
+    In-memory            -> sqlite:///:memory:
     """
     if not url or not url.startswith("sqlite"):
         return url
 
-    # Tidy slashes (Windows safety)
-    url = url.replace("\\", "/")
+    url = url.replace("\\", "/")  # tolerate backslashes from .env
 
-    # In-memory special cases
+    # in-memory forms
     if url in ("sqlite://", "sqlite:///:memory:", "sqlite:///:memory"):
         return "sqlite:///:memory:"
 
     m = re.match(r"^sqlite:(//+)(.*)$", url)
     if not m:
-        # Unexpected format; leave as-is
+        # Unexpected format (e.g., sqlite:/weird) -> leave as-is
         return url
+    _, rest = m.groups()
 
-    slashes, rest = m.groups()  # e.g., slashes="///", rest="/home/..", or "home/.."
-
-    # Windows drive path (e.g., C:/path/file.db)
-    if re.match(r"^[A-Za-z]:/", rest):
-        # absolute drive paths should be 4 slashes after 'sqlite:'
+    # UNC path like //server/share/path.db  -> four slashes
+    if rest.startswith("//"):
+        rest = rest.lstrip("/")  # strip leading // we already detected
         return f"sqlite:////{rest}"
 
-    # If the path looks like a Linux absolute path but is missing the leading '/',
-    # e.g., "home/user/..." (this creates the duplicate '/backend/home/...' bug),
-    # then treat it as absolute by prepending '/'.
-    if not rest.startswith("/") and re.match(r"^(home|var|etc|usr|opt|tmp|root|mnt|srv)/", rest):
-        rest = "/" + rest
+    # Windows drive letter C:/... -> exactly three slashes
+    if re.match(r"^[A-Za-z]:/", rest):
+        return f"sqlite:///{rest}"
 
-    p = pathlib.Path(rest)
+    # POSIX absolute path /... -> four slashes
+    if rest.startswith("/"):
+        return f"sqlite:////{rest}"
 
-    # Absolute path -> return canonical absolute sqlite URL (4 slashes after 'sqlite:')
-    if p.is_absolute():
-        return f"sqlite:///{p.as_posix()}"
-
-    # Relative path -> make absolute relative to <repo>/backend
+    # Relative path -> anchor to project backend dir (works on Windows & POSIX)
     base = pathlib.Path(__file__).resolve().parents[2]  # .../backend
     abs_path = (base / rest).resolve().as_posix()
-    return f"sqlite:///{abs_path}"
+    # On Windows, abs_path will look like C:/... which should use three slashes
+    if re.match(r"^[A-Za-z]:/", abs_path):
+        return f"sqlite:///{abs_path}"
+    # POSIX absolute
+    return f"sqlite:////{abs_path}"
 
 
 class Settings(BaseSettings):
@@ -67,23 +61,33 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []
     BACKEND_CORS_ORIGIN_REGEX: Optional[str] = None
 
-    SECRET_KEY: str = ""
+    SECRET_KEY: str = Field(..., description="JWT signing key")
 
-    # Raw environment values (may be empty)
-    DATABASE_URL: str = ""
+    DATABASE_URL: Optional[str] = None
     SQLALCHEMY_DATABASE_URL: Optional[str] = None
+
+    DEFAULT_PAGE_LIMIT: int = 100
+    MAX_PAGE_LIMIT: int = 5000
 
     class Config:
         env_file = ".env"
-        extra = "allow"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+        extra = "ignore"
+
+    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    def _parse_cors(cls, v: Any) -> List[AnyHttpUrl]:
+        if v is None or v == "": return []
+        if isinstance(v, list):   return v
+        s = str(v).strip()
+        if s.startswith("["):
+            try: return json.loads(s)
+            except Exception: pass
+        return [x.strip() for x in s.split(",") if x.strip()]
 
     @property
     def DB_URL(self) -> str:
-        # ENV first (so .env or process env wins), then DATABASE_URL, then a sane default
-        raw = (self.SQLALCHEMY_DATABASE_URL
-               or self.DATABASE_URL
-               or "sqlite:///./accommodation.db")
+        raw = self.SQLALCHEMY_DATABASE_URL or self.DATABASE_URL or "sqlite:///./accommodation.db"
         return _normalize_sqlite_url(raw)
-
 
 settings = Settings()
