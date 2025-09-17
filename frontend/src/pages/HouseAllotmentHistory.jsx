@@ -61,7 +61,7 @@ function Badge({ children }) {
       style={{
         padding: "2px 8px",
         borderRadius: 12,
-        background: "#eee",
+        background: "#06f40eff",
         fontSize: 12,
         border: "1px solid #ddd",
         verticalAlign: "middle",
