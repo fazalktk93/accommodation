@@ -25,19 +25,32 @@ const emptyHouse = {
   status_manual: false,
 };
 
-/** 🔗 Allotment history URL helper — matches App.jsx routes */
+/** 🔗 Allotment history URL helper — robust & unambiguous */
 function buildAllotmentHistoryUrl(row) {
-  // Prefer file number if available
-  if (row?.file_no) {
-    return `/history/file/${encodeURIComponent(row.file_no)}`;
+  // Prefer the house's unique id in the path (slashes in file_no can't break this)
+  const id = row?.id ?? row?.house_id;
+  if (id !== undefined && id !== null && String(id).trim() !== "") {
+    const qs = new URLSearchParams({
+      // optional extras (handy if the history page wants to show context)
+      file_no: row?.file_no ?? "",
+      sector: row?.sector ?? "",
+      street: row?.street ?? "",
+      qtr_no: row?.qtr_no ?? "",
+    });
+    return `/history/house/${encodeURIComponent(String(id))}?${qs.toString()}`;
   }
-  // Fallback to house id route
-  if (row?.id) {
-    return `/history/house/${encodeURIComponent(row.id)}`;
+
+  // Only if you truly must route by file_no, keep it in PATH-UNSAFE values encoded:
+  // (But avoid this when file_no has slashes; prefer the id route above.)
+  const fileNo = (row?.file_no ?? "").trim();
+  if (fileNo) {
+    return `/history/file/${encodeURIComponent(fileNo)}`;
   }
-  // Last resort: go to the generic history base (or throw)
-  return `/history/house/unknown`;
+
+  // Fallback
+  return `/history`;
 }
+
 
 /* ---------- tiny helpers ---------- */
 const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
