@@ -2,16 +2,40 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listHouses, listAllotments } from "../api";
 
-/* ---------- colors ---------- */
-function colorFor(label) {
-  const s = String(label ?? "").toLowerCase();
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
-  return `hsl(${hue} 65% 55%)`;
+/* =========================
+   COLOR PALETTES (distinct)
+   ========================= */
+const STATUS_COLORS = {
+  occupied: "#1f77b4",
+  vacant: "#2ca02c",
+  reserved: "#9467bd",
+  unknown: "#7f7f7f",
+};
+
+// 20-category palette for Types (A/B/C/…/SITE/Unknown etc.)
+const TYPE_PALETTE = [
+  "#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd",
+  "#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf",
+  "#4e79a7","#f28e2c","#e15759","#76b7b2","#59a14f",
+  "#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ab",
+];
+
+function colorForType(label) {
+  const s = String(label ?? "Unknown");
+  // stable index from string
+  let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return TYPE_PALETTE[h % TYPE_PALETTE.length];
 }
 
-/* ---------- retention logic ---------- */
+const RETENTION_COLORS = {
+  "in-service": "#5c6bc0",
+  "retention": "#f5a623",
+  "unauthorized": "#e53935",
+};
+
+/* ================
+   RETENTION LOGIC
+   ================ */
 const DAY = 24 * 60 * 60 * 1000;
 const RETENTION_DAYS = 183; // ~6 months
 
@@ -21,28 +45,22 @@ function parseDate(x) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Determine retention status for an allotment record */
 function getRetentionStatus(a, now = new Date()) {
   const raw = a?.retirement_date ?? a?.allottee_retirement_date ?? a?.retire_date;
   const rdt = parseDate(raw);
   if (!rdt) return { status: "in-service", daysPast: 0, retirementDate: null };
-
   const diffDays = Math.floor((now - rdt) / DAY);
-  if (diffDays < 0) {
-    // not retired yet
-    return { status: "in-service", daysPast: diffDays, retirementDate: rdt };
-  }
-  if (diffDays <= RETENTION_DAYS) {
-    return { status: "retention", daysPast: diffDays, retirementDate: rdt };
-  }
+  if (diffDays < 0) return { status: "in-service", daysPast: diffDays, retirementDate: rdt };
+  if (diffDays <= RETENTION_DAYS) return { status: "retention", daysPast: diffDays, retirementDate: rdt };
   return { status: "unauthorized", daysPast: diffDays, retirementDate: rdt };
 }
 
-/* ---------- small chart ---------- */
+/* ================
+   SIMPLE PIE CHART
+   ================ */
 function PieChart({ title, data, size = 220, onSliceClick }) {
   const total = data.reduce((a, b) => a + (Number(b.value) || 0), 0);
-  const radius = size / 2;
-  const cx = radius, cy = radius;
+  const radius = size / 2, cx = radius, cy = radius;
 
   let acc = 0;
   const arcs = total
@@ -59,18 +77,13 @@ function PieChart({ title, data, size = 220, onSliceClick }) {
         const y2 = cy - radius * Math.cos(end);
         const largeArc = end - start > Math.PI ? 1 : 0;
 
-        const pathData = [
-          `M ${cx} ${cy}`,
-          `L ${x1} ${y1}`,
-          `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
-          "Z",
-        ].join(" ");
+        const path = `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} Z`;
 
         return (
           <path
             key={i}
-            d={pathData}
-            fill={d.color || colorFor(d.label)}
+            d={path}
+            fill={d.color}
             aria-label={`${d.label}: ${value}`}
             onClick={() => onSliceClick?.(d)}
             style={{ cursor: onSliceClick ? "pointer" : "default" }}
@@ -82,9 +95,7 @@ function PieChart({ title, data, size = 220, onSliceClick }) {
   return (
     <div className="card" style={{ display: "flex", gap: 16 }}>
       <div style={{ minWidth: size, minHeight: size }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          {arcs}
-        </svg>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{arcs}</svg>
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
@@ -96,12 +107,7 @@ function PieChart({ title, data, size = 220, onSliceClick }) {
               onClick={() => onSliceClick?.(d)}
               title="Click to drill down"
             >
-              <span
-                style={{
-                  width: 12, height: 12, borderRadius: 2,
-                  background: d.color || colorFor(d.label), display: "inline-block",
-                }}
-              />
+              <span style={{ width: 12, height: 12, borderRadius: 2, background: d.color, display: "inline-block" }} />
               <span style={{ minWidth: 140 }}>{d.label}</span>
               <strong style={{ marginLeft: "auto" }}>{Number(d.value) || 0}</strong>
             </li>
@@ -113,16 +119,21 @@ function PieChart({ title, data, size = 220, onSliceClick }) {
   );
 }
 
-/* ---------- Dashboard ---------- */
+/* ===========
+   DASHBOARD
+   =========== */
+const DETAIL_PAGE_SIZE = 50;
+
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [houses, setHouses] = useState([]);
   const [allots, setAllots] = useState([]);
   const [error, setError] = useState("");
 
-  // drill-down state
-  const [selection, setSelection] = useState({ type: null, key: null, label: "" }); // e.g. {type:'retention', key:'retention'}
-  const [rows, setRows] = useState([]); // detailed rows under the charts
+  // drill-down & pagination for details
+  const [selection, setSelection] = useState({ type: null, key: null, label: "" });
+  const [detailPage, setDetailPage] = useState(0);
+  const [detailRows, setDetailRows] = useState([]);
 
   useEffect(() => {
     let alive = true;
@@ -130,6 +141,7 @@ export default function Dashboard() {
       try {
         setLoading(true);
         setError("");
+        // Tip: if your API supports it, fetch fewer fields here for speed.
         const [h, a] = await Promise.all([
           listHouses({ limit: 5000 }),
           listAllotments({ limit: 5000 }),
@@ -147,7 +159,12 @@ export default function Dashboard() {
     return () => { alive = false; };
   }, []);
 
-  /* ---------- aggregates ---------- */
+  /* ---- memoized lookups (speed) ---- */
+  const houseById = useMemo(
+    () => new Map(houses.map(h => [h.id, h])),
+    [houses]
+  );
+
   const counts = useMemo(() => {
     const c = { houses: houses.length, occupied: 0, vacant: 0, allotments: allots.length };
     houses.forEach((h) => {
@@ -161,10 +178,14 @@ export default function Dashboard() {
   const byStatus = useMemo(() => {
     const map = new Map();
     houses.forEach((h) => {
-      const label = (h?.status ?? "unknown").toString();
+      const label = (h?.status ?? "unknown").toString().toLowerCase();
       map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
+    return Array.from(map, ([label, value]) => ({
+      label,
+      value,
+      color: STATUS_COLORS[label] || STATUS_COLORS.unknown,
+    }));
   }, [houses]);
 
   const byType = useMemo(() => {
@@ -173,66 +194,73 @@ export default function Dashboard() {
       const label = (h?.type_code ?? "Unknown").toString();
       map.set(label, (map.get(label) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
+    return Array.from(map, ([label, value]) => ({
+      label,
+      value,
+      color: colorForType(label),
+    }));
   }, [houses]);
 
   const retentionTaggedAllots = useMemo(() => {
     const now = new Date();
-    return allots.map((a) => {
-      const r = getRetentionStatus(a, now);
-      return { ...a, __retention: r };
-    });
+    return allots.map((a) => ({ ...a, __retention: getRetentionStatus(a, now) }));
   }, [allots]);
 
   const byRetention = useMemo(() => {
-    const map = new Map([["in-service",0],["retention",0],["unauthorized",0]]);
+    const counters = new Map([["in-service",0],["retention",0],["unauthorized",0]]);
     retentionTaggedAllots.forEach((a) => {
       const s = a.__retention?.status || "in-service";
-      map.set(s, (map.get(s) || 0) + 1);
+      counters.set(s, (counters.get(s) || 0) + 1);
     });
-    return Array.from(map, ([label, value]) => ({ label, value, color: colorFor(label) }));
+    return Array.from(counters, ([label, value]) => ({
+      label,
+      value,
+      color: RETENTION_COLORS[label] || "#7f7f7f",
+    }));
   }, [retentionTaggedAllots]);
 
-  /* ---------- drill-down helpers ---------- */
+  /* ---- drill-down handlers ---- */
   function openDrill(type, key, label) {
     setSelection({ type, key, label });
+    setDetailPage(0);
 
     if (type === "house-status") {
-      const filt = houses.filter((h) => String(h?.status ?? "unknown") === key);
-      setRows(filt.map(h => ({ kind: "house", ...h })));
+      const filt = houses.filter((h) => String(h?.status ?? "unknown").toLowerCase() === String(key).toLowerCase());
+      setDetailRows(filt.map(h => ({ kind: "house", ...h })));
       return;
     }
 
     if (type === "house-type") {
       const filt = houses.filter((h) => String(h?.type_code ?? "Unknown") === key);
-      setRows(filt.map(h => ({ kind: "house", ...h })));
+      setDetailRows(filt.map(h => ({ kind: "house", ...h })));
       return;
     }
 
     if (type === "retention") {
       const filt = retentionTaggedAllots.filter(a => (a.__retention?.status || "in-service") === key);
-      // join minimal house info if we can match by house_id
-      const mapById = new Map(houses.map(h => [h.id, h]));
-      const withHouse = filt.map(a => ({ kind: "allotment", ...a, __house: mapById.get(a.house_id) || null }));
-      setRows(withHouse);
+      const joined = filt.map(a => ({ kind: "allotment", ...a, __house: houseById.get(a.house_id) || null }));
+      setDetailRows(joined);
       return;
     }
   }
 
   function clearDrill() {
     setSelection({ type: null, key: null, label: "" });
-    setRows([]);
+    setDetailRows([]);
+    setDetailPage(0);
   }
 
-  /* ---------- quick filters ---------- */
-  function quickRetention() {
-    openDrill("retention", "retention", "All in Retention");
-  }
-  function quickUnauthorized() {
-    openDrill("retention", "unauthorized", "Unauthorized Occupation");
-  }
+  const pageCount = Math.max(1, Math.ceil(detailRows.length / DETAIL_PAGE_SIZE));
+  const paged = useMemo(() => {
+    const start = detailPage * DETAIL_PAGE_SIZE;
+    return detailRows.slice(start, start + DETAIL_PAGE_SIZE);
+  }, [detailRows, detailPage]);
 
-  /* ---------- UI ---------- */
+  /* ---- quick filters ---- */
+  const quickRetention = () => openDrill("retention", "retention", "All in Retention");
+  const quickUnauthorized = () => openDrill("retention", "unauthorized", "Unauthorized Occupation");
+
+  /* ---- UI ---- */
   return (
     <div className="container">
       <h1>Dashboard</h1>
@@ -245,10 +273,10 @@ export default function Dashboard() {
 
       {/* Top tiles - clickable */}
       <div className="card" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 12 }}>
-        <Tile label="Total Houses" value={counts.houses} onClick={() => clearDrill()} />
-        <Tile label="Occupied" value={counts.occupied} onClick={() => openDrill("house-status", "occupied", "Occupied Houses")} />
-        <Tile label="Vacant" value={counts.vacant} onClick={() => openDrill("house-status", "vacant", "Vacant Houses")} />
-        <Tile label="Allotments" value={counts.allotments} onClick={() => openDrill("retention", "in-service", "Allotments (In-Service)")} />
+        <Tile label="Total Houses" value={counts.houses} onClick={clearDrill} />
+        <Tile label="Occupied" value={counts.occupied} color={STATUS_COLORS.occupied} onClick={() => openDrill("house-status", "occupied", "Occupied Houses")} />
+        <Tile label="Vacant" value={counts.vacant} color={STATUS_COLORS.vacant} onClick={() => openDrill("house-status", "vacant", "Vacant Houses")} />
+        <Tile label="Allotments" value={allots.length} onClick={() => openDrill("retention", "in-service", "Allotments (In-Service)")} />
         <TileAccent label="Retention (click)" onClick={quickRetention} />
       </div>
 
@@ -277,7 +305,7 @@ export default function Dashboard() {
               <button className="btn" onClick={quickRetention}>View Retention</button>
               <button className="btn" onClick={quickUnauthorized}>View Unauthorized</button>
               <button className="btn" onClick={() => openDrill("retention", "in-service", "Allottees: In-Service")}>View In-Service</button>
-              <button className="btn" onClick={() => clearDrill()}>Clear Selection</button>
+              <button className="btn" onClick={clearDrill}>Clear Selection</button>
             </div>
             <div style={{ fontSize: 12, color: "#607d8b" }}>
               Retention = retired ≤ 6 months; Unauthorized = retired &gt; 6 months.
@@ -286,88 +314,108 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Drill-down panel */}
+      {/* Drill-down panel with pagination (fast rendering) */}
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <strong style={{ fontSize: 16 }}>{selection.label || "Details"}</strong>
           {selection.type && <button className="btn" style={{ marginLeft: "auto" }} onClick={clearDrill}>Reset</button>}
         </div>
 
-        {rows.length === 0 ? (
+        {detailRows.length === 0 ? (
           <div style={{ color: "#607d8b" }}>Click a tile or a chart slice to see details here.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="grid-table" style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                {selection.type === "retention" ? (
-                  <tr>
-                    <Th>Allotment #</Th>
-                    <Th>Allottee</Th>
-                    <Th>File No</Th>
-                    <Th>House</Th>
-                    <Th>Pool</Th>
-                    <Th>Medium</Th>
-                    <Th>Retirement Date</Th>
-                    <Th>Status</Th>
-                    <Th>Days Past</Th>
-                  </tr>
-                ) : (
-                  <tr>
-                    <Th>House ID</Th>
-                    <Th>File No</Th>
-                    <Th>Sector</Th>
-                    <Th>Street</Th>
-                    <Th>Qtr No</Th>
-                    <Th>Type</Th>
-                    <Th>Status</Th>
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {selection.type === "retention"
-                  ? rows.map((a) => {
-                      const r = a.__retention || {};
-                      const h = a.__house || {};
-                      return (
-                        <tr key={a.id}>
-                          <Td>{safe(a.id)}</Td>
-                          <Td>{safe(a.allottee_name || a.allottee)}</Td>
-                          <Td>{safe(h.file_no || a.file_no)}</Td>
-                          <Td>{formatHouse(h)}</Td>
-                          <Td>{safe(a.pool)}</Td>
-                          <Td>{safe(a.medium)}</Td>
-                          <Td>{r.retirementDate ? fmtDate(r.retirementDate) : "-"}</Td>
-                          <Td>
-                            <Pill text={r.status} tone={r.status} />
-                          </Td>
-                          <Td>{typeof r.daysPast === "number" && r.daysPast > 0 ? r.daysPast : 0}</Td>
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <table className="grid-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  {selection.type === "retention" ? (
+                    <tr>
+                      <Th>Allotment #</Th>
+                      <Th>Allottee</Th>
+                      <Th>File No</Th>
+                      <Th>House</Th>
+                      <Th>Pool</Th>
+                      <Th>Medium</Th>
+                      <Th>Retirement Date</Th>
+                      <Th>Status</Th>
+                      <Th>Days Past</Th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <Th>House ID</Th>
+                      <Th>File No</Th>
+                      <Th>Sector</Th>
+                      <Th>Street</Th>
+                      <Th>Qtr No</Th>
+                      <Th>Type</Th>
+                      <Th>Status</Th>
+                    </tr>
+                  )}
+                </thead>
+                <tbody>
+                  {selection.type === "retention"
+                    ? paged.map((a) => {
+                        const r = a.__retention || {};
+                        const h = a.__house || {};
+                        return (
+                          <tr key={a.id}>
+                            <Td>{safe(a.id)}</Td>
+                            <Td>{safe(a.allottee_name || a.allottee)}</Td>
+                            <Td>{safe(h.file_no || a.file_no)}</Td>
+                            <Td>{formatHouse(h)}</Td>
+                            <Td>{safe(a.pool)}</Td>
+                            <Td>{safe(a.medium)}</Td>
+                            <Td>{r.retirementDate ? fmtDate(r.retirementDate) : "-"}</Td>
+                            <Td><Pill text={r.status} tone={RETENTION_COLORS[r.status]} /></Td>
+                            <Td>{typeof r.daysPast === "number" && r.daysPast > 0 ? r.daysPast : 0}</Td>
+                          </tr>
+                        );
+                      })
+                    : paged.map((h) => (
+                        <tr key={h.id}>
+                          <Td>{safe(h.id)}</Td>
+                          <Td>{safe(h.file_no)}</Td>
+                          <Td>{safe(h.sector)}</Td>
+                          <Td>{safe(h.street)}</Td>
+                          <Td>{safe(h.qtr_no)}</Td>
+                          <Td><Pill text={safe(h.type_code)} tone={colorForType(h.type_code)} /></Td>
+                          <Td><Pill text={safe(h.status)} tone={STATUS_COLORS[String(h.status).toLowerCase()] || STATUS_COLORS.unknown} /></Td>
                         </tr>
-                      );
-                    })
-                  : rows.map((h) => (
-                      <tr key={h.id}>
-                        <Td>{safe(h.id)}</Td>
-                        <Td>{safe(h.file_no)}</Td>
-                        <Td>{safe(h.sector)}</Td>
-                        <Td>{safe(h.street)}</Td>
-                        <Td>{safe(h.qtr_no)}</Td>
-                        <Td>{safe(h.type_code)}</Td>
-                        <Td><Pill text={safe(h.status)} tone={String(h.status).toLowerCase()} /></Td>
-                      </tr>
-                    ))}
-              </tbody>
-            </table>
-          </div>
+                      ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination controls */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", paddingTop: 8 }}>
+              <span style={{ color: "#607d8b", fontSize: 12 }}>
+                Showing {detailRows.length ? detailPage * DETAIL_PAGE_SIZE + 1 : 0}
+                –
+                {Math.min((detailPage + 1) * DETAIL_PAGE_SIZE, detailRows.length)}
+                {" of "}
+                {detailRows.length}
+              </span>
+              <button className="btn" onClick={() => setDetailPage((p) => Math.max(0, p - 1))} disabled={detailPage === 0}>← Prev</button>
+              <button className="btn" onClick={() => setDetailPage((p) => Math.min(pageCount - 1, p + 1))} disabled={detailPage >= pageCount - 1}>Next →</button>
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-/* ---------- tiny UI bits ---------- */
-function Tile({ label, value, onClick }) {
+/* ======= tiny UI bits ======= */
+function Tile({ label, value, onClick, color }) {
   return (
-    <div className="tile" onClick={onClick} style={{ cursor: onClick ? "pointer" : "default" }}>
+    <div
+      className="tile"
+      onClick={onClick}
+      style={{
+        cursor: onClick ? "pointer" : "default",
+        borderLeft: `4px solid ${color || "#90a4ae"}`,
+      }}
+    >
       <div className="label" style={{ color: "#607d8b", fontSize: 12, textTransform: "uppercase", letterSpacing: ".04em" }}>{label}</div>
       <div className="value" style={{ fontSize: 28, fontWeight: 800 }}>{value}</div>
     </div>
@@ -390,13 +438,7 @@ function Td({ children }) {
 }
 
 function Pill({ text, tone }) {
-  const t = String(tone || "").toLowerCase();
-  const bg =
-    t.includes("unauthor") ? "rgba(239,68,68,0.12)" :
-    t.includes("retent") ? "rgba(245,158,11,0.18)" :
-    t.includes("occupied") ? "rgba(59,130,246,0.15)" :
-    t.includes("vacant") ? "rgba(34,197,94,0.15)" :
-    "rgba(107,114,128,0.15)";
+  const bg = tone || "#e0e0e0";
   const color = "#111";
   return (
     <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: bg, color, fontSize: 12, lineHeight: "18px" }}>
@@ -405,15 +447,13 @@ function Pill({ text, tone }) {
   );
 }
 
-/* ---------- format helpers ---------- */
+/* ======= helpers ======= */
 const safe = (x) => (x === null || x === undefined || String(x).trim() === "" ? "-" : x);
 const fmtDate = (d) => {
   try {
     const dt = d instanceof Date ? d : new Date(d);
     return dt.toISOString().slice(0, 10);
-  } catch {
-    return "-";
-  }
+  } catch { return "-"; }
 };
 const formatHouse = (h) =>
   [h?.sector, h?.street ? `St-${h.street}` : null, h?.qtr_no ? `Qtr-${h.qtr_no}` : null]
