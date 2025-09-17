@@ -43,11 +43,14 @@ function addYears(dateStr, years) {
   } catch { return ""; }
 }
 
+/* Medium options (as requested) */
 const MEDIUM_OPTIONS = [
   { value: "", label: "-" },
-  { value: "general", label: "General" },
-  { value: "m/o", label: "M/O" },
-  { value: "h/o", label: "H/O" },
+  { value: "Family transfer", label: "Family transfer" },
+  { value: "GWL", label: "GWL" },
+  { value: "Change Basis", label: "Change Basis" },
+  { value: "Mutual", label: "Mutual" },
+  { value: "Relaxation of Rules", label: "Relaxation of Rules" },
 ];
 
 /* ------------------------- helpers ------------------------- */
@@ -74,34 +77,26 @@ function getSector(r, houseCache) {
   return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode);
 }
 
-/* --------------------- House search picker --------------------- */
-function HousePicker({ value, onChange, mode = "add" /* 'add' | 'edit' */ }) {
+/* --------------------- House pickers --------------------- */
+/** Add modal: shows a working search and a results dropdown */
+function HousePickerAdd({ value, onChange }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [opts, setOpts] = useState([]);
-  const [selected, setSelected] = useState(null); // for edit "Selected: ..."
 
-  // when editing, pull current house so we can show Selected details
-  useEffect(() => {
-    let cancelled = false;
-    async function loadCurrent() {
-      if (!value) { setSelected(null); return; }
-      try {
-        const res = await api.request("GET", `/houses/${value}`);
-        if (!res.ok) return;
-        const h = await res.json();
-        if (!cancelled) setSelected(h);
-      } catch {}
-    }
-    if (mode === "edit") loadCurrent();
-    return () => { cancelled = true; };
-  }, [value, mode]);
-
-  // fetch list by query
   const fetchList = async (qq) => {
     setLoading(true);
     try {
-      const res = await api.request("GET", "/houses/", { params: { q: qq } });
+      const params = {
+        q: qq,
+        file_no: qq,
+        sector: qq,
+        street: qq,
+        qtr_no: qq,
+        type_code: qq,
+        limit: 25,
+      };
+      const res = await api.request("GET", "/houses/", { params });
       const list = await res.json().catch(() => []);
       const items = Array.isArray(list) ? list : (list?.items || list?.results || list?.data || []);
       setOpts(items);
@@ -112,18 +107,20 @@ function HousePicker({ value, onChange, mode = "add" /* 'add' | 'edit' */ }) {
     }
   };
 
-  // debounce while typing
+  // debounce search while typing
   const debTimer = useRef(null);
   useEffect(() => {
-    if (q.trim().length < 2) { setOpts([]); return; }
+    const qq = q.trim();
+    if (!qq) { setOpts([]); return; }
     clearTimeout(debTimer.current);
-    debTimer.current = setTimeout(() => fetchList(q.trim()), 350);
+    debTimer.current = setTimeout(() => fetchList(qq), 300);
     return () => clearTimeout(debTimer.current);
   }, [q]);
 
   const onManualSearch = (e) => {
     e?.preventDefault?.();
-    if (q.trim().length >= 1) fetchList(q.trim());
+    const qq = q.trim();
+    if (qq) fetchList(qq);
   };
 
   return (
@@ -141,7 +138,43 @@ function HousePicker({ value, onChange, mode = "add" /* 'add' | 'edit' */ }) {
         </button>
       </div>
 
-      {mode === "edit" && value && selected && (
+      <label style={{ display: "grid", gap: 6 }}>
+        <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
+          <option value="">-</option>
+          {opts.map((h) => (
+            <option key={h.id} value={h.id}>
+              {fmt(h.file_no)} — {fmt(h.qtr_no || h.quarter_no || h.qtrNo)} / {fmt(h.street || h.street_no || h.streetName)} / {fmt(h.sector || h.sector_code || h.sectorCode)} ({fmt(h.type_code)})
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+/** Edit modal: NO search UI, shows selected house summary; dropdown disabled */
+function HousePickerEdit({ value }) {
+  const [selected, setSelected] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCurrent() {
+      if (!value) { setSelected(null); return; }
+      try {
+        const res = await api.request("GET", `/houses/${value}`);
+        if (!res.ok) return;
+        const h = await res.json();
+        if (!cancelled) setSelected(h);
+      } catch {}
+    }
+    loadCurrent();
+    return () => { cancelled = true; };
+  }, [value]);
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      {value && selected && (
         <div style={{ fontSize: 13, color: "#555" }}>
           Selected:&nbsp;
           <strong>{fmt(selected.file_no)}</strong>&nbsp;—&nbsp;
@@ -151,20 +184,10 @@ function HousePicker({ value, onChange, mode = "add" /* 'add' | 'edit' */ }) {
           ({fmt(selected.type_code)})
         </div>
       )}
-
       <label style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
-        <select
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
-          style={input}
-        >
-          <option value="">-</option>
-          {opts.map((h) => (
-            <option key={h.id} value={h.id}>
-              {fmt(h.file_no)} — {fmt(h.qtr_no || h.quarter_no || h.qtrNo)} / {fmt(h.street || h.street_no || h.streetName)} / {fmt(h.sector || h.sector_code || h.sectorCode)} ({fmt(h.type_code)})
-            </option>
-          ))}
+        <select value={value ?? ""} disabled style={input}>
+          <option value={value || ""}>{value ? "Locked (editing)" : "-"}</option>
         </select>
       </label>
     </div>
@@ -364,7 +387,7 @@ export default function AllotmentsPage() {
   };
   const submitEdit = async (e) => {
     e.preventDefault();
-    if (!form.house_id) { alert("Please select a house."); return; }
+    if (!form.house_id) { alert("House is required."); return; }
     try {
       const payload = {
         ...form,
@@ -499,11 +522,11 @@ export default function AllotmentsPage() {
         </div>
       </div>
 
-      {/* Add Allotment (distinct layout and validations) */}
+      {/* Add Allotment: shows SEARCH */}
       <Modal open={adding} onClose={closeModals} title="Add Allotment">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
           <Row3>
-            <HousePicker mode="add" value={form.house_id} onChange={(v) => setForm((f) => ({ ...f, house_id: v }))} />
+            <HousePickerAdd value={form.house_id} onChange={(v) => setForm((f) => ({ ...f, house_id: v }))} />
             <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required placeholder="e.g., Ali Khan" />
             <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} placeholder="e.g., 61101-1234567-1" />
           </Row3>
@@ -527,12 +550,12 @@ export default function AllotmentsPage() {
         </form>
       </Modal>
 
-      {/* Edit Allotment (shows current selected house details at top) */}
+      {/* Edit Allotment: NO SEARCH, house field locked */}
       <AdminOnly>
         <Modal open={!!editing} onClose={closeModals} title="Edit Allotment">
           <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
             <Row3>
-              <HousePicker mode="edit" value={form.house_id} onChange={(v) => setForm((f) => ({ ...f, house_id: v }))} />
+              <HousePickerEdit value={form.house_id} />
               <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
               <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
             </Row3>
