@@ -6,8 +6,8 @@ import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
 // Fixed pagination: 50 per page
-const API_MAX_LIMIT = 1000;            // match your backend cap
-const PAGE_SIZE = 50;                  // your UI page size
+const API_MAX_LIMIT = 1000; // match your backend cap (unused but kept for parity)
+const PAGE_SIZE = 50;       // your UI page size
 
 function useQuery() {
   const { search } = useLocation();
@@ -24,6 +24,18 @@ const emptyHouse = {
   status: "vacant",
   status_manual: false,
 };
+
+/** 🔗 Allotment history URL helper
+ * Change this in ONE place if your route differs.
+ * Common variants you might be using:
+ *  - `/allotments?house_id=${row.id}`
+ *  - `/allotments/history/${row.id}`
+ *  - `/allotments?house=${row.file_no}`
+ */
+function buildAllotmentHistoryUrl(row) {
+  // default: query by house_id so filters on Allotments page can pick it up
+  return `/allotments?house_id=${encodeURIComponent(row.id)}`;
+}
 
 export default function HousesPage() {
   const navigate = useNavigate();
@@ -100,7 +112,7 @@ export default function HousesPage() {
   const canPrev = page > 0;
   const canNext = (page + 1) * PAGE_SIZE < total;
 
-  const fmt = (x) => (x ? String(x) : "-");
+  const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
   const pill = (bg = "#eee", color = "#111") => ({
     display: "inline-block",
     padding: "4px 8px",
@@ -108,12 +120,14 @@ export default function HousesPage() {
     fontSize: 12,
     background: bg,
     color,
+    textTransform: "capitalize",
   });
 
   const onChange = (key) => (e) => {
     const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
     setForm((f) => ({ ...f, [key]: v }));
   };
+
   const openAdd = () => {
     setForm(emptyHouse);
     setAdding(true);
@@ -167,6 +181,16 @@ export default function HousesPage() {
     }
   };
 
+  /** File No click -> Allotment history (supports new-tab with Ctrl/Meta/Shift) */
+  const openHistory = (e, row) => {
+    const url = buildAllotmentHistoryUrl(row);
+    if (e?.metaKey || e?.ctrlKey || e?.shiftKey) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      navigate(url);
+    }
+  };
+
   return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -197,13 +221,16 @@ export default function HousesPage() {
       {error && <div style={errorBox}>{error}</div>}
 
       <style>{`
-        /* Row card look without lines */
+        /* Row card look without lines (same style as Allotments) */
         table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
         table.rows-separated thead th { border-bottom: none; }
         table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
         table.rows-separated tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
         table.rows-separated tbody tr td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
         table.rows-separated tbody tr:hover td { background: rgba(34,197,94,0.06); }
+        /* Link-like button for File No */
+        .linkish { background: transparent; border: 0; padding: 0; cursor: pointer; text-decoration: underline; color: #0b65c2; }
+        .linkish:hover { opacity: 0.85; }
       `}</style>
 
       <div style={{ overflowX: "auto" }}>
@@ -229,7 +256,18 @@ export default function HousesPage() {
             {rows.map((r) => (
               <tr key={r.id}>
                 <td style={td}>{fmt(r.id)}</td>
-                <td style={td} title={fmt(r.file_no)}>{fmt(r.file_no)}</td>
+
+                {/* File No now acts like a link to allotment history */}
+                <td style={td}>
+                  <button
+                    className="linkish"
+                    title="Open allotment history"
+                    onClick={(e) => openHistory(e, r)}
+                  >
+                    {fmt(r.file_no)}
+                  </button>
+                </td>
+
                 <td style={td}>{fmt(r.qtr_no)}</td>
                 <td style={td}>{fmt(r.street)}</td>
                 <td style={td}>{fmt(r.sector)}</td>
@@ -271,64 +309,22 @@ export default function HousesPage() {
         </div>
       </div>
 
-      {/* Add Modal */}
+      {/* Add Modal — styled like Allotments (Row3 layout, tidy fields) */}
       <Modal open={adding} onClose={closeModals} title="Add House">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
-          <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required />
-          <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
-          <Field label="Street" value={form.street} onChange={onChange("street")} />
-          <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
-          <Select
-            label="Type"
-            value={form.type_code}
-            onChange={onChange("type_code")}
-            options={[
-              { value: "A", label: "A" }, { value: "B", label: "B" },
-              { value: "C", label: "C" }, { value: "D", label: "D" },
-              { value: "E", label: "E" }, { value: "F", label: "F" },
-              { value: "G", label: "G" }, { value: "H", label: "H" },
-              { value: "SITE", label: "SITE" },
-            ]}
-          />
-          <Select
-            label="Pool"
-            value={form.pool}
-            onChange={onChange("pool")}
-            options={[
-              { value: "", label: "-" },
-              { value: "general", label: "General" },
-              { value: "m/o", label: "M/O" },
-              { value: "h/o", label: "H/O" },
-            ]}
-          />
-          <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
-          <Select
-            label="Status"
-            value={form.status}
-            onChange={onChange("status")}
-            options={[
-              { value: "vacant", label: "Vacant" },
-              { value: "occupied", label: "Occupied" },
-              { value: "reserved", label: "Reserved" },
-            ]}
-          />
-          <Actions onCancel={closeModals} submitText="Create" />
-        </form>
-      </Modal>
-
-      {/* Edit Modal */}
-      <AdminOnly>
-        <Modal open={!!editing} onClose={closeModals} title="Edit House">
-          <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
-            <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required />
-            <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
-            <Field label="Street" value={form.street} onChange={onChange("street")} />
-            <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
+          <Row3>
+            <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required placeholder="e.g., 1234" />
+            <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} placeholder="e.g., 12" />
+            <Field label="Street" value={form.street} onChange={onChange("street")} placeholder="e.g., 5" />
+          </Row3>
+          <Row3>
+            <Field label="Sector" value={form.sector} onChange={onChange("sector")} placeholder="e.g., G-6/1" />
             <Select
               label="Type"
               value={form.type_code}
               onChange={onChange("type_code")}
               options={[
+                { value: "", label: "-" },
                 { value: "A", label: "A" }, { value: "B", label: "B" },
                 { value: "C", label: "C" }, { value: "D", label: "D" },
                 { value: "E", label: "E" }, { value: "F", label: "F" },
@@ -347,6 +343,8 @@ export default function HousesPage() {
                 { value: "h/o", label: "H/O" },
               ]}
             />
+          </Row3>
+          <Row3>
             <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
             <Select
               label="Status"
@@ -358,6 +356,62 @@ export default function HousesPage() {
                 { value: "reserved", label: "Reserved" },
               ]}
             />
+            <div /> {/* spacer to balance the row */}
+          </Row3>
+          <Actions onCancel={closeModals} submitText="Create" />
+        </form>
+      </Modal>
+
+      {/* Edit Modal — same style as Add, logic unchanged */}
+      <AdminOnly>
+        <Modal open={!!editing} onClose={closeModals} title="Edit House">
+          <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
+            <Row3>
+              <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required />
+              <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
+              <Field label="Street" value={form.street} onChange={onChange("street")} />
+            </Row3>
+            <Row3>
+              <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
+              <Select
+                label="Type"
+                value={form.type_code}
+                onChange={onChange("type_code")}
+                options={[
+                  { value: "", label: "-" },
+                  { value: "A", label: "A" }, { value: "B", label: "B" },
+                  { value: "C", label: "C" }, { value: "D", label: "D" },
+                  { value: "E", label: "E" }, { value: "F", label: "F" },
+                  { value: "G", label: "G" }, { value: "H", label: "H" },
+                  { value: "SITE", label: "SITE" },
+                ]}
+              />
+              <Select
+                label="Pool"
+                value={form.pool}
+                onChange={onChange("pool")}
+                options={[
+                  { value: "", label: "-" },
+                  { value: "general", label: "General" },
+                  { value: "m/o", label: "M/O" },
+                  { value: "h/o", label: "H/O" },
+                ]}
+              />
+            </Row3>
+            <Row3>
+              <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
+              <Select
+                label="Status"
+                value={form.status}
+                onChange={onChange("status")}
+                options={[
+                  { value: "vacant", label: "Vacant" },
+                  { value: "occupied", label: "Occupied" },
+                  { value: "reserved", label: "Reserved" },
+                ]}
+              />
+              <div />
+            </Row3>
             <Actions onCancel={closeModals} submitText="Save" />
           </form>
         </Modal>
@@ -366,7 +420,7 @@ export default function HousesPage() {
   );
 }
 
-/* --- UI bits --- */
+/* --- UI bits (matching Allotments) --- */
 
 const table = {
   width: "100%",
@@ -413,7 +467,7 @@ const btnPrimary = {
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
-function Field({ label, value, onChange, type = "text", required, readOnly }) {
+function Field({ label, value, onChange, type = "text", required, readOnly, placeholder }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
@@ -423,6 +477,7 @@ function Field({ label, value, onChange, type = "text", required, readOnly }) {
         onChange={onChange}
         required={required}
         readOnly={readOnly}
+        placeholder={placeholder}
         style={input}
       />
     </label>
@@ -456,3 +511,11 @@ function Actions({ onCancel, submitText }) {
     </div>
   );
 }
+function Row3({ children }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      {children}
+    </div>
+  );
+}
+const errorBox = { padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.08)", color: "#991b1b", border: "1px solid rgba(239,68,68,0.25)" };

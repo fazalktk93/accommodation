@@ -82,7 +82,7 @@ function HousePickerAdd({ value, onChange }) {
     setLoading(true);
     setErr("");
     try {
-      const res = await api.request("GET", "/houses/", { params: { q: qq, limit: 50 } });
+      const res = await api.request("GET", "/houses/", { params: { q: qq, limit: 5000 } });
       const body = await res.json().catch(() => []);
       const items = normalize(body);
       setOpts(items);
