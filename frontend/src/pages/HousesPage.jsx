@@ -6,7 +6,7 @@ import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
 // Fixed pagination
-const API_MAX_LIMIT = 1000;
+const API_MAX_LIMIT = 3000;
 const PAGE_SIZE = 50;
 
 function useQuery() {
