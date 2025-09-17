@@ -551,6 +551,17 @@ const btnPrimary = {
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
+/** ✅ Added: pill style helper that was missing (this was crashing the page) */
+const pill = (bg, color = "#111") => ({
+  display: "inline-block",
+  padding: "2px 8px",
+  borderRadius: 999,
+  background: bg,
+  color,
+  fontSize: 12,
+  lineHeight: "18px",
+});
+
 function Field({ label, value, onChange, type = "text", required, readOnly, placeholder }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
