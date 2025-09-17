@@ -1,19 +1,18 @@
 // src/pages/AllotmentsPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
-const API_MAX_LIMIT = 1000;           // match backend cap
-const PAGE_SIZE = 50;                 // UI page size
+const PAGE_SIZE = 50;
 
 function useQuery() {
   const { search } = useLocation();
   return useMemo(() => new URLSearchParams(search), [search]);
 }
 
-const empty = {
+const emptyAllotment = {
   house_id: "",
   person_name: "",
   designation: "",
@@ -51,7 +50,7 @@ const MEDIUM_OPTIONS = [
   { value: "h/o", label: "H/O" },
 ];
 
-/* ---------- formatting helpers ---------- */
+/* ------------------------- helpers ------------------------- */
 const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
 const date = (x) => (x ? String(x).substring(0, 10) : "-");
 const pick = (...vals) => {
@@ -61,10 +60,7 @@ const pick = (...vals) => {
   return "";
 };
 
-/* Pull qtr/street/sector from:
-   1) flattened row fields
-   2) nested row.house
-   3) houseCache[id] fetched client-side (when API doesn’t embed house) */
+// read qtr/street/sector from row, row.house, or cached houses
 function getQtrNo(r, houseCache) {
   const h = r.house || houseCache[r.house_id] || {};
   return pick(r.qtr_no, r.quarter_no, r.qtrNo, h.qtr_no, h.quarter_no, h.qtrNo);
@@ -78,8 +74,105 @@ function getSector(r, houseCache) {
   return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode);
 }
 
-/* ---------- small field components ---------- */
-function Field({ label, value, onChange, type = "text", required, readOnly }) {
+/* --------------------- House search picker --------------------- */
+function HousePicker({ value, onChange, mode = "add" /* 'add' | 'edit' */ }) {
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [opts, setOpts] = useState([]);
+  const [selected, setSelected] = useState(null); // for edit "Selected: ..."
+
+  // when editing, pull current house so we can show Selected details
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCurrent() {
+      if (!value) { setSelected(null); return; }
+      try {
+        const res = await api.request("GET", `/houses/${value}`);
+        if (!res.ok) return;
+        const h = await res.json();
+        if (!cancelled) setSelected(h);
+      } catch {}
+    }
+    if (mode === "edit") loadCurrent();
+    return () => { cancelled = true; };
+  }, [value, mode]);
+
+  // fetch list by query
+  const fetchList = async (qq) => {
+    setLoading(true);
+    try {
+      const res = await api.request("GET", "/houses/", { params: { q: qq } });
+      const list = await res.json().catch(() => []);
+      const items = Array.isArray(list) ? list : (list?.items || list?.results || list?.data || []);
+      setOpts(items);
+    } catch {
+      setOpts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // debounce while typing
+  const debTimer = useRef(null);
+  useEffect(() => {
+    if (q.trim().length < 2) { setOpts([]); return; }
+    clearTimeout(debTimer.current);
+    debTimer.current = setTimeout(() => fetchList(q.trim()), 350);
+    return () => clearTimeout(debTimer.current);
+  }, [q]);
+
+  const onManualSearch = (e) => {
+    e?.preventDefault?.();
+    if (q.trim().length >= 1) fetchList(q.trim());
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          placeholder="Find house (file/sector/street/qtr/type)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onManualSearch(); } }}
+          style={input}
+        />
+        <button type="button" onClick={onManualSearch} style={btn}>
+          {loading ? "..." : "Search"}
+        </button>
+      </div>
+
+      {mode === "edit" && value && selected && (
+        <div style={{ fontSize: 13, color: "#555" }}>
+          Selected:&nbsp;
+          <strong>{fmt(selected.file_no)}</strong>&nbsp;—&nbsp;
+          {fmt(selected.qtr_no || selected.quarter_no || selected.qtrNo)}&nbsp;/&nbsp;
+          {fmt(selected.street || selected.street_no || selected.streetName)}&nbsp;/&nbsp;
+          {fmt(selected.sector || selected.sector_code || selected.sectorCode)}&nbsp;
+          ({fmt(selected.type_code)})
+        </div>
+      )}
+
+      <label style={{ display: "grid", gap: 6 }}>
+        <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
+        <select
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          style={input}
+        >
+          <option value="">-</option>
+          {opts.map((h) => (
+            <option key={h.id} value={h.id}>
+              {fmt(h.file_no)} — {fmt(h.qtr_no || h.quarter_no || h.qtrNo)} / {fmt(h.street || h.street_no || h.streetName)} / {fmt(h.sector || h.sector_code || h.sectorCode)} ({fmt(h.type_code)})
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+/* --------------------- Small UI atoms --------------------- */
+function Field({ label, value, onChange, type = "text", required, readOnly, placeholder }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
@@ -89,16 +182,17 @@ function Field({ label, value, onChange, type = "text", required, readOnly }) {
         onChange={onChange}
         required={required}
         readOnly={readOnly}
+        placeholder={placeholder}
         style={input}
       />
     </label>
   );
 }
-function TextArea({ label, value, onChange, rows = 3 }) {
+function TextArea({ label, value, onChange, rows = 3, placeholder }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
-      <textarea value={value ?? ""} onChange={onChange} rows={rows} style={{ ...input, minHeight: 80 }} />
+      <textarea value={value ?? ""} onChange={onChange} rows={rows} placeholder={placeholder} style={{ ...input, minHeight: 80 }} />
     </label>
   );
 }
@@ -114,69 +208,6 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
-
-/* ---------- House picker used by modals ---------- */
-function HousePicker({ value, onChange }) {
-  const [q, setQ] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [opts, setOpts] = useState([]);
-  const [chosen, setChosen] = useState(null); // {id, file_no, qtr_no, sector, street}
-
-  // load current selection (when editing)
-  useEffect(() => {
-    let done = false;
-    async function loadCurrent() {
-      if (!value) return;
-      try {
-        const res = await api.request("GET", `/houses/${value}`);
-        if (!res.ok) return;
-        const h = await res.json();
-        if (!done) setChosen(h);
-      } catch {}
-    }
-    loadCurrent();
-    return () => { done = true; };
-  }, [value]);
-
-  const search = async () => {
-    setLoading(true);
-    try {
-      const res = await api.request("GET", "/houses/", { params: { q } });
-      const list = await res.json().catch(() => []);
-      setOpts(Array.isArray(list) ? list : (list?.items || list?.results || list?.data || []));
-    } catch {
-      setOpts([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input placeholder="Find house (file/sector/street/qtr/type)" value={q} onChange={(e) => setQ(e.target.value)} style={input} />
-        <button onClick={search} style={btn} disabled={loading}>{loading ? "..." : "Search"}</button>
-      </div>
-      {value && chosen && (
-        <div style={{ fontSize: 13, color: "#555" }}>
-          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(getQtrNo(chosen, {}))} / {fmt(getStreet(chosen, {}))} / {fmt(getSector(chosen, {}))} ({fmt(chosen.type_code)})
-        </div>
-      )}
-      <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
-        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
-          <option value="">-</option>
-          {opts.map((h) => (
-            <option key={h.id} value={h.id}>
-              {fmt(h.file_no)} — {fmt(getQtrNo(h, {}))} / {fmt(getStreet(h, {}))} / {fmt(getSector(h, {}))} ({fmt(h.type_code)})
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
 function Row3({ children }) {
   return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>;
 }
@@ -189,11 +220,7 @@ function Actions({ onCancel, submitText }) {
   );
 }
 
-/* =========================================================
-   Allotments Page
-   - Renders with "row-card" (no lines) table
-   - Auto-enriches missing house fields via on-demand fetch
-   ========================================================= */
+/* ======================== Page ======================== */
 export default function AllotmentsPage() {
   const query = useQuery();
   const [page, setPage] = useState(Number(query.get("page") || 0));
@@ -204,7 +231,7 @@ export default function AllotmentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // cache of houses we’ve looked up: { [id]: house }
+  // house cache for enriching display
   const [houseCache, setHouseCache] = useState({});
 
   const pushUrl = (p = page, queryText = q) => {
@@ -252,25 +279,17 @@ export default function AllotmentsPage() {
     }
   };
 
-  useEffect(() => {
-    pushUrl(page, q);
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, q]);
+  useEffect(() => { pushUrl(page, q); load(); /* eslint-disable-next-line */ }, [page, q]);
 
-  // Enrich current page with house details if missing
+  // Enrich visible rows with house data if missing
   useEffect(() => {
     const needIds = [];
     for (const r of rows) {
-      const hasAny =
-        getQtrNo(r, {}) || getStreet(r, {}) || getSector(r, {});
-      if (!hasAny && r.house_id && !houseCache[r.house_id]) {
-        needIds.push(r.house_id);
-      }
+      const hasAny = getQtrNo(r, {}) || getStreet(r, {}) || getSector(r, {});
+      if (!hasAny && r.house_id && !houseCache[r.house_id]) needIds.push(r.house_id);
     }
     if (!needIds.length) return;
 
-    // fetch sequentially to be gentle on API; still quick for one page
     let cancelled = false;
     (async () => {
       const newCache = {};
@@ -286,16 +305,23 @@ export default function AllotmentsPage() {
         setHouseCache((prev) => ({ ...prev, ...newCache }));
       }
     })();
-
     return () => { cancelled = true; };
   }, [rows, houseCache]);
 
-  // CRUD
+  /* ---------- Add / Edit modals (distinct) ---------- */
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(empty);
+  const [form, setForm] = useState(emptyAllotment);
 
-  const openAdd = () => { setForm(empty); setAdding(true); };
+  const onChange = (key) => (e) => {
+    const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
+    setForm((f) => ({ ...f, [key]: v }));
+  };
+
+  const openAdd = () => {
+    setForm(emptyAllotment);
+    setAdding(true);
+  };
   const openEdit = (row) => {
     setEditing(row);
     setForm({
@@ -317,18 +343,14 @@ export default function AllotmentsPage() {
   };
   const closeModals = () => { setAdding(false); setEditing(null); };
 
-  const onChange = (key) => (e) => {
-    const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
-    setForm((f) => ({ ...f, [key]: v }));
-  };
-
   const submitAdd = async (e) => {
     e.preventDefault();
-    if (!form.house_id) { alert("Please select a house for this allotment."); return; }
+    if (!form.house_id) { alert("Please select a house."); return; }
+    if (!form.person_name?.trim()) { alert("Please enter Allottee Name."); return; }
     try {
       const payload = {
         ...form,
-        house_id: form.house_id ? Number(form.house_id) : undefined,
+        house_id: Number(form.house_id),
         bps: form.bps ? Number(form.bps) : undefined,
         dor: form.dor || (form.dob ? addYears(form.dob, 60) : undefined),
       };
@@ -342,7 +364,7 @@ export default function AllotmentsPage() {
   };
   const submitEdit = async (e) => {
     e.preventDefault();
-    if (!form.house_id) { alert("Please select a house for this allotment."); return; }
+    if (!form.house_id) { alert("Please select a house."); return; }
     try {
       const payload = {
         ...form,
@@ -393,7 +415,9 @@ export default function AllotmentsPage() {
             style={input}
           />
           <button type="submit" style={btn}>Search</button>
-          <button type="button" onClick={() => { setQ(""); setPage(0); }} style={btn}>Clear</button>
+          <button type="button" onClick={() => { setQ(""); setPage(0); }} style={btn}>
+            Clear
+          </button>
         </form>
         <AdminOnly>
           <button onClick={openAdd} style={btnPrimary}>+ Add Allotment</button>
@@ -403,12 +427,12 @@ export default function AllotmentsPage() {
       {error && <div style={errorBox}>{error}</div>}
 
       <style>{`
-        /* Row card look without lines */
+        /* Row-card table: separation by color, no lines */
         table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
         table.rows-separated thead th { border-bottom: none; }
         table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
         table.rows-separated tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-        table.rows-separated tbody tr td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+        table.rows-separated tbody tr td:last-child  { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
         table.rows-separated tbody tr:hover td { background: rgba(34,197,94,0.06); }
       `}</style>
 
@@ -417,7 +441,6 @@ export default function AllotmentsPage() {
           <thead>
             <tr>
               <th style={th}>Allottee</th>
-              {/* Requested order: Qtr → Street → Sector */}
               <th style={th}>Qtr No</th>
               <th style={th}>Street</th>
               <th style={th}>Sector</th>
@@ -441,12 +464,9 @@ export default function AllotmentsPage() {
                   <div style={{ fontSize: 12, color: "#666" }}>{fmt(r.designation)}</div>
                   <div style={{ fontSize: 12, color: "#777" }}>{fmt(r.cnic)}</div>
                 </td>
-
-                {/* Values now pulled from row -> row.house -> houseCache[house_id] */}
                 <td style={td}>{fmt(getQtrNo(r, houseCache))}</td>
                 <td style={td}>{fmt(getStreet(r, houseCache))}</td>
                 <td style={td}>{fmt(getSector(r, houseCache))}</td>
-
                 <td style={td}>{fmt(r.bps)}</td>
                 <td style={td}>{fmt(r.medium)}</td>
                 <td style={td}>{date(r.allotment_date)}</td>
@@ -457,8 +477,6 @@ export default function AllotmentsPage() {
                     {fmt(r.qtr_status)}
                   </span>
                 </td>
-
-                {/* Always render Actions cell; gate buttons inside */}
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <AdminOnly>
                     <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
@@ -481,52 +499,40 @@ export default function AllotmentsPage() {
         </div>
       </div>
 
-      {/* Add */}
+      {/* Add Allotment (distinct layout and validations) */}
       <Modal open={adding} onClose={closeModals} title="Add Allotment">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
           <Row3>
-            <HousePicker
-              value={form.house_id}
-              onChange={(v) => setForm((f) => ({ ...f, house_id: v }))}
-            />
-            <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
-            <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
-          </Row3>
-
-          <Row3>
-            <Field label="Designation" value={form.designation} onChange={onChange("designation")} />
-            <Field label="Directorate" value={form.directorate} onChange={onChange("directorate")} />
-            <Field label="BPS" value={form.bps} onChange={onChange("bps")} />
+            <HousePicker mode="add" value={form.house_id} onChange={(v) => setForm((f) => ({ ...f, house_id: v }))} />
+            <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required placeholder="e.g., Ali Khan" />
+            <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} placeholder="e.g., 61101-1234567-1" />
           </Row3>
           <Row3>
-            <Select
-              label="Medium"
-              value={form.medium}
-              onChange={onChange("medium")}
-              options={MEDIUM_OPTIONS}
-            />
+            <Field label="Designation" value={form.designation} onChange={onChange("designation")} placeholder="e.g., Clerk" />
+            <Field label="Directorate" value={form.directorate} onChange={onChange("directorate")} placeholder="e.g., Admin" />
+            <Field label="BPS" value={form.bps} onChange={onChange("bps")} placeholder="e.g., 16" />
+          </Row3>
+          <Row3>
+            <Select label="Medium" value={form.medium} onChange={onChange("medium")} options={MEDIUM_OPTIONS} />
             <Field type="date" label="Allotment Date" value={form.allotment_date} onChange={onChange("allotment_date")} />
             <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
           </Row3>
           <Row3>
             <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
-            <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
+            <Field type="date" label="DOR (auto 60y)" value={form.dor || (form.dob ? addYears(form.dob, 60) : "")} onChange={() => {}} readOnly />
             <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
           </Row3>
-          <TextArea label="Notes" value={form.notes} onChange={onChange("notes")} />
+          <TextArea label="Notes" value={form.notes} onChange={onChange("notes")} placeholder="Optional notes…" />
           <Actions onCancel={closeModals} submitText="Create" />
         </form>
       </Modal>
 
-      {/* Edit */}
+      {/* Edit Allotment (shows current selected house details at top) */}
       <AdminOnly>
         <Modal open={!!editing} onClose={closeModals} title="Edit Allotment">
           <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
             <Row3>
-              <HousePicker
-                value={form.house_id}
-                onChange={(v) => setForm((f) => ({ ...f, house_id: v }))}
-              />
+              <HousePicker mode="edit" value={form.house_id} onChange={(v) => setForm((f) => ({ ...f, house_id: v }))} />
               <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
               <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
             </Row3>
@@ -536,18 +542,13 @@ export default function AllotmentsPage() {
               <Field label="BPS" value={form.bps} onChange={onChange("bps")} />
             </Row3>
             <Row3>
-              <Select
-                label="Medium"
-                value={form.medium}
-                onChange={onChange("medium")}
-                options={MEDIUM_OPTIONS}
-              />
+              <Select label="Medium" value={form.medium} onChange={onChange("medium")} options={MEDIUM_OPTIONS} />
               <Field type="date" label="Allotment Date" value={form.allotment_date} onChange={onChange("allotment_date")} />
               <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
             </Row3>
             <Row3>
               <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
-              <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
+              <Field type="date" label="DOR (auto 60y)" value={form.dor || (form.dob ? addYears(form.dob, 60) : "")} onChange={() => {}} readOnly />
               <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
             </Row3>
             <TextArea label="Notes" value={form.notes} onChange={onChange("notes")} />
@@ -559,7 +560,7 @@ export default function AllotmentsPage() {
   );
 }
 
-/* --- UI bits --- */
+/* --- styles (inline for drop-in) --- */
 const input = { flex: 1, padding: "10px 12px", border: "1px solid #d9d9d9", borderRadius: 8, background: "#fff", color: "#111" };
 const btn = { padding: "10px 14px", borderRadius: 8, border: "1px solid #d9d9d9", background: "#fff", cursor: "pointer", color: "#111" };
 const btnPrimary = { padding: "10px 14px", borderRadius: 8, border: "1px solid #0b65c2", background: "#0b65c2", color: "#fff", cursor: "pointer" };
@@ -569,4 +570,5 @@ const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 const table = { width: "100%", borderCollapse: "separate", borderSpacing: "0 10px" };
 const th = { textAlign: "left", padding: "10px 12px", background: "#fafafa", borderBottom: "none", position: "sticky", top: 0, zIndex: 1, color: "#111" };
 const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
+
 const errorBox = { padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.08)", color: "#991b1b", border: "1px solid rgba(239,68,68,0.25)" };
