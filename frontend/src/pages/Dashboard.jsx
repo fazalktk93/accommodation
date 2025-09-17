@@ -46,7 +46,7 @@ function parseDate(x) {
 }
 
 function getRetentionStatus(a, now = new Date()) {
-  const raw = a?.retirement_date ?? a?.allottee_retirement_date ?? a?.retire_date;
+  const raw = a?.dor ?? a?.dor ?? a?.dor;
   const rdt = parseDate(raw);
   if (!rdt) return { status: "in-service", daysPast: 0, retirementDate: null };
   const diffDays = Math.floor((now - rdt) / DAY);
