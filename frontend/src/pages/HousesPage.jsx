@@ -25,9 +25,14 @@ const emptyHouse = {
   status_manual: false,
 };
 
-/** 🔗 Allotment history URL helper — adjust if your route differs */
+/** 🔗 Allotment history URL helper — now points to house allotment history */
 function buildAllotmentHistoryUrl(row) {
-  return `/allotments?house_id=${encodeURIComponent(row.id)}`;
+  // If your route takes query params:
+  return `/houseallotmenthistory?house_id=${encodeURIComponent(row.id)}&file_no=${encodeURIComponent(row.file_no ?? "")}`;
+
+  // If instead your route uses a URL param like /houseallotmenthistory/:house_id,
+  // use this line and remove the one above:
+  // return `/houseallotmenthistory/${encodeURIComponent(row.id)}`;
 }
 
 /* ---------- tiny helpers ---------- */
