@@ -51,6 +51,34 @@ const MEDIUM_OPTIONS = [
   { value: "h/o", label: "H/O" },
 ];
 
+/* ---------- formatting helpers ---------- */
+const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
+const date = (x) => (x ? String(x).substring(0, 10) : "-");
+const pick = (...vals) => {
+  for (const v of vals) {
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+};
+
+/* Pull qtr/street/sector from:
+   1) flattened row fields
+   2) nested row.house
+   3) houseCache[id] fetched client-side (when API doesn’t embed house) */
+function getQtrNo(r, houseCache) {
+  const h = r.house || houseCache[r.house_id] || {};
+  return pick(r.qtr_no, r.quarter_no, r.qtrNo, h.qtr_no, h.quarter_no, h.qtrNo);
+}
+function getStreet(r, houseCache) {
+  const h = r.house || houseCache[r.house_id] || {};
+  return pick(r.street, r.street_no, r.streetName, h.street, h.street_no, h.streetName);
+}
+function getSector(r, houseCache) {
+  const h = r.house || houseCache[r.house_id] || {};
+  return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode);
+}
+
+/* ---------- small field components ---------- */
 function Field({ label, value, onChange, type = "text", required, readOnly }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
@@ -87,63 +115,7 @@ function Select({ label, value, onChange, options }) {
   );
 }
 
-const fmt = (x) => (x ? String(x) : "-");
-const date = (x) => (x ? String(x).substring(0, 10) : "-");
-
-/* ---------- Robust getters for house fields ----------
-   Your API may return house info either nested (r.house.sector)
-   or flattened (r.sector). These getters try multiple paths. */
-const pick = (...vals) => {
-  for (const v of vals) {
-    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-  }
-  return "";
-};
-const getQtrNo = (r) =>
-  pick(
-    r.qtr_no,
-    r.quarter_no,
-    r.qtrNo,
-    r.house?.qtr_no,
-    r.house?.quarter_no,
-    r.house?.qtrNo,
-    r.house_details?.qtr_no,
-    r.house_info?.qtr_no,
-    r.house_data?.qtr_no
-  );
-const getStreet = (r) =>
-  pick(
-    r.street,
-    r.street_no,
-    r.streetName,
-    r.house?.street,
-    r.house?.street_no,
-    r.house?.streetName,
-    r.house_details?.street,
-    r.house_info?.street,
-    r.house_data?.street
-  );
-const getSector = (r) =>
-  pick(
-    r.sector,
-    r.sector_code,
-    r.sectorCode,
-    r.house?.sector,
-    r.house?.sector_code,
-    r.house?.sectorCode,
-    r.house_details?.sector,
-    r.house_info?.sector,
-    r.house_data?.sector
-  );
-
-/* A small helper if you still want a single function */
-const houseField = (r, which) => {
-  if (which === "qtr_no") return getQtrNo(r) || "-";
-  if (which === "street") return getStreet(r) || "-";
-  if (which === "sector") return getSector(r) || "-";
-  return "-";
-};
-
+/* ---------- House picker used by modals ---------- */
 function HousePicker({ value, onChange }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -187,7 +159,7 @@ function HousePicker({ value, onChange }) {
       </div>
       {value && chosen && (
         <div style={{ fontSize: 13, color: "#555" }}>
-          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(getQtrNo(chosen))} / {fmt(getStreet(chosen))} / {fmt(getSector(chosen))} ({fmt(chosen.type_code)})
+          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(getQtrNo(chosen, {}))} / {fmt(getStreet(chosen, {}))} / {fmt(getSector(chosen, {}))} ({fmt(chosen.type_code)})
         </div>
       )}
       <label style={{ display: "grid", gap: 6 }}>
@@ -196,7 +168,7 @@ function HousePicker({ value, onChange }) {
           <option value="">-</option>
           {opts.map((h) => (
             <option key={h.id} value={h.id}>
-              {fmt(h.file_no)} — {fmt(getQtrNo(h))} / {fmt(getStreet(h))} / {fmt(getSector(h))} ({fmt(h.type_code)})
+              {fmt(h.file_no)} — {fmt(getQtrNo(h, {}))} / {fmt(getStreet(h, {}))} / {fmt(getSector(h, {}))} ({fmt(h.type_code)})
             </option>
           ))}
         </select>
@@ -217,6 +189,11 @@ function Actions({ onCancel, submitText }) {
   );
 }
 
+/* =========================================================
+   Allotments Page
+   - Renders with "row-card" (no lines) table
+   - Auto-enriches missing house fields via on-demand fetch
+   ========================================================= */
 export default function AllotmentsPage() {
   const query = useQuery();
   const [page, setPage] = useState(Number(query.get("page") || 0));
@@ -227,10 +204,8 @@ export default function AllotmentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // modals
-  const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(empty);
+  // cache of houses we’ve looked up: { [id]: house }
+  const [houseCache, setHouseCache] = useState({});
 
   const pushUrl = (p = page, queryText = q) => {
     const sp = new URLSearchParams();
@@ -283,11 +258,44 @@ export default function AllotmentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q]);
 
+  // Enrich current page with house details if missing
+  useEffect(() => {
+    const needIds = [];
+    for (const r of rows) {
+      const hasAny =
+        getQtrNo(r, {}) || getStreet(r, {}) || getSector(r, {});
+      if (!hasAny && r.house_id && !houseCache[r.house_id]) {
+        needIds.push(r.house_id);
+      }
+    }
+    if (!needIds.length) return;
+
+    // fetch sequentially to be gentle on API; still quick for one page
+    let cancelled = false;
+    (async () => {
+      const newCache = {};
+      for (const id of needIds) {
+        try {
+          const res = await api.request("GET", `/houses/${id}`);
+          if (!res.ok) continue;
+          const h = await res.json();
+          newCache[id] = h;
+        } catch {}
+      }
+      if (!cancelled && Object.keys(newCache).length) {
+        setHouseCache((prev) => ({ ...prev, ...newCache }));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [rows, houseCache]);
+
   // CRUD
-  const openAdd = () => {
-    setForm(empty);
-    setAdding(true);
-  };
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(empty);
+
+  const openAdd = () => { setForm(empty); setAdding(true); };
   const openEdit = (row) => {
     setEditing(row);
     setForm({
@@ -307,10 +315,7 @@ export default function AllotmentsPage() {
       notes: row.notes ?? "",
     });
   };
-  const closeModals = () => {
-    setAdding(false);
-    setEditing(null);
-  };
+  const closeModals = () => { setAdding(false); setEditing(null); };
 
   const onChange = (key) => (e) => {
     const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
@@ -319,10 +324,7 @@ export default function AllotmentsPage() {
 
   const submitAdd = async (e) => {
     e.preventDefault();
-    if (!form.house_id) {
-      alert("Please select a house for this allotment.");
-      return;
-    }
+    if (!form.house_id) { alert("Please select a house for this allotment."); return; }
     try {
       const payload = {
         ...form,
@@ -340,10 +342,7 @@ export default function AllotmentsPage() {
   };
   const submitEdit = async (e) => {
     e.preventDefault();
-    if (!form.house_id) {
-      alert("Please select a house for this allotment.");
-      return;
-    }
+    if (!form.house_id) { alert("Please select a house for this allotment."); return; }
     try {
       const payload = {
         ...form,
@@ -394,13 +393,7 @@ export default function AllotmentsPage() {
             style={input}
           />
           <button type="submit" style={btn}>Search</button>
-          <button
-            type="button"
-            onClick={() => { setQ(""); setPage(0); }}
-            style={btn}
-          >
-            Clear
-          </button>
+          <button type="button" onClick={() => { setQ(""); setPage(0); }} style={btn}>Clear</button>
         </form>
         <AdminOnly>
           <button onClick={openAdd} style={btnPrimary}>+ Add Allotment</button>
@@ -424,7 +417,7 @@ export default function AllotmentsPage() {
           <thead>
             <tr>
               <th style={th}>Allottee</th>
-              {/* Your requested order: Qtr → Street → Sector */}
+              {/* Requested order: Qtr → Street → Sector */}
               <th style={th}>Qtr No</th>
               <th style={th}>Street</th>
               <th style={th}>Sector</th>
@@ -449,10 +442,10 @@ export default function AllotmentsPage() {
                   <div style={{ fontSize: 12, color: "#777" }}>{fmt(r.cnic)}</div>
                 </td>
 
-                {/* Use robust getters so values don't show as "-" when present in any shape */}
-                <td style={td}>{fmt(houseField(r, "qtr_no"))}</td>
-                <td style={td}>{fmt(houseField(r, "street"))}</td>
-                <td style={td}>{fmt(houseField(r, "sector"))}</td>
+                {/* Values now pulled from row -> row.house -> houseCache[house_id] */}
+                <td style={td}>{fmt(getQtrNo(r, houseCache))}</td>
+                <td style={td}>{fmt(getStreet(r, houseCache))}</td>
+                <td style={td}>{fmt(getSector(r, houseCache))}</td>
 
                 <td style={td}>{fmt(r.bps)}</td>
                 <td style={td}>{fmt(r.medium)}</td>
@@ -576,3 +569,4 @@ const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 const table = { width: "100%", borderCollapse: "separate", borderSpacing: "0 10px" };
 const th = { textAlign: "left", padding: "10px 12px", background: "#fafafa", borderBottom: "none", position: "sticky", top: 0, zIndex: 1, color: "#111" };
 const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
+const errorBox = { padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.08)", color: "#991b1b", border: "1px solid rgba(239,68,68,0.25)" };
