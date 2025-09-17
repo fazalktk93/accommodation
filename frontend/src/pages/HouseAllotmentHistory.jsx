@@ -1,11 +1,11 @@
 // frontend/src/pages/HouseAllotmentHistory.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import auth from "../auth"; // ===== use the same auth wrapper (sends cookies & Authorization)
+import { useParams, useNavigate } from "react-router-dom";
+import auth from "../auth"; // sends cookies & Authorization
 
 const SHOW_STATUS_COLS = false;
 
-// ---- helpers ----
+/* ---------- helpers ---------- */
 const asList = (d) =>
   Array.isArray(d)
     ? d
@@ -17,18 +17,16 @@ const asList = (d) =>
     ? d.data
     : [];
 
-const fmt = (d) => (d ? String(d) : "-");
+const fmt = (d) => (d == null || String(d).trim() === "" ? "-" : String(d));
 
-// Ensure we always hit the backend via Vite proxy at /api/* (and avoid /api/api)
 function toApiPath(p) {
   if (!p) return "/api/";
-  if (/^https?:\/\//i.test(p)) return p; // absolute URL, leave as-is
+  if (/^https?:\/\//i.test(p)) return p;
   let rel = p.startsWith("/") ? p : `/${p}`;
-  if (rel.startsWith("/api/")) return rel; // already correct
-  return `/api${rel}`; // prepend /api
+  if (rel.startsWith("/api/")) return rel;
+  return `/api${rel}`;
 }
 
-// ALWAYS go through auth.fetch to include cookies/token.
 async function getJson(path, opts = {}) {
   const { params, ...rest } = opts || {};
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
@@ -56,7 +54,6 @@ async function getJson(path, opts = {}) {
     return text;
   }
 }
-
 
 function Badge({ children }) {
   return (
@@ -115,6 +112,65 @@ function Modal({ title, children, onClose }) {
   );
 }
 
+/* ---------- date & period helpers ---------- */
+function parseDateFlex(s) {
+  if (!s) return null;
+  const t = String(s).trim();
+  if (!t) return null;
+
+  // handle DD/MM/YYYY or MM/DD/YYYY
+  if (t.includes("/")) {
+    const parts = t.split("/");
+    if (parts.length === 3) {
+      let [a, b, c] = parts.map((x) => parseInt(x, 10));
+      if (!isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
+      // if first > 12, treat as DD/MM/YYYY
+      let dd, mm, yyyy;
+      if (a > 12) {
+        dd = a; mm = b; yyyy = c;
+      } else if (b > 12) {
+        // MM/DD/YYYY
+        mm = a; dd = b; yyyy = c;
+      } else {
+        // default DD/MM/YYYY
+        dd = a; mm = b; yyyy = c;
+      }
+      const iso = `${yyyy.toString().padStart(4, "0")}-${mm.toString().padStart(2, "0")}-${dd
+        .toString()
+        .padStart(2, "0")}`;
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  // default: let Date parse (supports YYYY-MM-DD)
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Return "Xy Ym" between start and end (end= today if missing) */
+function periodYearsMonths(startStr, endStr) {
+  const start = parseDateFlex(startStr);
+  const end = endStr ? parseDateFlex(endStr) : new Date();
+  if (!start) return "-";
+  if (!end) return "-";
+
+  let y = end.getFullYear() - start.getFullYear();
+  let m = end.getMonth() - start.getMonth();
+  const d = end.getDate() - start.getDate();
+
+  // borrow a month if day-of-month not reached
+  if (d < 0) m -= 1;
+  if (m < 0) {
+    y -= 1;
+    m += 12;
+  }
+  if (y < 0) return "-";
+
+  return `${y}y ${m}m`;
+}
+
+/* ---------- default values ---------- */
 const emptyAllotment = {
   person_name: "",
   designation: "",
@@ -139,6 +195,7 @@ export default function HouseAllotmentHistory() {
   // supports /history/file/:fileNo and /history/house/:houseId and /history/:id
   const { fileNo, houseId, id } = useParams();
   const resolvedHouseId = houseId ?? id;
+  const navigate = useNavigate();
 
   const [house, setHouse] = useState(null);
   const [rows, setRows] = useState([]);
@@ -156,7 +213,6 @@ export default function HouseAllotmentHistory() {
   const api = useMemo(
     () => ({
       getHouse: (hid) => getJson(`/houses/${hid}`),
-      // backend supports searching by file_no via list endpoint
       getHouseByFile: async (fno) => {
         const res = await getJson(`/houses/`, { params: { file_no: fno, limit: 1 } });
         const items = asList(res);
@@ -175,9 +231,7 @@ export default function HouseAllotmentHistory() {
         return getJson(`/allotments/${qs}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            forceEnd ? { ...payload, force_end_previous: true } : payload
-          ),
+          body: JSON.stringify(forceEnd ? { ...payload, force_end_previous: true } : payload),
         });
       },
       updateAllotment: (aid, payload, forceEnd) => {
@@ -185,9 +239,7 @@ export default function HouseAllotmentHistory() {
         return getJson(`/allotments/${aid}${qs}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            forceEnd ? { ...payload, force_end_previous: true } : payload
-          ),
+          body: JSON.stringify(forceEnd ? { ...payload, force_end_previous: true } : payload),
         });
       },
       endAllotment: (aid) => getJson(`/allotments/${aid}/end`, { method: "POST" }),
@@ -203,17 +255,15 @@ export default function HouseAllotmentHistory() {
       if (fileNo) {
         const h = await api.getHouseByFile(fileNo);
         setHouse(h);
-        // nested endpoint returns full history (no CORS, cookies included)
         const list = await api.listAllotmentsByHouseId(h.id);
         setRows(list);
         return;
       }
 
-      // fallback: by house id
       const h = await api.getHouse(resolvedHouseId);
       setHouse(h);
-     const list = await api.listAllotmentsByHouseId(h.id);
-     setRows(list);
+      const list = await api.listAllotmentsByHouseId(h.id);
+      setRows(list);
     } catch (e) {
       setErr(e.message || String(e));
       setRows([]);
@@ -271,7 +321,26 @@ export default function HouseAllotmentHistory() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
-      <h1>House — Allotment History</h1>
+      {/* Top bar: Back + title */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+        <button
+          onClick={() => {
+            if (window.history.length > 1) navigate(-1);
+            else navigate("/houses");
+          }}
+          title="Back"
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #d9d9d9",
+            background: "#fff",
+            cursor: "pointer",
+          }}
+        >
+          ← Back
+        </button>
+        <h1 style={{ margin: 0 }}>House — Allotment History</h1>
+      </div>
 
       {err && (
         <div
@@ -296,28 +365,30 @@ export default function HouseAllotmentHistory() {
             marginBottom: 16,
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
+          {/* Heading: show ALL key fields */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
             <div>
+              <div><strong>House ID:</strong> {fmt(house.id)}</div>
+              <div><strong>File No:</strong> {fmt(house.file_no)}</div>
               <div>
-                <strong>File No:</strong> {fmt(house.file_no)}
+                <strong>Quarter:</strong> {fmt(house.qtr_no)} &nbsp;&nbsp;
+                <strong>Street:</strong> {fmt(house.street)}
               </div>
               <div>
-                <strong>Quarter:</strong> {fmt(house.qtr_no)}
+                <strong>Sector:</strong> {fmt(house.sector)} &nbsp;&nbsp;
+                <strong>Type:</strong> {fmt(house.type_code)}
               </div>
+            </div>
+            <div>
+              <div><strong>Pool:</strong> {fmt(house.pool)}</div>
               <div>
-                <strong>Street:</strong> {fmt(house.street)} &nbsp; <strong>Sector:</strong>{" "}
-                {fmt(house.sector)}
+                <strong>Status:</strong> <Badge>{fmt(house.status)}</Badge>
               </div>
-              <div>
-                <strong>Type:</strong> {fmt(house.type_code)} &nbsp; <strong>Status:</strong>{" "}
-                <Badge>{fmt(house.status)}</Badge>
-              </div>
+              {/* quick status set (optional) */}
+              {/* <div style={{ marginTop: 8 }}>
+                <button onClick={() => updateHouseStatus("vacant")} style={{ marginRight: 8 }}>Set Vacant</button>
+                <button onClick={() => updateHouseStatus("occupied")}>Set Occupied</button>
+              </div> */}
             </div>
           </div>
         </section>
@@ -325,7 +396,7 @@ export default function HouseAllotmentHistory() {
 
       <section style={{ border: "1px solid #e5e5e5", borderRadius: 6, padding: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0 }}>Previous Allotments</h2>
+          <h2 style={{ margin: 0 }}>Allotment Records</h2>
           <button
             onClick={() => {
               setAddData(emptyAllotment);
@@ -333,7 +404,7 @@ export default function HouseAllotmentHistory() {
               setShowAdd(true);
             }}
           >
-            Add Allotment
+            + Add Allotment
           </button>
         </div>
 
@@ -348,7 +419,7 @@ export default function HouseAllotmentHistory() {
                 <th style={{ textAlign: "left", padding: 8 }}>Allotment</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Occupation</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Vacation</th>
-                <th style={{ textAlign: "left", padding: 8 }}>Period (days)</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Period (y m)</th>{/* 👈 changed */}
                 <th style={{ textAlign: "left", padding: 8 }}>Pool</th>
                 <th style={{ textAlign: "left", padding: 8 }}>Medium</th>
                 {SHOW_STATUS_COLS && <th style={{ textAlign: "left", padding: 8 }}>Status</th>}
@@ -358,7 +429,7 @@ export default function HouseAllotmentHistory() {
             <tbody>
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLS} style={{ padding: 12, color: "#777" }}>
+                  <td colSpan={SHOW_STATUS_COLS ? 12 : 11} style={{ padding: 12, color: "#777" }}>
                     No allotment history yet for this house.
                   </td>
                 </tr>
@@ -372,7 +443,9 @@ export default function HouseAllotmentHistory() {
                   <td style={{ padding: 8 }}>{fmt(r.allotment_date)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.occupation_date)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.vacation_date)}</td>
-                  <td style={{ padding: 8 }}>{fmt(r.period_of_stay)}</td>
+                  <td style={{ padding: 8 }}>
+                    {periodYearsMonths(r.occupation_date || r.allotment_date, r.vacation_date)}
+                  </td>
                   <td style={{ padding: 8 }}>{fmt(r.pool)}</td>
                   <td style={{ padding: 8 }}>{fmt(r.medium)}</td>
                   {SHOW_STATUS_COLS && (
@@ -415,7 +488,7 @@ export default function HouseAllotmentHistory() {
               ))}
               {loading && (
                 <tr>
-                  <td colSpan={COLS} style={{ padding: 12 }}>
+                  <td colSpan={SHOW_STATUS_COLS ? 12 : 11} style={{ padding: 12 }}>
                     Loading…
                   </td>
                 </tr>
