@@ -6,8 +6,8 @@ import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
 // Fixed pagination: 50 per page
-const API_MAX_LIMIT = 1000; // match your backend cap (unused but kept for parity)
-const PAGE_SIZE = 50;       // your UI page size
+const API_MAX_LIMIT = 1000;            // backend cap (used for fallback search)
+const PAGE_SIZE = 50;                  // UI page size
 
 function useQuery() {
   const { search } = useLocation();
@@ -20,21 +20,57 @@ const emptyHouse = {
   street: "",
   sector: "",
   type_code: "",
-  pool: "", // default
+  pool: "",
   status: "vacant",
   status_manual: false,
 };
 
-/** 🔗 Allotment history URL helper
- * Change this in ONE place if your route differs.
- * Common variants you might be using:
- *  - `/allotments?house_id=${row.id}`
- *  - `/allotments/history/${row.id}`
- *  - `/allotments?house=${row.file_no}`
- */
+/** 🔗 Allotment history URL helper — adjust if your route differs */
 function buildAllotmentHistoryUrl(row) {
-  // default: query by house_id so filters on Allotments page can pick it up
   return `/allotments?house_id=${encodeURIComponent(row.id)}`;
+}
+
+/* ---------- tiny helpers ---------- */
+const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
+const toStr = (x) => (x === null || x === undefined ? "" : String(x));
+
+/** Match a house row against a user query (tokenized, forgiving) */
+function matchesHouse(h, rawQ) {
+  const q = String(rawQ || "").trim().toLowerCase();
+  if (!q) return true;
+  const tokens = q.split(/\s+/g);
+
+  // build haystack once
+  const hay = [
+    h.file_no,
+    h.sector,
+    h.street,
+    h.qtr_no,
+    h.type_code,
+    h.pool,
+    h.status,
+    h.allottee_name,
+    h.allottee,
+  ]
+    .map(toStr)
+    .join(" ")
+    .toLowerCase();
+
+  // special parse for inputs like "G-6/1-12" (sector/street-qtr)
+  const m = q.match(/^([a-z]-\d+)\s*\/\s*([a-z0-9-]+)(?:\s*[-/]\s*([a-z0-9-]+))?$/i);
+  if (m) {
+    const [, sector, street, qtrMaybe] = m;
+    const wantSector = (sector || "").toLowerCase();
+    const wantStreet = (street || "").toLowerCase();
+    const wantQtr = (qtrMaybe || "").toLowerCase();
+    const okSector = toStr(h.sector).toLowerCase().includes(wantSector);
+    const okStreet = toStr(h.street).toLowerCase().includes(wantStreet);
+    const okQtr = !wantQtr || toStr(h.qtr_no).toLowerCase().includes(wantQtr);
+    if (okSector && okStreet && okQtr) return true;
+  }
+
+  // all tokens must appear somewhere
+  return tokens.every((t) => hay.includes(t));
 }
 
 export default function HousesPage() {
@@ -50,6 +86,10 @@ export default function HousesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Fallback search cache (when server-side search fails to filter)
+  const [fallbackAll, setFallbackAll] = useState([]);  // full set fetched for client-side filter
+  const [usingFallback, setUsingFallback] = useState(false);
+
   // modals
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -63,11 +103,21 @@ export default function HousesPage() {
     navigate({ search: sp.toString() ? `?${sp.toString()}` : "" }, { replace: true });
   };
 
+  /** Load current page.
+   * Strategy:
+   *  1) Try server-side filtering (same params you had before) — preserves existing logic.
+   *  2) If q is non-empty and server returns 0 results, do a client-side fallback:
+   *     fetch up to API_MAX_LIMIT houses and filter with matchesHouse(), then paginate.
+   */
   const load = async () => {
     setLoading(true);
     setError("");
+    setUsingFallback(false);
+
     try {
       const skip = page * PAGE_SIZE;
+
+      // ---- 1) server-side search (unchanged) ----
       const params = {
         skip,
         limit: PAGE_SIZE,
@@ -92,19 +142,67 @@ export default function HousesPage() {
         ? body.data
         : [];
       const totalFromHeader = parseInt(res.headers.get("X-Total-Count") || "", 10);
-      setRows(items);
-      setTotal(Number.isFinite(totalFromHeader) ? totalFromHeader : items.length);
+      const serverTotal = Number.isFinite(totalFromHeader) ? totalFromHeader : items.length;
+
+      // If there is a query and server gave back 0 results, try fallback client filter
+      if (q && items.length === 0) {
+        // ---- 2) client-side fallback ----
+        const res2 = await api.request("GET", "/houses/", {
+          params: { skip: 0, limit: API_MAX_LIMIT },
+        });
+        const body2 = await res2.json().catch(() => []);
+        const all = Array.isArray(body2)
+          ? body2
+          : Array.isArray(body2?.items)
+          ? body2.items
+          : Array.isArray(body2?.results)
+          ? body2.results
+          : Array.isArray(body2?.data)
+          ? body2.data
+          : [];
+
+        const filtered = all.filter((h) => matchesHouse(h, q));
+        const start = page * PAGE_SIZE;
+        const end = start + PAGE_SIZE;
+        const pageRows = filtered.slice(start, end);
+
+        setRows(pageRows);
+        setTotal(filtered.length);
+        setFallbackAll(filtered);
+        setUsingFallback(true);
+      } else {
+        // normal server-mode
+        setRows(items);
+        setTotal(serverTotal);
+        setFallbackAll([]);
+        setUsingFallback(false);
+      }
     } catch (e) {
       setRows([]);
       setTotal(0);
       setError(String(e));
+      setUsingFallback(false);
     } finally {
       setLoading(false);
     }
   };
 
+  // When q or page changes, reload. If we’re already in fallback mode and q didn’t change,
+  // re-slice the cached filtered array instead of refetching.
+  const qRef = React.useRef(q);
   useEffect(() => {
     pushUrl(page, q);
+
+    if (usingFallback && qRef.current === q) {
+      // just re-slice the cached filtered set
+      const start = page * PAGE_SIZE;
+      const end = start + PAGE_SIZE;
+      setRows(fallbackAll.slice(start, end));
+      setTotal(fallbackAll.length);
+      return;
+    }
+
+    qRef.current = q;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q]);
@@ -112,22 +210,10 @@ export default function HousesPage() {
   const canPrev = page > 0;
   const canNext = (page + 1) * PAGE_SIZE < total;
 
-  const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
-  const pill = (bg = "#eee", color = "#111") => ({
-    display: "inline-block",
-    padding: "4px 8px",
-    borderRadius: 999,
-    fontSize: 12,
-    background: bg,
-    color,
-    textTransform: "capitalize",
-  });
-
   const onChange = (key) => (e) => {
     const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
     setForm((f) => ({ ...f, [key]: v }));
   };
-
   const openAdd = () => {
     setForm(emptyHouse);
     setAdding(true);
@@ -201,8 +287,11 @@ export default function HousesPage() {
           <input
             placeholder="Search by File No, Sector, Street, Qtr No, Type, Allottee..."
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setPage(0); }}
             style={input}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); setPage(0); load(); }
+            }}
           />
           <button type="submit" style={btn}>Search</button>
           <button
@@ -221,14 +310,13 @@ export default function HousesPage() {
       {error && <div style={errorBox}>{error}</div>}
 
       <style>{`
-        /* Row card look without lines (same style as Allotments) */
+        /* Row card look without lines */
         table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
         table.rows-separated thead th { border-bottom: none; }
         table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
         table.rows-separated tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
         table.rows-separated tbody tr td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
         table.rows-separated tbody tr:hover td { background: rgba(34,197,94,0.06); }
-        /* Link-like button for File No */
         .linkish { background: transparent; border: 0; padding: 0; cursor: pointer; text-decoration: underline; color: #0b65c2; }
         .linkish:hover { opacity: 0.85; }
       `}</style>
@@ -245,19 +333,19 @@ export default function HousesPage() {
               <th style={th}>Type</th>
               <th style={th}>Pool</th>
               <th style={th}>Status</th>
-              {/* Always render the Actions column header */}
               <th style={th}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: 16, textAlign: "center", color: "#666" }}>No records</td></tr>
+              <tr><td colSpan={9} style={{ padding: 16, textAlign: "center", color: "#666" }}>
+                {q ? "No records match your search." : "No records"}
+                {usingFallback ? " (client filtered)" : ""}
+              </td></tr>
             )}
             {rows.map((r) => (
               <tr key={r.id}>
                 <td style={td}>{fmt(r.id)}</td>
-
-                {/* File No now acts like a link to allotment history */}
                 <td style={td}>
                   <button
                     className="linkish"
@@ -267,7 +355,6 @@ export default function HousesPage() {
                     {fmt(r.file_no)}
                   </button>
                 </td>
-
                 <td style={td}>{fmt(r.qtr_no)}</td>
                 <td style={td}>{fmt(r.street)}</td>
                 <td style={td}>{fmt(r.sector)}</td>
@@ -285,8 +372,6 @@ export default function HousesPage() {
                     {fmt(r.status)}
                   </span>
                 </td>
-
-                {/* Always render the Actions cell; gate the buttons only */}
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <AdminOnly>
                     <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
@@ -300,7 +385,7 @@ export default function HousesPage() {
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", padding: 8 }}>
           <span style={{ color: "#666" }}>
-            {rows.length ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}` : ""}
+            {rows.length ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}${usingFallback ? " (client filtered)" : ""}` : ""}
           </span>
           <button onClick={() => canPrev && setPage((p) => p - 1)} disabled={!canPrev} style={btn}>← Prev</button>
           <button onClick={() => canNext && setPage((p) => p + 1)} disabled={!canNext} style={btn}>
@@ -309,7 +394,7 @@ export default function HousesPage() {
         </div>
       </div>
 
-      {/* Add Modal — styled like Allotments (Row3 layout, tidy fields) */}
+      {/* Add Modal */}
       <Modal open={adding} onClose={closeModals} title="Add House">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
           <Row3>
@@ -338,9 +423,8 @@ export default function HousesPage() {
               onChange={onChange("pool")}
               options={[
                 { value: "", label: "-" },
-                { value: "general", label: "General" },
-                { value: "m/o", label: "M/O" },
-                { value: "h/o", label: "H/O" },
+                { value: "CDA", label: "CDA" },
+                { value: "ESTATE OFFICE", label: "ESTATE OFFICE" },
               ]}
             />
           </Row3>
@@ -356,13 +440,13 @@ export default function HousesPage() {
                 { value: "reserved", label: "Reserved" },
               ]}
             />
-            <div /> {/* spacer to balance the row */}
+            <div /> {/* spacer */}
           </Row3>
           <Actions onCancel={closeModals} submitText="Create" />
         </form>
       </Modal>
 
-      {/* Edit Modal — same style as Add, logic unchanged */}
+      {/* Edit Modal */}
       <AdminOnly>
         <Modal open={!!editing} onClose={closeModals} title="Edit House">
           <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
@@ -420,7 +504,7 @@ export default function HousesPage() {
   );
 }
 
-/* --- UI bits (matching Allotments) --- */
+/* --- UI bits --- */
 
 const table = {
   width: "100%",
