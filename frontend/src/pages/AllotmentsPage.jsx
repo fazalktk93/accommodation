@@ -7,48 +7,6 @@ import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
 const API_MAX_LIMIT = 1000;           // match backend cap
 const PAGE_SIZE = 50;                 // UI page size
-const BASE = "/api/allotments/";      // trailing slash avoids 307
-
-/**
- * Fetch one page of allotments.
- * @param {number} page - 1-based page number
- * @param {{ q?: string }} opts - optional filters (e.g. free-text search)
- */
-export async function fetchAllotments(page = 1, opts = {}) {
-  const safeLimit = Math.min(Math.max(PAGE_SIZE, 1), API_MAX_LIMIT);
-  const skip = (page - 1) * safeLimit;
-
-  const params = new URLSearchParams({
-    skip: String(skip),
-    limit: String(safeLimit),
-  });
-  if (opts.q) params.set("q", opts.q);
-
-  const url = `${BASE}?${params.toString()}`;
-  const r = await fetch(url, { credentials: "include" });
-
-  if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    throw new Error(`HTTP ${r.status} ${r.statusText} – ${detail}`);
-  }
-
-  const body = await r.json().catch(() => []);
-  const items = Array.isArray(body)
-    ? body
-    : Array.isArray(body?.items)
-    ? body.items
-    : Array.isArray(body?.results)
-    ? body.results
-    : Array.isArray(body?.data)
-    ? body.data
-    : [];
-
-  const total =
-    Number.parseInt(r.headers.get("X-Total-Count") || "", 10) ||
-    (Array.isArray(items) ? items.length : 0);
-
-  return { items, total, pageSize: safeLimit, page };
-}
 
 function useQuery() {
   const { search } = useLocation();
@@ -421,9 +379,9 @@ export default function AllotmentsPage() {
               <th style={th}>Medium</th>
               <th style={th}>Allotment</th>
               <th style={th}>Occupation</th>
-              <AdminOnly><th style={th}>DOR</th></AdminOnly>
+              <th style={th}>DOR</th>
               <th style={th}>Status</th>
-              <AdminOnly><th style={th}>Actions</th></AdminOnly>
+              <th style={th}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -431,12 +389,10 @@ export default function AllotmentsPage() {
               <tr><td colSpan={11} style={{ padding: 16, textAlign: "center", color: "#666" }}>No records</td></tr>
             )}
             {rows.map((r) => (
-              <tr key={r.id} style={tr}>
+              <tr key={r.id}>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <div style={{ fontWeight: 600 }}>{fmt(r.person_name || r.allottee_name)}</div>
-                  <div style={{ fontSize: 12, color: "#666" }}>
-                    {fmt(r.designation)}{r.designation ? "" : ""}
-                  </div>
+                  <div style={{ fontSize: 12, color: "#666" }}>{fmt(r.designation)}</div>
                   <div style={{ fontSize: 12, color: "#777" }}>{fmt(r.cnic)}</div>
                 </td>
                 <td style={td}>{fmt(houseField(r, "sector"))}</td>
@@ -446,20 +402,20 @@ export default function AllotmentsPage() {
                 <td style={td}>{fmt(r.medium)}</td>
                 <td style={td}>{date(r.allotment_date)}</td>
                 <td style={td}>{date(r.occupation_date)}</td>
-                <AdminOnly>
-                  <td style={td}>{date(r.dor || (r.dob ? addYears(r.dob, 60) : ""))}</td>
-                </AdminOnly>
+                <td style={td}>{date(r.dor || (r.dob ? addYears(r.dob, 60) : ""))}</td>
                 <td style={td}>
                   <span style={pill(r.qtr_status === "active" ? "rgba(18,185,129,0.12)" : "rgba(107,114,128,0.15)")}>
                     {fmt(r.qtr_status)}
                   </span>
                 </td>
-                <AdminOnly>
-                  <td style={{ ...td, whiteSpace: "nowrap" }}>
+
+                {/* Always render Actions cell; gate buttons inside */}
+                <td style={{ ...td, whiteSpace: "nowrap" }}>
+                  <AdminOnly>
                     <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
                     <button style={btnDangerSm} onClick={() => doDelete(r)}>Delete</button>
-                  </td>
-                </AdminOnly>
+                  </AdminOnly>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -504,7 +460,6 @@ export default function AllotmentsPage() {
             <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
           </Row3>
           <Row3>
-            {/* DOB/DOR kept in admin form only */}
             <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
             <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
             <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
@@ -565,4 +520,3 @@ const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 const table = { width: "100%", borderCollapse: "separate", borderSpacing: "0 10px" };
 const th = { textAlign: "left", padding: "10px 12px", background: "#fafafa", borderBottom: "none", position: "sticky", top: 0, zIndex: 1, color: "#111" };
 const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
-const tr = { };

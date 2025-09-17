@@ -8,19 +8,6 @@ import { api, createHouse, updateHouse, deleteHouse } from "../api";
 // Fixed pagination: 50 per page
 const API_MAX_LIMIT = 1000;            // match your backend cap
 const PAGE_SIZE = 50;                  // your UI page size
-const BASE = "/api/houses/";           // trailing slash avoids 307
-
-export async function fetchHouses(page = 1) {
-  const safeLimit = Math.min(Math.max(PAGE_SIZE, 1), API_MAX_LIMIT);
-  const skip = (page - 1) * safeLimit;          // or offset
-  const url = `${BASE}?skip=${skip}&limit=${safeLimit}`;
-  const r = await fetch(url, { credentials: "include" });
-  if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    throw new Error(`HTTP ${r.status} ${r.statusText} – ${detail}`);
-  }
-  return r.json();
-}
 
 function useQuery() {
   const { search } = useLocation();
@@ -231,7 +218,8 @@ export default function HousesPage() {
               <th style={th}>Type</th>
               <th style={th}>Pool</th>
               <th style={th}>Status</th>
-              <AdminOnly><th style={th}>Actions</th></AdminOnly>
+              {/* Always render the Actions column header */}
+              <th style={th}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -239,7 +227,7 @@ export default function HousesPage() {
               <tr><td colSpan={9} style={{ padding: 16, textAlign: "center", color: "#666" }}>No records</td></tr>
             )}
             {rows.map((r) => (
-              <tr key={r.id} style={tr}>
+              <tr key={r.id}>
                 <td style={td}>{fmt(r.id)}</td>
                 <td style={td} title={fmt(r.file_no)}>{fmt(r.file_no)}</td>
                 <td style={td}>{fmt(r.qtr_no)}</td>
@@ -259,12 +247,14 @@ export default function HousesPage() {
                     {fmt(r.status)}
                   </span>
                 </td>
-                <AdminOnly>
-                  <td style={{ ...td, whiteSpace: "nowrap" }}>
+
+                {/* Always render the Actions cell; gate the buttons only */}
+                <td style={{ ...td, whiteSpace: "nowrap" }}>
+                  <AdminOnly>
                     <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
                     <button style={btnDangerSm} onClick={() => doDelete(r)}>Delete</button>
-                  </td>
-                </AdminOnly>
+                  </AdminOnly>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -289,28 +279,28 @@ export default function HousesPage() {
           <Field label="Street" value={form.street} onChange={onChange("street")} />
           <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
           <Select
-                label="Type"
-                value={form.type_code}
-                onChange={onChange("type_code")}
-                options={[
-                  { value: "A", label: "A" }, { value: "B", label: "B" },
-                  { value: "C", label: "C" }, { value: "D", label: "D" },
-                  { value: "E", label: "E" }, { value: "F", label: "F" },
-                  { value: "G", label: "G" }, { value: "H", label: "H" },
-                  { value: "SITE", label: "SITE" },
-                ]}
-              />
-              <Select
-                label="Pool"
-                value={form.pool}
-                onChange={onChange("pool")}
-                options={[
-                  { value: "", label: "-" },
-                  { value: "general", label: "General" },
-                  { value: "m/o", label: "M/O" },
-                  { value: "h/o", label: "H/O" },
-                ]}
-              />
+            label="Type"
+            value={form.type_code}
+            onChange={onChange("type_code")}
+            options={[
+              { value: "A", label: "A" }, { value: "B", label: "B" },
+              { value: "C", label: "C" }, { value: "D", label: "D" },
+              { value: "E", label: "E" }, { value: "F", label: "F" },
+              { value: "G", label: "G" }, { value: "H", label: "H" },
+              { value: "SITE", label: "SITE" },
+            ]}
+          />
+          <Select
+            label="Pool"
+            value={form.pool}
+            onChange={onChange("pool")}
+            options={[
+              { value: "", label: "-" },
+              { value: "general", label: "General" },
+              { value: "m/o", label: "M/O" },
+              { value: "h/o", label: "H/O" },
+            ]}
+          />
           <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
           <Select
             label="Status"
@@ -393,9 +383,7 @@ const th = {
   zIndex: 1,
   color: "#111",
 };
-const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" }; // per-cell visuals via CSS class
-const tr = { };
-
+const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
 const input = {
   flex: 1,
   padding: "10px 12px",
@@ -405,18 +393,15 @@ const input = {
   color: "#111",
   background: "#fff",
 };
-
 const btn = {
   padding: "10px 14px",
   borderRadius: 8,
   border: "1px solid #d9d9d9",
   background: "#ffffff",
   cursor: "pointer",
-  color: "#111", // ensure text visible
+  color: "#111",
 };
-
 const btnGhost = { ...btn, background: "#f3f4f6" };
-
 const btnPrimary = {
   padding: "10px 14px",
   borderRadius: 8,
@@ -425,7 +410,6 @@ const btnPrimary = {
   color: "#fff",
   cursor: "pointer",
 };
-
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
