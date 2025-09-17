@@ -64,22 +64,20 @@ export default function HousesPage() {
     navigate({ search: sp.toString() ? `?${sp.toString()}` : "" }, { replace: true });
   };
 
-  // Load houses: read X-Total-Count header for accurate pagination
   const load = async () => {
     setLoading(true);
     setError("");
     try {
-      const offset = page * PAGE_SIZE;
+      const skip = page * PAGE_SIZE;
       const params = {
-        offset,
+        skip,
         limit: PAGE_SIZE,
-        // fan-out single query to backend-supported filters
         q: q || undefined,
-        qtr: q || undefined,
-        qtr_no: q || undefined,
         file_no: q || undefined,
-        fileNo: q || undefined,
-        cnic: q || undefined,
+        sector: q || undefined,
+        street: q || undefined,
+        qtr_no: q || undefined,
+        type_code: q || undefined,
         allottee_name: q || undefined,
         allottee: q || undefined,
       };
@@ -112,15 +110,23 @@ export default function HousesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q]);
 
-  // go to house history page
-  const openHistoryFor = (row) => {
-    const dest = row.file_no
-      ? `/history/file/${encodeURIComponent(row.file_no)}`
-      : `/history/house/${row.id}`;
-    navigate(dest);
-  };
+  const canPrev = page > 0;
+  const canNext = (page + 1) * PAGE_SIZE < total;
 
-  // ---------- CRUD (admin only UI) ----------
+  const fmt = (x) => (x ? String(x) : "-");
+  const pill = (bg = "#eee", color = "#111") => ({
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: 999,
+    fontSize: 12,
+    background: bg,
+    color,
+  });
+
+  const onChange = (key) => (e) => {
+    const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
+    setForm((f) => ({ ...f, [key]: v }));
+  };
   const openAdd = () => {
     setForm(emptyHouse);
     setAdding(true);
@@ -128,26 +134,21 @@ export default function HousesPage() {
   const openEdit = (row) => {
     setEditing(row);
     setForm({
-      file_no: row.file_no ?? "",
-      qtr_no: row.qtr_no ?? "",
-      street: row.street ?? "",
-      sector: row.sector ?? "",
-      type_code: row.type_code ?? "",
-      pool: row.pool ?? "",
-      status: row.status ?? "vacant",
+      file_no: row.file_no || "",
+      qtr_no: row.qtr_no || "",
+      street: row.street || "",
+      sector: row.sector || "",
+      type_code: row.type_code || "",
+      pool: row.pool || "",
+      status: row.status || "vacant",
       status_manual: !!row.status_manual,
     });
   };
   const closeModals = () => {
     setAdding(false);
     setEditing(null);
-    setForm(emptyHouse);
   };
-  const onChange = (k) => (e) =>
-    setForm((f) => ({
-      ...f,
-      [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value,
-    }));
+
   const submitAdd = async (e) => {
     e.preventDefault();
     try {
@@ -169,8 +170,8 @@ export default function HousesPage() {
       alert(`Update failed: ${err}`);
     }
   };
-  const onDelete = async (row) => {
-    if (!window.confirm(`Delete house ${row.file_no || `#${row.id}`}?`)) return;
+  const doDelete = async (row) => {
+    if (!window.confirm("Delete this house?")) return;
     try {
       await deleteHouse(row.id);
       await load();
@@ -179,45 +180,47 @@ export default function HousesPage() {
     }
   };
 
-  // pagination
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const canPrev = page > 0;
-  const canNext = page + 1 < totalPages;
-
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <h2 style={{ margin: 0, flex: 1 }}>Houses</h2>
+    <div style={{ padding: 16, display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <form
+          onSubmit={(e) => { e.preventDefault(); setPage(0); load(); }}
+          style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}
+        >
+          <input
+            placeholder="Search by File No, Sector, Street, Qtr No, Type, Allottee..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={input}
+          />
+          <button type="submit" style={btn}>Search</button>
+          <button
+            type="button"
+            onClick={() => { setQ(""); setPage(0); }}
+            style={btnGhost}
+          >
+            Clear
+          </button>
+        </form>
         <AdminOnly>
           <button onClick={openAdd} style={btnPrimary}>+ Add House</button>
         </AdminOnly>
       </div>
 
-      {/* single search bar */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); setPage(0); load(); }}
-        style={{ display: "flex", gap: 8, marginBottom: 12 }}
-      >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search qtr/file no/CNIC/allottee name"
-          style={input}
-        />
-        <button type="submit" style={btn}>Search</button>
-        <button
-          type="button"
-          onClick={() => { setQ(""); setPage(0); }}
-          style={btnGhost}
-        >
-          Clear
-        </button>
-      </form>
-
       {error && <div style={errorBox}>{error}</div>}
 
-      <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 10 }}>
-        <table style={table}>
+      <style>{`
+        /* Row card look without lines */
+        table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
+        table.rows-separated thead th { border-bottom: none; }
+        table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+        table.rows-separated tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+        table.rows-separated tbody tr td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+        table.rows-separated tbody tr:hover td { background: rgba(34,197,94,0.06); }
+      `}</style>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={table} className="rows-separated">
           <thead>
             <tr>
               <th style={th}>ID</th>
@@ -233,47 +236,45 @@ export default function HousesPage() {
           </thead>
           <tbody>
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 16, textAlign: "center", color: "#666" }}>No records</td></tr>
+              <tr><td colSpan={9} style={{ padding: 16, textAlign: "center", color: "#666" }}>No records</td></tr>
             )}
             {rows.map((r) => (
               <tr key={r.id} style={tr}>
-                <td style={td}>{r.id}</td>
+                <td style={td}>{fmt(r.id)}</td>
+                <td style={td} title={fmt(r.file_no)}>{fmt(r.file_no)}</td>
+                <td style={td}>{fmt(r.qtr_no)}</td>
+                <td style={td}>{fmt(r.street)}</td>
+                <td style={td}>{fmt(r.sector)}</td>
+                <td style={td}>{fmt(r.type_code)}</td>
+                <td style={td}>{fmt(r.pool)}</td>
                 <td style={td}>
-                  <button onClick={() => openHistoryFor(r)} style={linkBtn} title="Open allotment history">
-                    {r.file_no ?? "-"}
-                  </button>
+                  <span
+                    style={pill(
+                      r.status === "vacant" ? "rgba(34,197,94,0.12)" :
+                      r.status === "occupied" ? "rgba(59,130,246,0.12)" :
+                      "rgba(107,114,128,0.15)",
+                      "#111"
+                    )}
+                  >
+                    {fmt(r.status)}
+                  </span>
                 </td>
-                <td style={td}>{r.qtr_no ?? "-"}</td>
-                <td style={td}>{r.street ?? "-"}</td>
-                <td style={td}>{r.sector ?? "-"}</td>
-                <td style={td}>{r.type_code ?? "-"}</td>
-                <td style={td}>{r.pool ?? "-"}</td>
-                <td style={td}>{r.status ?? "-"}</td>
                 <AdminOnly>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    <button onClick={() => openEdit(r)} style={btnSm}>Edit</button>{" "}
-                    <button onClick={() => onDelete(r)} style={btnDangerSm}>Delete</button>
+                    <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
+                    <button style={btnDangerSm} onClick={() => doDelete(r)}>Delete</button>
                   </td>
                 </AdminOnly>
               </tr>
             ))}
-            {loading && (
-              <tr><td colSpan={8} style={{ padding: 16 }}>Loading…</td></tr>
-            )}
           </tbody>
         </table>
-      </div>
 
-      {/* bottom pager */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-        <div style={{ color: "#222" }}>
-          Page <strong>{page + 1}</strong> of <strong>{totalPages}</strong>
-          {Number.isFinite(total) ? <> &nbsp;•&nbsp; Total <strong>{total}</strong></> : null}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => canPrev && setPage((p) => p - 1)} disabled={!canPrev} style={btn}>
-            ← Prev
-          </button>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", padding: 8 }}>
+          <span style={{ color: "#666" }}>
+            {rows.length ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}` : ""}
+          </span>
+          <button onClick={() => canPrev && setPage((p) => p - 1)} disabled={!canPrev} style={btn}>← Prev</button>
           <button onClick={() => canNext && setPage((p) => p + 1)} disabled={!canNext} style={btn}>
             Next →
           </button>
@@ -287,7 +288,7 @@ export default function HousesPage() {
           <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
           <Field label="Street" value={form.street} onChange={onChange("street")} />
           <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
-              <Select
+          <Select
                 label="Type"
                 value={form.type_code}
                 onChange={onChange("type_code")}
@@ -304,57 +305,97 @@ export default function HousesPage() {
                 value={form.pool}
                 onChange={onChange("pool")}
                 options={[
-                  { value: "CDA", label: "CDA" },
-                  { value: "ESTATE OFFICE", label: "ESTATE OFFICE" },
-                  // add more options here if you have them
+                  { value: "", label: "-" },
+                  { value: "general", label: "General" },
+                  { value: "m/o", label: "M/O" },
+                  { value: "h/o", label: "H/O" },
                 ]}
+              />
+          <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
+          <Select
+            label="Status"
+            value={form.status}
+            onChange={onChange("status")}
+            options={[
+              { value: "vacant", label: "Vacant" },
+              { value: "occupied", label: "Occupied" },
+              { value: "reserved", label: "Reserved" },
+            ]}
           />
-          <Row>
-            <Select
-              label="Status"
-              value={form.status}
-              onChange={onChange("status")}
-              options={[
-                { value: "vacant", label: "vacant" },
-                { value: "occupied", label: "occupied" },
-                { value: "maintenance", label: "maintenance" },
-              ]}
-            />
-            <Checkbox label="Manual status" checked={!!form.status_manual} onChange={onChange("status_manual")} />
-          </Row>
           <Actions onCancel={closeModals} submitText="Create" />
         </form>
       </Modal>
 
       {/* Edit Modal */}
-      <Modal open={!!editing} onClose={closeModals} title={editing ? `Edit House #${editing.id}` : "Edit"}>
-        <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
-          <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required />
-          <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
-          <Field label="Street" value={form.street} onChange={onChange("street")} />
-          <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
-          <Field label="Type Code" value={form.type_code} onChange={onChange("type_code")} />
-          <Row>
+      <AdminOnly>
+        <Modal open={!!editing} onClose={closeModals} title="Edit House">
+          <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
+            <Field label="File No" value={form.file_no} onChange={onChange("file_no")} required />
+            <Field label="Qtr No" value={form.qtr_no} onChange={onChange("qtr_no")} />
+            <Field label="Street" value={form.street} onChange={onChange("street")} />
+            <Field label="Sector" value={form.sector} onChange={onChange("sector")} />
+            <Select
+              label="Type"
+              value={form.type_code}
+              onChange={onChange("type_code")}
+              options={[
+                { value: "A", label: "A" }, { value: "B", label: "B" },
+                { value: "C", label: "C" }, { value: "D", label: "D" },
+                { value: "E", label: "E" }, { value: "F", label: "F" },
+                { value: "G", label: "G" }, { value: "H", label: "H" },
+                { value: "SITE", label: "SITE" },
+              ]}
+            />
+            <Select
+              label="Pool"
+              value={form.pool}
+              onChange={onChange("pool")}
+              options={[
+                { value: "", label: "-" },
+                { value: "general", label: "General" },
+                { value: "m/o", label: "M/O" },
+                { value: "h/o", label: "H/O" },
+              ]}
+            />
+            <Checkbox label="Status manual override" checked={form.status_manual} onChange={onChange("status_manual")} />
             <Select
               label="Status"
               value={form.status}
               onChange={onChange("status")}
               options={[
-                { value: "vacant", label: "vacant" },
-                { value: "occupied", label: "occupied" },
-                { value: "maintenance", label: "maintenance" },
+                { value: "vacant", label: "Vacant" },
+                { value: "occupied", label: "Occupied" },
+                { value: "reserved", label: "Reserved" },
               ]}
             />
-            <Checkbox label="Manual status" checked={!!form.status_manual} onChange={onChange("status_manual")} />
-          </Row>
-          <Actions onCancel={closeModals} submitText="Save" />
-        </form>
-      </Modal>
+            <Actions onCancel={closeModals} submitText="Save" />
+          </form>
+        </Modal>
+      </AdminOnly>
     </div>
   );
 }
 
-/* ---------- tiny UI primitives (high-contrast buttons/text) ---------- */
+/* --- UI bits --- */
+
+const table = {
+  width: "100%",
+  borderCollapse: "separate",
+  borderSpacing: "0 10px",
+};
+const th = {
+  textAlign: "left",
+  padding: "10px 12px",
+  background: "#fafafa",
+  borderBottom: "none",
+  position: "sticky",
+  top: 0,
+  zIndex: 1,
+  color: "#111",
+};
+const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" }; // per-cell visuals via CSS class
+const tr = { };
+
 const input = {
   flex: 1,
   padding: "10px 12px",
@@ -388,60 +429,26 @@ const btnPrimary = {
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
-const linkBtn = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  color: "#0b65c2",
-  textDecoration: "underline",
-  cursor: "pointer",
-};
-
-const table = {
-  width: "100%",
-  borderCollapse: "separate",
-  borderSpacing: 0,
-};
-
-const th = {
-  textAlign: "left",
-  padding: "10px 12px",
-  background: "#fafafa",
-  borderBottom: "1px solid #eee",
-  position: "sticky",
-  top: 0,
-  zIndex: 1,
-  color: "#111",
-};
-
-const tr = { borderBottom: "1px solid #f1f1f1" };
-const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
-
-const errorBox = {
-  background: "#fdecea",
-  color: "#a12622",
-  border: "1px solid #f5c6c3",
-  padding: 12,
-  borderRadius: 8,
-  marginBottom: 12,
-};
-
-function Field({ label, value, onChange, type = "text", required = false }) {
+function Field({ label, value, onChange, type = "text", required, readOnly }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
-      <input type={type} value={value || ""} onChange={onChange} required={required} style={input} />
+      <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+      <input
+        type={type}
+        value={value ?? ""}
+        onChange={onChange}
+        required={required}
+        readOnly={readOnly}
+        style={input}
+      />
     </label>
   );
-}
-function Row({ children }) {
-  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>{children}</div>;
 }
 function Select({ label, value, onChange, options }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
-      <select value={value || ""} onChange={onChange} style={{ ...input, padding: "10px" }}>
+      <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+      <select value={value ?? ""} onChange={onChange} style={input}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}

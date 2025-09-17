@@ -32,8 +32,21 @@ export async function fetchAllotments(page = 1, opts = {}) {
     throw new Error(`HTTP ${r.status} ${r.statusText} – ${detail}`);
   }
 
-  const items = await r.json();
-  const total = Number(r.headers.get("X-Total-Count") || items.length);
+  const body = await r.json().catch(() => []);
+  const items = Array.isArray(body)
+    ? body
+    : Array.isArray(body?.items)
+    ? body.items
+    : Array.isArray(body?.results)
+    ? body.results
+    : Array.isArray(body?.data)
+    ? body.data
+    : [];
+
+  const total =
+    Number.parseInt(r.headers.get("X-Total-Count") || "", 10) ||
+    (Array.isArray(items) ? items.length : 0);
+
   return { items, total, pageSize: safeLimit, page };
 }
 
@@ -64,27 +77,50 @@ function addYears(dateStr, years) {
   const [y, m, d] = String(dateStr).substring(0, 10).split("-").map(Number);
   if (!y || !m || !d) return "";
   try {
-    return new Date(y + years, m - 1, d).toISOString().substring(0, 10);
-  } catch {
-    // clamp leap days
-    const last = new Date(y + years, m, 0).getDate();
-    return `${y + years}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
-  }
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCFullYear(dt.getUTCFullYear() + years);
+    const yyyy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  } catch { return ""; }
 }
 
 const MEDIUM_OPTIONS = [
-  { value: "family transfer", label: "family transfer" },
-  { value: "mutual", label: "mutual" },
-  { value: "transit", label: "transit" },
-  { value: "departmental", label: "departmental" },
-  { value: "fresh", label: "fresh" },
+  { value: "", label: "-" },
+  { value: "general", label: "General" },
+  { value: "m/o", label: "M/O" },
+  { value: "h/o", label: "H/O" },
 ];
 
+function Field({ label, value, onChange, type = "text", required, readOnly }) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+      <input
+        type={type}
+        value={value ?? ""}
+        onChange={onChange}
+        required={required}
+        readOnly={readOnly}
+        style={input}
+      />
+    </label>
+  );
+}
+function TextArea({ label, value, onChange, rows = 3 }) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+      <textarea value={value ?? ""} onChange={onChange} rows={rows} style={{ ...input, minHeight: 80 }} />
+    </label>
+  );
+}
 function Select({ label, value, onChange, options }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
-      <select value={value || ""} onChange={onChange} style={input}>
+      <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
+      <select value={value ?? ""} onChange={onChange} style={input}>
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
@@ -92,7 +128,6 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
-
 
 const fmt = (x) => (x ? String(x) : "-");
 const date = (x) => (x ? String(x).substring(0, 10) : "-");
@@ -119,81 +154,58 @@ function HousePicker({ value, onChange }) {
     return () => { done = true; };
   }, [value]);
 
-  // search debounced
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (!q) { setOpts([]); return; }
-      setLoading(true);
-      try {
-        const res = await api.request("GET", "/houses/", {
-          params: { q, limit: 10 },
-        });
-        const body = await res.json().catch(() => []);
-        const items = Array.isArray(body)
-          ? body
-          : body?.items || body?.results || body?.data || [];
-        setOpts(items);
-      } finally {
-        setLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  const pick = (h) => {
-    setChosen(h);
-    setOpts([]);
-    setQ("");
-    onChange?.(h.id);
+  const search = async () => {
+    setLoading(true);
+    try {
+      const res = await api.request("GET", "/houses/", { params: { q } });
+      const list = await res.json().catch(() => []);
+      setOpts(Array.isArray(list) ? list : (list?.items || list?.results || list?.data || []));
+    } catch {
+      setOpts([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, opacity: 0.7 }}>House (search by file / qtr / street / sector)</span>
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Type to search…"
-        style={input}
-      />
-      {loading && <div style={{ fontSize: 12, color: "#666" }}>Searching…</div>}
-      {opts.length > 0 && (
-        <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, maxHeight: 240, overflowY: "auto" }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input placeholder="Find house (file/sector/street/qtr/type)" value={q} onChange={(e) => setQ(e.target.value)} style={input} />
+        <button onClick={search} style={btn}>Search</button>
+      </div>
+      {value && chosen && (
+        <div style={{ fontSize: 13, color: "#555" }}>
+          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(chosen.sector)} / {fmt(chosen.street)} / {fmt(chosen.qtr_no)} ({fmt(chosen.type_code)})
+        </div>
+      )}
+      <label style={{ display: "grid", gap: 6 }}>
+        <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
+          <option value="">-</option>
           {opts.map((h) => (
-            <button
-              key={h.id}
-              onClick={() => pick(h)}
-              style={{
-                display: "block",
-                textAlign: "left",
-                width: "100%",
-                padding: "8px 10px",
-                border: 0,
-                background: "#fff",
-                borderBottom: "1px solid #f3f4f6",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>
-                {h.file_no || `#${h.id}`} &nbsp;•&nbsp; {h.qtr_no || "-"}
-              </div>
-              <div style={{ fontSize: 12, color: "#555" }}>
-                {h.sector || "-"} &nbsp; {h.street || "-"} &nbsp; {h.type_code || ""}
-              </div>
-            </button>
+            <option key={h.id} value={h.id}>
+              {fmt(h.file_no)} — {fmt(h.sector)} / {fmt(h.street)} / {fmt(h.qtr_no)} ({fmt(h.type_code)})
+            </option>
           ))}
-        </div>
-      )}
-      {chosen && (
-        <div style={{ fontSize: 12, color: "#333" }}>
-          Selected: <strong>{chosen.file_no || `#${chosen.id}`}</strong> — Qtr {chosen.qtr_no || "-"} •{" "}
-          {chosen.sector || "-"} / {chosen.street || "-"}
-        </div>
-      )}
+        </select>
+      </label>
     </div>
   );
 }
 
+function Row3({ children }) {
+  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>;
+}
+function Actions({ onCancel, submitText }) {
+  return (
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+      <button type="button" onClick={onCancel} style={btn}>Cancel</button>
+      <button type="submit" style={btnPrimary}>{submitText}</button>
+    </div>
+  );
+}
+
+const houseField = (r, key) => r.house?.[key] ?? r[key] ?? "-";
 
 export default function AllotmentsPage() {
   const query = useQuery();
@@ -225,12 +237,12 @@ export default function AllotmentsPage() {
       const params = {
         skip,
         limit: PAGE_SIZE,
-        // single-box search that fans out to supported filters
         q: q || undefined,
-        file_no: q || undefined,
-        qtr_no: q || undefined,
         person_name: q || undefined,
+        designation: q || undefined,
+        directorate: q || undefined,
         cnic: q || undefined,
+        house_q: q || undefined,
       };
       const res = await api.request("GET", "/allotments/", { params });
       const body = await res.json().catch(() => []);
@@ -280,27 +292,27 @@ export default function AllotmentsPage() {
       occupation_date: (row.occupation_date || "").substring(0, 10),
       vacation_date: (row.vacation_date || "").substring(0, 10),
       dob: (row.dob || "").substring(0, 10),
-      dor: (row.dor || "").substring(0, 10),
-      qtr_status: row.qtr_status || "active",
+      dor: (row.dor || (row.dob ? addYears(row.dob, 60) : ""))?.substring(0, 10),
+      qtr_status: row.qtr_status ?? "active",
       notes: row.notes ?? "",
     });
   };
   const closeModals = () => {
     setAdding(false);
     setEditing(null);
-    setForm(empty);
   };
-  const onChange = (k) => (e) =>
-    setForm((f) => {
-      const v = e?.target?.value ?? e;
-      const next = { ...f, [k]: v };
-      if (k === "dob") next.dor = v ? addYears(v, 60) : "";
-      if (k === "bps") next.bps = v === "" ? "" : String(Number(v) || "");
-      return next;
-    });
+
+  const onChange = (key) => (e) => {
+    const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
+    setForm((f) => ({ ...f, [key]: v }));
+  };
 
   const submitAdd = async (e) => {
     e.preventDefault();
+    if (!form.house_id) {
+      alert("Please select a house for this allotment.");
+      return;
+    }
     try {
       const payload = {
         ...form,
@@ -335,8 +347,8 @@ export default function AllotmentsPage() {
       alert(`Update failed: ${err}`);
     }
   };
-  const onDelete = async (row) => {
-    if (!window.confirm(`Delete allotment #${row.id}?`)) return;
+  const doDelete = async (row) => {
+    if (!window.confirm("Delete this allotment?")) return;
     try {
       await deleteAllotment(row.id);
       await load();
@@ -345,51 +357,70 @@ export default function AllotmentsPage() {
     }
   };
 
-  // pagination
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const canPrev = page > 0;
-  const canNext = page + 1 < totalPages;
+  const canNext = (page + 1) * PAGE_SIZE < total;
 
-  // helper to read house data whether flattened or nested
-  const houseField = (r, k) => r[k] ?? r.house?.[k] ?? "-";
+  const pill = (bg = "#eee", color = "#111") => ({
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: 999,
+    fontSize: 12,
+    background: bg,
+    color,
+    textTransform: "capitalize",
+  });
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <h2 style={{ margin: 0, flex: 1 }}>Allotments</h2>
+    <div style={{ padding: 16, display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <form
+          onSubmit={(e) => { e.preventDefault(); setPage(0); load(); }}
+          style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}
+        >
+          <input
+            placeholder="Search by Name, CNIC, Designation, Directorate, House..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={input}
+          />
+          <button type="submit" style={btn}>Search</button>
+          <button
+            type="button"
+            onClick={() => { setQ(""); setPage(0); }}
+            style={btn}
+          >
+            Clear
+          </button>
+        </form>
         <AdminOnly>
-          <button onClick={openAdd} style={btnPrimary}>Add Allotment</button>
+          <button onClick={openAdd} style={btnPrimary}>+ Add Allotment</button>
         </AdminOnly>
       </div>
 
-      {/* search */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); setPage(0); load(); }}
-        style={{ display: "flex", gap: 8, marginBottom: 12 }}
-      >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name, CNIC, file no, etc."
-          style={input}
-        />
-        <button type="submit" style={btn}>Search</button>
-      </form>
-
       {error && <div style={errorBox}>{error}</div>}
 
-      <div style={{ overflowX: "auto", border: "1px solid #eee", borderRadius: 10 }}>
-        <table style={table}>
+      <style>{`
+        /* Row card look without lines */
+        table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
+        table.rows-separated thead th { border-bottom: none; }
+        table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+        table.rows-separated tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+        table.rows-separated tbody tr td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+        table.rows-separated tbody tr:hover td { background: rgba(34,197,94,0.06); }
+      `}</style>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={table} className="rows-separated">
           <thead>
             <tr>
               <th style={th}>Allottee</th>
               <th style={th}>Sector</th>
               <th style={th}>Street</th>
-              <th style={th}>Qtr</th>
+              <th style={th}>Qtr No</th>
               <th style={th}>BPS</th>
               <th style={th}>Medium</th>
-              <th style={th}>Allotment Date</th>
-              <th style={th}>Occupation Date</th>
+              <th style={th}>Allotment</th>
+              <th style={th}>Occupation</th>
               <AdminOnly><th style={th}>DOR</th></AdminOnly>
               <th style={th}>Status</th>
               <AdminOnly><th style={th}>Actions</th></AdminOnly>
@@ -419,53 +450,82 @@ export default function AllotmentsPage() {
                   <td style={td}>{date(r.dor || (r.dob ? addYears(r.dob, 60) : ""))}</td>
                 </AdminOnly>
                 <td style={td}>
-                  <span style={pill(r.qtr_status === "active" ? "#12b981" : "#999")}>
+                  <span style={pill(r.qtr_status === "active" ? "rgba(18,185,129,0.12)" : "rgba(107,114,128,0.15)")}>
                     {fmt(r.qtr_status)}
                   </span>
                 </td>
                 <AdminOnly>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>
-                    <button onClick={() => openEdit(r)} style={btnSm}>Edit</button>{" "}
-                    <button onClick={() => onDelete(r)} style={btnDangerSm}>Delete</button>
+                    <button style={btnSm} onClick={() => openEdit(r)}>Edit</button>{" "}
+                    <button style={btnDangerSm} onClick={() => doDelete(r)}>Delete</button>
                   </td>
                 </AdminOnly>
               </tr>
             ))}
-            {loading && (
-              <tr><td colSpan={11} style={{ padding: 16 }}>Loading…</td></tr>
-            )}
           </tbody>
         </table>
-      </div>
 
-      {/* pager */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-        <div style={{ color: "#222" }}>
-          Page <strong>{page + 1}</strong> of <strong>{Math.max(1, Math.ceil(total / PAGE_SIZE))}</strong>
-          {Number.isFinite(total) ? <> &nbsp;•&nbsp; Total <strong>{total}</strong></> : null}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => page > 0 && setPage((p) => p - 1)} disabled={page <= 0} style={btn}>← Prev</button>
-          <button onClick={() => (page + 1) * PAGE_SIZE < total && setPage((p) => p + 1)}
-                  disabled={(page + 1) * PAGE_SIZE >= total} style={btn}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", padding: 8 }}>
+          <span style={{ color: "#666" }}>
+            {rows.length ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}` : ""}
+          </span>
+          <button onClick={() => canPrev && setPage((p) => p - 1)} disabled={!canPrev} style={btn}>← Prev</button>
+          <button onClick={() => canNext && setPage((p) => p + 1)} disabled={!canNext} style={btn}>
             Next →
           </button>
         </div>
       </div>
 
-      {/* Add Modal (admins only) */}
+      {/* Add */}
+      <Modal open={adding} onClose={closeModals} title="Add Allotment">
+        <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
+          <Row3>
+            <HousePicker
+              value={form.house_id}
+              onChange={(v) => setForm((f) => ({ ...f, house_id: v }))}
+            />
+            <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
+            <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
+          </Row3>
+
+          <Row3>
+            <Field label="Designation" value={form.designation} onChange={onChange("designation")} />
+            <Field label="Directorate" value={form.directorate} onChange={onChange("directorate")} />
+            <Field label="BPS" value={form.bps} onChange={onChange("bps")} />
+          </Row3>
+          <Row3>
+            <Select
+              label="Medium"
+              value={form.medium}
+              onChange={onChange("medium")}
+              options={MEDIUM_OPTIONS}
+            />
+            <Field type="date" label="Allotment Date" value={form.allotment_date} onChange={onChange("allotment_date")} />
+            <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
+          </Row3>
+          <Row3>
+            {/* DOB/DOR kept in admin form only */}
+            <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
+            <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
+            <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
+          </Row3>
+          <TextArea label="Notes" value={form.notes} onChange={onChange("notes")} />
+          <Actions onCancel={closeModals} submitText="Create" />
+        </form>
+      </Modal>
+
+      {/* Edit */}
       <AdminOnly>
-        <Modal open={adding} onClose={closeModals} title="Add Allotment">
-          <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
+        <Modal open={!!editing} onClose={closeModals} title="Edit Allotment">
+          <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
             <Row3>
               <HousePicker
                 value={form.house_id}
-                onChange={(hid) => setForm((f) => ({ ...f, house_id: hid }))}
+                onChange={(v) => setForm((f) => ({ ...f, house_id: v }))}
               />
               <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
               <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
             </Row3>
-
             <Row3>
               <Field label="Designation" value={form.designation} onChange={onChange("designation")} />
               <Field label="Directorate" value={form.directorate} onChange={onChange("directorate")} />
@@ -482,42 +542,11 @@ export default function AllotmentsPage() {
               <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
             </Row3>
             <Row3>
-              {/* DOB/DOR kept in admin form only */}
               <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
               <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
               <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
             </Row3>
-            <Field label="Notes" value={form.notes} onChange={onChange("notes")} />
-            <Actions onCancel={closeModals} submitText="Create" />
-          </form>
-        </Modal>
-      </AdminOnly>
-
-      {/* Edit Modal (admins only) */}
-      <AdminOnly>
-        <Modal open={!!editing} onClose={closeModals} title={editing ? `Edit #${editing.id}` : "Edit"}>
-          <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
-            <Row3>
-              <Field label="Allottee Name" value={form.person_name} onChange={onChange("person_name")} required />
-              <Field label="CNIC" value={form.cnic} onChange={onChange("cnic")} />
-              <Field label="BPS" value={form.bps} onChange={onChange("bps")} />
-            </Row3>
-            <Row3>
-              <Field label="Designation" value={form.designation} onChange={onChange("designation")} />
-              <Field label="Directorate" value={form.directorate} onChange={onChange("directorate")} />
-              <Field label="Medium" value={form.medium} onChange={onChange("medium")} />
-            </Row3>
-            <Row3>
-              <Field type="date" label="Allotment Date" value={form.allotment_date} onChange={onChange("allotment_date")} />
-              <Field type="date" label="Occupation Date" value={form.occupation_date} onChange={onChange("occupation_date")} />
-              <Field type="date" label="Vacation Date" value={form.vacation_date} onChange={onChange("vacation_date")} />
-            </Row3>
-            <Row3>
-              <Field type="date" label="DOB" value={form.dob} onChange={onChange("dob")} />
-              <Field type="date" label="DOR (auto 60y)" value={form.dor} onChange={() => {}} readOnly />
-              <div />
-            </Row3>
-            <Field label="Notes" value={form.notes} onChange={onChange("notes")} />
+            <TextArea label="Notes" value={form.notes} onChange={onChange("notes")} />
             <Actions onCancel={closeModals} submitText="Save" />
           </form>
         </Modal>
@@ -533,35 +562,7 @@ const btnPrimary = { padding: "10px 14px", borderRadius: 8, border: "1px solid #
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
-const pill = (bg) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 12, background: bg, color: "#fff", fontSize: 12 });
-
-const table = { width: "100%", borderCollapse: "separate", borderSpacing: 0 };
-const th = { textAlign: "left", padding: "10px 12px", background: "#fafafa", borderBottom: "1px solid #eee", position: "sticky", top: 0, zIndex: 1, color: "#111" };
-const tr = { borderBottom: "1px solid #f1f1f1" };
+const table = { width: "100%", borderCollapse: "separate", borderSpacing: "0 10px" };
+const th = { textAlign: "left", padding: "10px 12px", background: "#fafafa", borderBottom: "none", position: "sticky", top: 0, zIndex: 1, color: "#111" };
 const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
-const errorBox = {
-  background: "#fdecea",
-  color: "#a12622",
-  border: "1px solid #f5c6c3",   // ← fixed
-  padding: 12,
-  borderRadius: 8,
-  marginBottom: 12,
-};
-
-function Field({ label, value, onChange, type = "text", required = false, readOnly = false }) {
-  return (
-    <label style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{label}</span>
-      <input type={type} value={value || ""} onChange={onChange} required={required} readOnly={readOnly} style={input} />
-    </label>
-  );
-}
-function Row3({ children }) { return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>; }
-function Actions({ onCancel, submitText }) {
-  return (
-    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
-      <button type="button" onClick={onCancel} style={btn}>Cancel</button>
-      <button type="submit" style={btnPrimary}>{submitText}</button>
-    </div>
-  );
-}
+const tr = { };
