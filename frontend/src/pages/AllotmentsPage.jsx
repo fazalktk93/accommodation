@@ -57,30 +57,20 @@ const MEDIUM_OPTIONS = [
 const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
 const date = (x) => (x ? String(x).substring(0, 10) : "-");
 const pick = (...vals) => {
-  for (const v of vals) {
-    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-  }
+  for (const v of vals) if (v !== undefined && v !== null && String(v).trim() !== "") return v;
   return "";
 };
+function getQtrNo(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.qtr_no, r.quarter_no, r.qtrNo, h.qtr_no, h.quarter_no, h.qtrNo); }
+function getStreet(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.street, r.street_no, r.streetName, h.street, h.street_no, h.streetName); }
+function getSector(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode); }
 
-// read qtr/street/sector from row, row.house, or cached houses
-function getQtrNo(r, houseCache) {
-  const h = r.house || houseCache[r.house_id] || {};
-  return pick(r.qtr_no, r.quarter_no, r.qtrNo, h.qtr_no, h.quarter_no, h.qtrNo);
-}
-function getStreet(r, houseCache) {
-  const h = r.house || houseCache[r.house_id] || {};
-  return pick(r.street, r.street_no, r.streetName, h.street, h.street_no, h.streetName);
-}
-function getSector(r, houseCache) {
-  const h = r.house || houseCache[r.house_id] || {};
-  return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode);
-}
-
-/** Add modal: shows a working search and a results dropdown
- *  - Debounced search as you type
- *  - Manual search button (type="button") so it won't submit the Add form
- *  - Tries multiple API query shapes: ?q=, ?file_no=, ?sector=, ?street=, ?qtr_no=, ?type_code=
+/* --------------------- House pickers --------------------- */
+/** Add modal: search + results dropdown
+ * Super-robust:
+ *  - debounced search as you type
+ *  - manual Search button (type="button")
+ *  - tries multiple API param shapes and raw fetch fallback
+ *  - dedupes by id
  */
 function HousePickerAdd({ value, onChange }) {
   const [q, setQ] = useState("");
@@ -88,7 +78,6 @@ function HousePickerAdd({ value, onChange }) {
   const [opts, setOpts] = useState([]);
   const [err, setErr] = useState("");
 
-  // normalize API body into an array
   const normalize = (body) => {
     if (Array.isArray(body)) return body;
     if (Array.isArray(body?.items)) return body.items;
@@ -97,57 +86,87 @@ function HousePickerAdd({ value, onChange }) {
     return [];
   };
 
-  // 1) /houses/?q=qq
-  // 2) /houses/?file_no=qq
-  // 3) /houses/?sector=qq
-  // 4) /houses/?street=qq
-  // 5) /houses/?qtr_no=qq
-  // 6) /houses/?type_code=qq
+  const uniqById = (arr) => {
+    const seen = new Set();
+    const out = [];
+    for (const x of arr) {
+      const k = x?.id ?? `${x?.file_no}-${x?.qtr_no}-${x?.street}-${x?.sector}`;
+      if (!seen.has(k)) { seen.add(k); out.push(x); }
+    }
+    return out;
+  };
+
+  const rawFetchTry = async (paramsObj) => {
+    const qs = new URLSearchParams({ ...paramsObj, limit: "25" });
+    const res = await fetch(`/api/houses/?${qs.toString()}`, { credentials: "include" });
+    if (!res.ok) return [];
+    const body = await res.json().catch(() => []);
+    return normalize(body);
+  };
+
+  const apiTry = async (paramsObj) => {
+    const res = await api.request("GET", "/houses/", { params: { ...paramsObj, limit: 25 } });
+    const body = await res.json().catch(() => []);
+    return normalize(body);
+  };
+
+  // Build a list of strategies to try
+  const buildTries = (qq) => {
+    const tries = [
+      { q: qq },
+      { file_no: qq },
+      { sector: qq },
+      { street: qq },
+      { qtr_no: qq },
+      { type_code: qq },
+    ];
+    // parse "G-6/1-2" style (sector/street/qtr)
+    const m = String(qq).match(/^([A-Za-z]-\d+)\s*\/\s*([A-Za-z0-9-]+)(?:\s*[-/]\s*([A-Za-z0-9-]+))?$/);
+    if (m) {
+      const [, sector, street, qtrMaybe] = m;
+      tries.unshift({ sector, street, qtr_no: qtrMaybe || "" });
+    }
+    return tries;
+  };
+
   const fetchList = async (qq) => {
     setLoading(true);
     setErr("");
     try {
-      const tries = [
-        { q: qq },
-        { file_no: qq },
-        { sector: qq },
-        { street: qq },
-        { qtr_no: qq },
-        { type_code: qq },
-      ];
-
-      // also parse input like "G-6/1-2" into sector/street/qtr parts if present
-      const m = String(qq).match(/^([A-Za-z]-\d+)\s*\/\s*(\d+)[^0-9]*([A-Za-z0-9-]+)?$/);
-      if (m) {
-        const [, sector, street, qtrMaybe] = m;
-        tries.unshift({ sector, street, qtr_no: qtrMaybe || "" });
-      }
-
+      const strategies = buildTries(qq);
       let results = [];
-      for (const params of tries) {
-        const res = await api.request("GET", "/houses/", { params: { ...params, limit: 25 } });
-        const body = await res.json().catch(() => []);
-        results = normalize(body);
-        if (results.length) break;
+      // 1) Try through your api wrapper
+      for (const p of strategies) {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await apiTry(p);
+        if (r.length) { results = r; break; }
       }
-
+      // 2) If still nothing, try raw fetch (some backends ignore params unless exact)
+      if (!results.length) {
+        for (const p of strategies) {
+          // eslint-disable-next-line no-await-in-loop
+          const r = await rawFetchTry(p);
+          if (r.length) { results = r; break; }
+        }
+      }
+      results = uniqById(results);
       setOpts(results);
       if (!results.length) setErr("No matching houses found.");
     } catch (e) {
       setOpts([]);
-      setErr("Search failed. Please try again.");
+      setErr("Search failed. Please check your input or network.");
     } finally {
       setLoading(false);
     }
   };
 
-  // debounce search while typing
+  // debounce search while typing (Enter also triggers)
   const debTimer = useRef(null);
   useEffect(() => {
     const qq = q.trim();
     if (!qq) { setOpts([]); setErr(""); return; }
     clearTimeout(debTimer.current);
-    debTimer.current = setTimeout(() => fetchList(qq), 350);
+    debTimer.current = setTimeout(() => { fetchList(qq); }, 350);
     return () => clearTimeout(debTimer.current);
   }, [q]);
 
@@ -164,10 +183,7 @@ function HousePickerAdd({ value, onChange }) {
           placeholder="Find house (file/sector/street/qtr/type)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            // prevent Enter from submitting the main Add form
-            if (e.key === "Enter") { e.preventDefault(); onManualSearch(); }
-          }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onManualSearch(); } }}
           style={input}
         />
         <button type="button" onClick={onManualSearch} style={btn}>
@@ -179,14 +195,10 @@ function HousePickerAdd({ value, onChange }) {
 
       <label style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
-        <select
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
-          style={input}
-        >
+        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
           <option value="">-</option>
           {opts.map((h) => (
-            <option key={h.id} value={h.id}>
+            <option key={h.id ?? `${h.file_no}-${h.qtr_no}-${h.street}-${h.sector}`} value={h.id}>
               {fmt(h.file_no)} — {fmt(h.qtr_no || h.quarter_no || h.qtrNo)} / {fmt(h.street || h.street_no || h.streetName)} / {fmt(h.sector || h.sector_code || h.sectorCode)} ({fmt(h.type_code)})
             </option>
           ))}
@@ -196,11 +208,9 @@ function HousePickerAdd({ value, onChange }) {
   );
 }
 
-
 /** Edit modal: NO search UI, shows selected house summary; dropdown disabled */
 function HousePickerEdit({ value }) {
   const [selected, setSelected] = useState(null);
-
   useEffect(() => {
     let cancelled = false;
     async function loadCurrent() {
@@ -297,9 +307,7 @@ export default function AllotmentsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  // house cache for enriching display
-  const [houseCache, setHouseCache] = useState({});
+  const [houseCache, setHouseCache] = useState({}); // enrich display
 
   const pushUrl = (p = page, queryText = q) => {
     const sp = new URLSearchParams();
@@ -309,13 +317,11 @@ export default function AllotmentsPage() {
   };
 
   const load = async () => {
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const skip = page * PAGE_SIZE;
       const params = {
-        skip,
-        limit: PAGE_SIZE,
+        skip, limit: PAGE_SIZE,
         q: q || undefined,
         person_name: q || undefined,
         designation: q || undefined,
@@ -325,25 +331,16 @@ export default function AllotmentsPage() {
       };
       const res = await api.request("GET", "/allotments/", { params });
       const body = await res.json().catch(() => []);
-      const items = Array.isArray(body)
-        ? body
-        : Array.isArray(body?.items)
-        ? body.items
-        : Array.isArray(body?.results)
-        ? body.results
-        : Array.isArray(body?.data)
-        ? body.data
-        : [];
+      const items = Array.isArray(body) ? body
+        : Array.isArray(body?.items) ? body.items
+        : Array.isArray(body?.results) ? body.results
+        : Array.isArray(body?.data) ? body.data : [];
       const totalFromHeader = parseInt(res.headers.get("X-Total-Count") || "", 10);
       setRows(items);
       setTotal(Number.isFinite(totalFromHeader) ? totalFromHeader : items.length);
     } catch (e) {
-      setRows([]);
-      setTotal(0);
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+      setRows([]); setTotal(0); setError(String(e));
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { pushUrl(page, q); load(); /* eslint-disable-next-line */ }, [page, q]);
@@ -356,7 +353,6 @@ export default function AllotmentsPage() {
       if (!hasAny && r.house_id && !houseCache[r.house_id]) needIds.push(r.house_id);
     }
     if (!needIds.length) return;
-
     let cancelled = false;
     (async () => {
       const newCache = {};
@@ -385,10 +381,7 @@ export default function AllotmentsPage() {
     setForm((f) => ({ ...f, [key]: v }));
   };
 
-  const openAdd = () => {
-    setForm(emptyAllotment);
-    setAdding(true);
-  };
+  const openAdd = () => { setForm(emptyAllotment); setAdding(true); };
   const openEdit = (row) => {
     setEditing(row);
     setForm({
@@ -458,13 +451,13 @@ export default function AllotmentsPage() {
   const canPrev = page > 0;
   const canNext = (page + 1) * PAGE_SIZE < total;
 
-  const pill = (bg = "#eee", color = "#111") => ({
+  const pill = (bg = "#eee") => ({
     display: "inline-block",
     padding: "4px 8px",
     borderRadius: 999,
     fontSize: 12,
     background: bg,
-    color,
+    color: "#111",
     textTransform: "capitalize",
   });
 
@@ -566,7 +559,7 @@ export default function AllotmentsPage() {
         </div>
       </div>
 
-      {/* Add Allotment: shows SEARCH */}
+      {/* Add Allotment: shows SEARCH (with robust fallback) */}
       <Modal open={adding} onClose={closeModals} title="Add Allotment">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
           <Row3>
