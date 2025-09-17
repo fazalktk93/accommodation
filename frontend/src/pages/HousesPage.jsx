@@ -25,14 +25,18 @@ const emptyHouse = {
   status_manual: false,
 };
 
-/** 🔗 Allotment history URL helper — now points to house allotment history */
+/** 🔗 Allotment history URL helper — matches App.jsx routes */
 function buildAllotmentHistoryUrl(row) {
-  // If your route takes query params:
-  return `/houseallotmenthistory?house_id=${encodeURIComponent(row.id)}&file_no=${encodeURIComponent(row.file_no ?? "")}`;
-
-  // If instead your route uses a URL param like /houseallotmenthistory/:house_id,
-  // use this line and remove the one above:
-  // return `/houseallotmenthistory/${encodeURIComponent(row.id)}`;
+  // Prefer file number if available
+  if (row?.file_no) {
+    return `/history/file/${encodeURIComponent(row.file_no)}`;
+  }
+  // Fallback to house id route
+  if (row?.id) {
+    return `/history/house/${encodeURIComponent(row.id)}`;
+  }
+  // Last resort: go to the generic history base (or throw)
+  return `/history/house/unknown`;
 }
 
 /* ---------- tiny helpers ---------- */
