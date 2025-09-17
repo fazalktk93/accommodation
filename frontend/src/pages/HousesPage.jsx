@@ -5,9 +5,9 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createHouse, updateHouse, deleteHouse } from "../api";
 
-// Fixed pagination: 50 per page
-const API_MAX_LIMIT = 1000;            // backend cap (used for fallback search)
-const PAGE_SIZE = 50;                  // UI page size
+// Fixed pagination
+const API_MAX_LIMIT = 1000;
+const PAGE_SIZE = 50;
 
 function useQuery() {
   const { search } = useLocation();
@@ -27,11 +27,9 @@ const emptyHouse = {
 
 /** 🔗 Allotment history URL helper — robust & unambiguous */
 function buildAllotmentHistoryUrl(row) {
-  // Prefer the house's unique id in the path (slashes in file_no can't break this)
   const id = row?.id ?? row?.house_id;
   if (id !== undefined && id !== null && String(id).trim() !== "") {
     const qs = new URLSearchParams({
-      // optional extras (handy if the history page wants to show context)
       file_no: row?.file_no ?? "",
       sector: row?.sector ?? "",
       street: row?.street ?? "",
@@ -39,18 +37,10 @@ function buildAllotmentHistoryUrl(row) {
     });
     return `/history/house/${encodeURIComponent(String(id))}?${qs.toString()}`;
   }
-
-  // Only if you truly must route by file_no, keep it in PATH-UNSAFE values encoded:
-  // (But avoid this when file_no has slashes; prefer the id route above.)
   const fileNo = (row?.file_no ?? "").trim();
-  if (fileNo) {
-    return `/history/file/${encodeURIComponent(fileNo)}`;
-  }
-
-  // Fallback
+  if (fileNo) return `/history/file/${encodeURIComponent(fileNo)}`;
   return `/history`;
 }
-
 
 /* ---------- tiny helpers ---------- */
 const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
@@ -62,23 +52,12 @@ function matchesHouse(h, rawQ) {
   if (!q) return true;
   const tokens = q.split(/\s+/g);
 
-  // build haystack once
   const hay = [
-    h.file_no,
-    h.sector,
-    h.street,
-    h.qtr_no,
-    h.type_code,
-    h.pool,
-    h.status,
-    h.allottee_name,
-    h.allottee,
-  ]
-    .map(toStr)
-    .join(" ")
-    .toLowerCase();
+    h.file_no, h.sector, h.street, h.qtr_no, h.type_code, h.pool, h.status,
+    h.allottee_name, h.allottee,
+  ].map(toStr).join(" ").toLowerCase();
 
-  // special parse for inputs like "G-6/1-12" (sector/street-qtr)
+  // e.g. "G-6/1-12" or "G-6/1 12"
   const m = q.match(/^([a-z]-\d+)\s*\/\s*([a-z0-9-]+)(?:\s*[-/]\s*([a-z0-9-]+))?$/i);
   if (m) {
     const [, sector, street, qtrMaybe] = m;
@@ -90,8 +69,6 @@ function matchesHouse(h, rawQ) {
     const okQtr = !wantQtr || toStr(h.qtr_no).toLowerCase().includes(wantQtr);
     if (okSector && okStreet && okQtr) return true;
   }
-
-  // all tokens must appear somewhere
   return tokens.every((t) => hay.includes(t));
 }
 
@@ -99,7 +76,7 @@ export default function HousesPage() {
   const navigate = useNavigate();
   const query = useQuery();
 
-  // URL-driven state so refresh/share preserves context
+  // URL-driven state
   const [page, setPage] = useState(Number(query.get("page") || 0)); // zero-based
   const [q, setQ] = useState(query.get("q") || "");
 
@@ -108,16 +85,16 @@ export default function HousesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Fallback search cache (when server-side search fails to filter)
-  const [fallbackAll, setFallbackAll] = useState([]);  // full set fetched for client-side filter
-  const [usingFallback, setUsingFallback] = useState(false);
+  // 👇 search + pagination control
+  const [allCache, setAllCache] = useState(null);      // 👈 cache ALL houses once (for client-side search)
+  const [usingClientSearch, setUsingClientSearch] = useState(false); // 👈 true when q is non-empty
+  const [hasNext, setHasNext] = useState(false);       // 👈 server-mode next-page when no X-Total-Count
 
   // modals
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyHouse);
 
-  // sync URL
   const pushUrl = (p = page, queryText = q) => {
     const sp = new URLSearchParams();
     if (p) sp.set("page", String(p));
@@ -126,137 +103,105 @@ export default function HousesPage() {
   };
 
   /** Load current page.
-   * Strategy:
-   *  1) Try server-side filtering (same params you had before) — preserves existing logic.
-   *  2) If q is non-empty and server returns 0 results, do a client-side fallback:
-   *     fetch up to API_MAX_LIMIT houses and filter with matchesHouse(), then paginate.
+   * NEW behavior:
+   *  - If q.trim() exists -> ALWAYS client-side search:
+   *    fetch up to API_MAX_LIMIT once (cached), filter, then paginate.
+   *  - Else -> server-mode pagination; derive hasNext when server omits totals.
    */
   const load = async () => {
     setLoading(true);
     setError("");
-    setUsingFallback(false);
 
     try {
-      const skip = page * PAGE_SIZE;
+      const queryText = (q || "").trim();
 
-      // ---- 1) server-side search (unchanged) ----
-      const params = {
-        skip,
-        limit: PAGE_SIZE,
-        q: q || undefined,
-        file_no: q || undefined,
-        sector: q || undefined,
-        street: q || undefined,
-        qtr_no: q || undefined,
-        type_code: q || undefined,
-        allottee_name: q || undefined,
-        allottee: q || undefined,
-      };
+      if (queryText) {
+        // -------- client-side search (fast + consistent) --------
+        setUsingClientSearch(true);
+
+        let all = allCache;
+        if (!all) {
+          const resAll = await api.request("GET", "/houses/", { params: { skip: 0, limit: API_MAX_LIMIT } });
+          const bodyAll = await resAll.json().catch(() => []);
+          all = Array.isArray(bodyAll)
+            ? bodyAll
+            : Array.isArray(bodyAll?.items) ? bodyAll.items
+            : Array.isArray(bodyAll?.results) ? bodyAll.results
+            : Array.isArray(bodyAll?.data) ? bodyAll.data
+            : [];
+          setAllCache(all);
+        }
+
+        const filtered = all.filter((h) => matchesHouse(h, queryText));
+        const start = page * PAGE_SIZE;
+        const end = start + PAGE_SIZE;
+        setRows(filtered.slice(start, end));
+        setTotal(filtered.length);
+        setHasNext(end < filtered.length); // for safety, not used in client mode
+        return;
+      }
+
+      // -------- server-mode (no search) --------
+      setUsingClientSearch(false);
+      setAllCache(null); // free memory when leaving search mode
+
+      const skip = page * PAGE_SIZE;
+      const params = { skip, limit: PAGE_SIZE };
       const res = await api.request("GET", "/houses/", { params });
       const body = await res.json().catch(() => []);
       const items = Array.isArray(body)
         ? body
-        : Array.isArray(body?.items)
-        ? body.items
-        : Array.isArray(body?.results)
-        ? body.results
-        : Array.isArray(body?.data)
-        ? body.data
+        : Array.isArray(body?.items) ? body.items
+        : Array.isArray(body?.results) ? body.results
+        : Array.isArray(body?.data) ? body.data
         : [];
       const totalFromHeader = parseInt(res.headers.get("X-Total-Count") || "", 10);
-      const serverTotal = Number.isFinite(totalFromHeader) ? totalFromHeader : items.length;
 
-      // If there is a query and server gave back 0 results, try fallback client filter
-      if (q && items.length === 0) {
-        // ---- 2) client-side fallback ----
-        const res2 = await api.request("GET", "/houses/", {
-          params: { skip: 0, limit: API_MAX_LIMIT },
-        });
-        const body2 = await res2.json().catch(() => []);
-        const all = Array.isArray(body2)
-          ? body2
-          : Array.isArray(body2?.items)
-          ? body2.items
-          : Array.isArray(body2?.results)
-          ? body2.results
-          : Array.isArray(body2?.data)
-          ? body2.data
-          : [];
-
-        const filtered = all.filter((h) => matchesHouse(h, q));
-        const start = page * PAGE_SIZE;
-        const end = start + PAGE_SIZE;
-        const pageRows = filtered.slice(start, end);
-
-        setRows(pageRows);
-        setTotal(filtered.length);
-        setFallbackAll(filtered);
-        setUsingFallback(true);
+      setRows(items);
+      if (Number.isFinite(totalFromHeader)) {
+        setTotal(totalFromHeader);
+        setHasNext((page + 1) * PAGE_SIZE < totalFromHeader);
       } else {
-        // normal server-mode
-        setRows(items);
-        setTotal(serverTotal);
-        setFallbackAll([]);
-        setUsingFallback(false);
+        // 👇 when server doesn't send total, infer "has next" by page fullness
+        setTotal(page * PAGE_SIZE + items.length);
+        setHasNext(items.length === PAGE_SIZE);
       }
     } catch (e) {
       setRows([]);
       setTotal(0);
-      setError(String(e));
-      setUsingFallback(false);
+      setHasNext(false);
+      setError(String(e?.message || e));
     } finally {
       setLoading(false);
     }
   };
 
-  // When q or page changes, reload. If we’re already in fallback mode and q didn’t change,
-  // re-slice the cached filtered array instead of refetching.
-  const qRef = React.useRef(q);
+  // Reload on page/q change
   useEffect(() => {
     pushUrl(page, q);
-
-    if (usingFallback && qRef.current === q) {
-      // just re-slice the cached filtered set
-      const start = page * PAGE_SIZE;
-      const end = start + PAGE_SIZE;
-      setRows(fallbackAll.slice(start, end));
-      setTotal(fallbackAll.length);
-      return;
-    }
-
-    qRef.current = q;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, q]);
 
   const canPrev = page > 0;
-  const canNext = (page + 1) * PAGE_SIZE < total;
+  const canNext = usingClientSearch
+    ? (page + 1) * PAGE_SIZE < total        // 👈 client mode: compare with filtered total
+    : hasNext;                              // 👈 server mode: use inferred hasNext
 
   const onChange = (key) => (e) => {
     const v = e?.target?.type === "checkbox" ? e.target.checked : e?.target?.value ?? e;
     setForm((f) => ({ ...f, [key]: v }));
   };
-  const openAdd = () => {
-    setForm(emptyHouse);
-    setAdding(true);
-  };
+  const openAdd = () => { setForm(emptyHouse); setAdding(true); };
   const openEdit = (row) => {
     setEditing(row);
     setForm({
-      file_no: row.file_no || "",
-      qtr_no: row.qtr_no || "",
-      street: row.street || "",
-      sector: row.sector || "",
-      type_code: row.type_code || "",
-      pool: row.pool || "",
-      status: row.status || "vacant",
-      status_manual: !!row.status_manual,
+      file_no: row.file_no || "", qtr_no: row.qtr_no || "", street: row.street || "",
+      sector: row.sector || "", type_code: row.type_code || "", pool: row.pool || "",
+      status: row.status || "vacant", status_manual: !!row.status_manual,
     });
   };
-  const closeModals = () => {
-    setAdding(false);
-    setEditing(null);
-  };
+  const closeModals = () => { setAdding(false); setEditing(null); };
 
   const submitAdd = async (e) => {
     e.preventDefault();
@@ -264,39 +209,33 @@ export default function HousesPage() {
       await createHouse(form);
       closeModals();
       setPage(0);
+      setAllCache(null); // 👈 invalidate cache
       await load();
-    } catch (err) {
-      alert(`Create failed: ${err}`);
-    }
+    } catch (err) { alert(`Create failed: ${err}`); }
   };
   const submitEdit = async (e) => {
     e.preventDefault();
     try {
       await updateHouse(editing.id, form);
       closeModals();
+      setAllCache(null); // 👈 invalidate cache
       await load();
-    } catch (err) {
-      alert(`Update failed: ${err}`);
-    }
+    } catch (err) { alert(`Update failed: ${err}`); }
   };
   const doDelete = async (row) => {
     if (!window.confirm("Delete this house?")) return;
     try {
       await deleteHouse(row.id);
+      setAllCache(null); // 👈 invalidate cache
       await load();
-    } catch (err) {
-      alert(`Delete failed: ${err}`);
-    }
+    } catch (err) { alert(`Delete failed: ${err}`); }
   };
 
-  /** File No click -> Allotment history (supports new-tab with Ctrl/Meta/Shift) */
+  /** File No click -> Allotment history */
   const openHistory = (e, row) => {
     const url = buildAllotmentHistoryUrl(row);
-    if (e?.metaKey || e?.ctrlKey || e?.shiftKey) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    } else {
-      navigate(url);
-    }
+    if (e?.metaKey || e?.ctrlKey || e?.shiftKey) window.open(url, "_blank", "noopener,noreferrer");
+    else navigate(url);
   };
 
   return (
@@ -309,16 +248,14 @@ export default function HousesPage() {
           <input
             placeholder="Search by File No, Sector, Street, Qtr No, Type, Allottee..."
             value={q}
-            onChange={(e) => { setQ(e.target.value); setPage(0); }}
+            onChange={(e) => { setQ(e.target.value); setPage(0); }} // 👈 reset to first page
             style={input}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); setPage(0); load(); }
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setPage(0); load(); } }}
           />
           <button type="submit" style={btn}>Search</button>
           <button
             type="button"
-            onClick={() => { setQ(""); setPage(0); }}
+            onClick={() => { setQ(""); setPage(0); setAllCache(null); }} // 👈 clear cache too
             style={btnGhost}
           >
             Clear
@@ -332,7 +269,6 @@ export default function HousesPage() {
       {error && <div style={errorBox}>{error}</div>}
 
       <style>{`
-        /* Row card look without lines */
         table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
         table.rows-separated thead th { border-bottom: none; }
         table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
@@ -362,18 +298,14 @@ export default function HousesPage() {
             {!loading && rows.length === 0 && (
               <tr><td colSpan={9} style={{ padding: 16, textAlign: "center", color: "#666" }}>
                 {q ? "No records match your search." : "No records"}
-                {usingFallback ? " (client filtered)" : ""}
+                {usingClientSearch ? " (client filtered)" : ""}
               </td></tr>
             )}
             {rows.map((r) => (
               <tr key={r.id}>
                 <td style={td}>{fmt(r.id)}</td>
                 <td style={td}>
-                  <button
-                    className="linkish"
-                    title="Open allotment history"
-                    onClick={(e) => openHistory(e, r)}
-                  >
+                  <button className="linkish" title="Open allotment history" onClick={(e) => openHistory(e, r)}>
                     {fmt(r.file_no)}
                   </button>
                 </td>
@@ -407,12 +339,12 @@ export default function HousesPage() {
 
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", padding: 8 }}>
           <span style={{ color: "#666" }}>
-            {rows.length ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}${usingFallback ? " (client filtered)" : ""}` : ""}
+            {rows.length
+              ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, total)} of ${total}${usingClientSearch ? " (client filtered)" : ""}`
+              : ""}
           </span>
           <button onClick={() => canPrev && setPage((p) => p - 1)} disabled={!canPrev} style={btn}>← Prev</button>
-          <button onClick={() => canNext && setPage((p) => p + 1)} disabled={!canNext} style={btn}>
-            Next →
-          </button>
+          <button onClick={() => canNext && setPage((p) => p + 1)} disabled={!canNext} style={btn}>Next →</button>
         </div>
       </div>
 
@@ -528,60 +460,31 @@ export default function HousesPage() {
 
 /* --- UI bits --- */
 
-const table = {
-  width: "100%",
-  borderCollapse: "separate",
-  borderSpacing: "0 10px",
-};
+const table = { width: "100%", borderCollapse: "separate", borderSpacing: "0 10px" };
 const th = {
-  textAlign: "left",
-  padding: "10px 12px",
-  background: "#fafafa",
-  borderBottom: "none",
-  position: "sticky",
-  top: 0,
-  zIndex: 1,
-  color: "#111",
+  textAlign: "left", padding: "10px 12px", background: "#fafafa",
+  borderBottom: "none", position: "sticky", top: 0, zIndex: 1, color: "#111",
 };
 const td = { padding: "10px 12px", verticalAlign: "top", color: "#111" };
 const input = {
-  flex: 1,
-  padding: "10px 12px",
-  border: "1px solid #d9d9d9",
-  borderRadius: 8,
-  outline: "none",
-  color: "#111",
-  background: "#fff",
+  flex: 1, padding: "10px 12px", border: "1px solid #d9d9d9",
+  borderRadius: 8, outline: "none", color: "#111", background: "#fff",
 };
 const btn = {
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "1px solid #d9d9d9",
-  background: "#ffffff",
-  cursor: "pointer",
-  color: "#111",
+  padding: "10px 14px", borderRadius: 8, border: "1px solid #d9d9d9",
+  background: "#ffffff", cursor: "pointer", color: "#111",
 };
 const btnGhost = { ...btn, background: "#f3f4f6" };
 const btnPrimary = {
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "1px solid #0b65c2",
-  background: "#0b65c2",
-  color: "#fff",
-  cursor: "pointer",
+  padding: "10px 14px", borderRadius: 8, border: "1px solid #0b65c2",
+  background: "#0b65c2", color: "#fff", cursor: "pointer",
 };
 const btnSm = { ...btn, padding: "6px 10px", fontSize: 13 };
 const btnDangerSm = { ...btnSm, borderColor: "#d33", color: "#d33" };
 
-/** ✅ Added: pill style helper that was missing (this was crashing the page) */
 const pill = (bg, color = "#111") => ({
-  display: "inline-block",
-  padding: "2px 8px",
-  borderRadius: 999,
-  background: bg,
-  color,
-  fontSize: 12,
-  lineHeight: "18px",
+  display: "inline-block", padding: "2px 8px", borderRadius: 999,
+  background: bg, color, fontSize: 12, lineHeight: "18px",
 });
 
 function Field({ label, value, onChange, type = "text", required, readOnly, placeholder }) {
@@ -589,12 +492,8 @@ function Field({ label, value, onChange, type = "text", required, readOnly, plac
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
       <input
-        type={type}
-        value={value ?? ""}
-        onChange={onChange}
-        required={required}
-        readOnly={readOnly}
-        placeholder={placeholder}
+        type={type} value={value ?? ""} onChange={onChange}
+        required={required} readOnly={readOnly} placeholder={placeholder}
         style={input}
       />
     </label>
@@ -605,9 +504,7 @@ function Select({ label, value, onChange, options }) {
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
       <select value={value ?? ""} onChange={onChange} style={input}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
+        {options.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
       </select>
     </label>
   );
@@ -629,10 +526,6 @@ function Actions({ onCancel, submitText }) {
   );
 }
 function Row3({ children }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-      {children}
-    </div>
-  );
+  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>;
 }
 const errorBox = { padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.08)", color: "#991b1b", border: "1px solid rgba(239,68,68,0.25)" };
