@@ -90,6 +90,60 @@ function Select({ label, value, onChange, options }) {
 const fmt = (x) => (x ? String(x) : "-");
 const date = (x) => (x ? String(x).substring(0, 10) : "-");
 
+/* ---------- Robust getters for house fields ----------
+   Your API may return house info either nested (r.house.sector)
+   or flattened (r.sector). These getters try multiple paths. */
+const pick = (...vals) => {
+  for (const v of vals) {
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+};
+const getQtrNo = (r) =>
+  pick(
+    r.qtr_no,
+    r.quarter_no,
+    r.qtrNo,
+    r.house?.qtr_no,
+    r.house?.quarter_no,
+    r.house?.qtrNo,
+    r.house_details?.qtr_no,
+    r.house_info?.qtr_no,
+    r.house_data?.qtr_no
+  );
+const getStreet = (r) =>
+  pick(
+    r.street,
+    r.street_no,
+    r.streetName,
+    r.house?.street,
+    r.house?.street_no,
+    r.house?.streetName,
+    r.house_details?.street,
+    r.house_info?.street,
+    r.house_data?.street
+  );
+const getSector = (r) =>
+  pick(
+    r.sector,
+    r.sector_code,
+    r.sectorCode,
+    r.house?.sector,
+    r.house?.sector_code,
+    r.house?.sectorCode,
+    r.house_details?.sector,
+    r.house_info?.sector,
+    r.house_data?.sector
+  );
+
+/* A small helper if you still want a single function */
+const houseField = (r, which) => {
+  if (which === "qtr_no") return getQtrNo(r) || "-";
+  if (which === "street") return getStreet(r) || "-";
+  if (which === "sector") return getSector(r) || "-";
+  return "-";
+};
+
 function HousePicker({ value, onChange }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -129,11 +183,11 @@ function HousePicker({ value, onChange }) {
     <div style={{ display: "grid", gap: 6 }}>
       <div style={{ display: "flex", gap: 6 }}>
         <input placeholder="Find house (file/sector/street/qtr/type)" value={q} onChange={(e) => setQ(e.target.value)} style={input} />
-        <button onClick={search} style={btn}>Search</button>
+        <button onClick={search} style={btn} disabled={loading}>{loading ? "..." : "Search"}</button>
       </div>
       {value && chosen && (
         <div style={{ fontSize: 13, color: "#555" }}>
-          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(chosen.sector)} / {fmt(chosen.street)} / {fmt(chosen.qtr_no)} ({fmt(chosen.type_code)})
+          Selected: <strong>{fmt(chosen.file_no)}</strong> — {fmt(getQtrNo(chosen))} / {fmt(getStreet(chosen))} / {fmt(getSector(chosen))} ({fmt(chosen.type_code)})
         </div>
       )}
       <label style={{ display: "grid", gap: 6 }}>
@@ -142,7 +196,7 @@ function HousePicker({ value, onChange }) {
           <option value="">-</option>
           {opts.map((h) => (
             <option key={h.id} value={h.id}>
-              {fmt(h.file_no)} — {fmt(h.sector)} / {fmt(h.street)} / {fmt(h.qtr_no)} ({fmt(h.type_code)})
+              {fmt(h.file_no)} — {fmt(getQtrNo(h))} / {fmt(getStreet(h))} / {fmt(getSector(h))} ({fmt(h.type_code)})
             </option>
           ))}
         </select>
@@ -162,8 +216,6 @@ function Actions({ onCancel, submitText }) {
     </div>
   );
 }
-
-const houseField = (r, key) => r.house?.[key] ?? r[key] ?? "-";
 
 export default function AllotmentsPage() {
   const query = useQuery();
@@ -372,9 +424,10 @@ export default function AllotmentsPage() {
           <thead>
             <tr>
               <th style={th}>Allottee</th>
-              <th style={th}>Sector</th>
-              <th style={th}>Street</th>
+              {/* Your requested order: Qtr → Street → Sector */}
               <th style={th}>Qtr No</th>
+              <th style={th}>Street</th>
+              <th style={th}>Sector</th>
               <th style={th}>BPS</th>
               <th style={th}>Medium</th>
               <th style={th}>Allotment</th>
@@ -395,9 +448,12 @@ export default function AllotmentsPage() {
                   <div style={{ fontSize: 12, color: "#666" }}>{fmt(r.designation)}</div>
                   <div style={{ fontSize: 12, color: "#777" }}>{fmt(r.cnic)}</div>
                 </td>
-                <td style={td}>{fmt(houseField(r, "sector"))}</td>
-                <td style={td}>{fmt(houseField(r, "street"))}</td>
+
+                {/* Use robust getters so values don't show as "-" when present in any shape */}
                 <td style={td}>{fmt(houseField(r, "qtr_no"))}</td>
+                <td style={td}>{fmt(houseField(r, "street"))}</td>
+                <td style={td}>{fmt(houseField(r, "sector"))}</td>
+
                 <td style={td}>{fmt(r.bps)}</td>
                 <td style={td}>{fmt(r.medium)}</td>
                 <td style={td}>{date(r.allotment_date)}</td>
