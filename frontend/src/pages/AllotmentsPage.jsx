@@ -43,7 +43,7 @@ function addYears(dateStr, years) {
   } catch { return ""; }
 }
 
-/* Medium options (as requested) */
+/* Medium options (your list) */
 const MEDIUM_OPTIONS = [
   { value: "", label: "-" },
   { value: "Family transfer", label: "Family transfer" },
@@ -53,25 +53,17 @@ const MEDIUM_OPTIONS = [
   { value: "Relaxation of Rules", label: "Relaxation of Rules" },
 ];
 
-/* ------------------------- helpers ------------------------- */
+/* -------- helpers -------- */
 const fmt = (x) => (x !== undefined && x !== null && String(x).trim() !== "" ? String(x) : "-");
 const date = (x) => (x ? String(x).substring(0, 10) : "-");
-const pick = (...vals) => {
-  for (const v of vals) if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-  return "";
-};
+const pick = (...vals) => { for (const v of vals) if (v !== undefined && v !== null && String(v).trim() !== "") return v; return ""; };
+
 function getQtrNo(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.qtr_no, r.quarter_no, r.qtrNo, h.qtr_no, h.quarter_no, h.qtrNo); }
 function getStreet(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.street, r.street_no, r.streetName, h.street, h.street_no, h.streetName); }
 function getSector(r, cache) { const h = r.house || cache[r.house_id] || {}; return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode); }
 
-/* --------------------- House pickers --------------------- */
-/** Add modal: search + results dropdown
- * Super-robust:
- *  - debounced search as you type
- *  - manual Search button (type="button")
- *  - tries multiple API param shapes and raw fetch fallback
- *  - dedupes by id
- */
+/* ---------------- House pickers ---------------- */
+/** ADD modal: search exactly like Houses page => /houses/?q=... */
 function HousePickerAdd({ value, onChange }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -86,87 +78,30 @@ function HousePickerAdd({ value, onChange }) {
     return [];
   };
 
-  const uniqById = (arr) => {
-    const seen = new Set();
-    const out = [];
-    for (const x of arr) {
-      const k = x?.id ?? `${x?.file_no}-${x?.qtr_no}-${x?.street}-${x?.sector}`;
-      if (!seen.has(k)) { seen.add(k); out.push(x); }
-    }
-    return out;
-  };
-
-  const rawFetchTry = async (paramsObj) => {
-    const qs = new URLSearchParams({ ...paramsObj, limit: "25" });
-    const res = await fetch(`/api/houses/?${qs.toString()}`, { credentials: "include" });
-    if (!res.ok) return [];
-    const body = await res.json().catch(() => []);
-    return normalize(body);
-  };
-
-  const apiTry = async (paramsObj) => {
-    const res = await api.request("GET", "/houses/", { params: { ...paramsObj, limit: 25 } });
-    const body = await res.json().catch(() => []);
-    return normalize(body);
-  };
-
-  // Build a list of strategies to try
-  const buildTries = (qq) => {
-    const tries = [
-      { q: qq },
-      { file_no: qq },
-      { sector: qq },
-      { street: qq },
-      { qtr_no: qq },
-      { type_code: qq },
-    ];
-    // parse "G-6/1-2" style (sector/street/qtr)
-    const m = String(qq).match(/^([A-Za-z]-\d+)\s*\/\s*([A-Za-z0-9-]+)(?:\s*[-/]\s*([A-Za-z0-9-]+))?$/);
-    if (m) {
-      const [, sector, street, qtrMaybe] = m;
-      tries.unshift({ sector, street, qtr_no: qtrMaybe || "" });
-    }
-    return tries;
-  };
-
   const fetchList = async (qq) => {
     setLoading(true);
     setErr("");
     try {
-      const strategies = buildTries(qq);
-      let results = [];
-      // 1) Try through your api wrapper
-      for (const p of strategies) {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await apiTry(p);
-        if (r.length) { results = r; break; }
-      }
-      // 2) If still nothing, try raw fetch (some backends ignore params unless exact)
-      if (!results.length) {
-        for (const p of strategies) {
-          // eslint-disable-next-line no-await-in-loop
-          const r = await rawFetchTry(p);
-          if (r.length) { results = r; break; }
-        }
-      }
-      results = uniqById(results);
-      setOpts(results);
-      if (!results.length) setErr("No matching houses found.");
+      const res = await api.request("GET", "/houses/", { params: { q: qq, limit: 50 } });
+      const body = await res.json().catch(() => []);
+      const items = normalize(body);
+      setOpts(items);
+      if (!items.length) setErr("No matching houses found.");
     } catch (e) {
       setOpts([]);
-      setErr("Search failed. Please check your input or network.");
+      setErr("Search failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // debounce search while typing (Enter also triggers)
+  // debounce like Houses page
   const debTimer = useRef(null);
   useEffect(() => {
     const qq = q.trim();
     if (!qq) { setOpts([]); setErr(""); return; }
     clearTimeout(debTimer.current);
-    debTimer.current = setTimeout(() => { fetchList(qq); }, 350);
+    debTimer.current = setTimeout(() => fetchList(qq), 350);
     return () => clearTimeout(debTimer.current);
   }, [q]);
 
@@ -180,17 +115,14 @@ function HousePickerAdd({ value, onChange }) {
     <div style={{ display: "grid", gap: 6 }}>
       <div style={{ display: "flex", gap: 6 }}>
         <input
-          placeholder="Find house (file/sector/street/qtr/type)"
+          placeholder="Find house (same as Houses search)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onManualSearch(); } }}
           style={input}
         />
-        <button type="button" onClick={onManualSearch} style={btn}>
-          {loading ? "..." : "Search"}
-        </button>
+        <button type="button" onClick={onManualSearch} style={btn}>{loading ? "..." : "Search"}</button>
       </div>
-
       {err && <div style={{ fontSize: 12, color: "#b91c1c" }}>{err}</div>}
 
       <label style={{ display: "grid", gap: 6 }}>
@@ -198,7 +130,7 @@ function HousePickerAdd({ value, onChange }) {
         <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
           <option value="">-</option>
           {opts.map((h) => (
-            <option key={h.id ?? `${h.file_no}-${h.qtr_no}-${h.street}-${h.sector}`} value={h.id}>
+            <option key={h.id} value={h.id}>
               {fmt(h.file_no)} — {fmt(h.qtr_no || h.quarter_no || h.qtrNo)} / {fmt(h.street || h.street_no || h.streetName)} / {fmt(h.sector || h.sector_code || h.sectorCode)} ({fmt(h.type_code)})
             </option>
           ))}
@@ -208,7 +140,7 @@ function HousePickerAdd({ value, onChange }) {
   );
 }
 
-/** Edit modal: NO search UI, shows selected house summary; dropdown disabled */
+/** EDIT modal: no search, show selected house + lock select */
 function HousePickerEdit({ value }) {
   const [selected, setSelected] = useState(null);
   useEffect(() => {
@@ -230,12 +162,7 @@ function HousePickerEdit({ value }) {
     <div style={{ display: "grid", gap: 6 }}>
       {value && selected && (
         <div style={{ fontSize: 13, color: "#555" }}>
-          Selected:&nbsp;
-          <strong>{fmt(selected.file_no)}</strong>&nbsp;—&nbsp;
-          {fmt(selected.qtr_no || selected.quarter_no || selected.qtrNo)}&nbsp;/&nbsp;
-          {fmt(selected.street || selected.street_no || selected.streetName)}&nbsp;/&nbsp;
-          {fmt(selected.sector || selected.sector_code || selected.sectorCode)}&nbsp;
-          ({fmt(selected.type_code)})
+          Selected: <strong>{fmt(selected.file_no)}</strong> — {fmt(selected.qtr_no || selected.quarter_no || selected.qtrNo)} / {fmt(selected.street || selected.street_no || selected.streetName)} / {fmt(selected.sector || selected.sector_code || selected.sectorCode)} ({fmt(selected.type_code)})
         </div>
       )}
       <label style={{ display: "grid", gap: 6 }}>
@@ -248,20 +175,12 @@ function HousePickerEdit({ value }) {
   );
 }
 
-/* --------------------- Small UI atoms --------------------- */
+/* ---------------- tiny UI atoms ---------------- */
 function Field({ label, value, onChange, type = "text", required, readOnly, placeholder }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
-      <input
-        type={type}
-        value={value ?? ""}
-        onChange={onChange}
-        required={required}
-        readOnly={readOnly}
-        placeholder={placeholder}
-        style={input}
-      />
+      <input type={type} value={value ?? ""} onChange={onChange} required={required} readOnly={readOnly} placeholder={placeholder} style={input} />
     </label>
   );
 }
@@ -278,16 +197,12 @@ function Select({ label, value, onChange, options }) {
     <label style={{ display: "grid", gap: 6 }}>
       <span style={{ fontSize: 12, color: "#555" }}>{label}</span>
       <select value={value ?? ""} onChange={onChange} style={input}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
   );
 }
-function Row3({ children }) {
-  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>;
-}
+function Row3({ children }) { return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>{children}</div>; }
 function Actions({ onCancel, submitText }) {
   return (
     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
@@ -302,7 +217,6 @@ export default function AllotmentsPage() {
   const query = useQuery();
   const [page, setPage] = useState(Number(query.get("page") || 0));
   const [q, setQ] = useState(query.get("q") || "");
-
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -371,7 +285,7 @@ export default function AllotmentsPage() {
     return () => { cancelled = true; };
   }, [rows, houseCache]);
 
-  /* ---------- Add / Edit modals (distinct) ---------- */
+  /* ---------- Add / Edit modals ---------- */
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyAllotment);
@@ -487,7 +401,7 @@ export default function AllotmentsPage() {
       {error && <div style={errorBox}>{error}</div>}
 
       <style>{`
-        /* Row-card table: separation by color, no lines */
+        /* Row-card: no lines, color separation */
         table.rows-separated { border-collapse: separate; border-spacing: 0 10px; }
         table.rows-separated thead th { border-bottom: none; }
         table.rows-separated tbody td { background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
@@ -559,7 +473,7 @@ export default function AllotmentsPage() {
         </div>
       </div>
 
-      {/* Add Allotment: shows SEARCH (with robust fallback) */}
+      {/* Add Allotment: search (q-only, same as Houses page) */}
       <Modal open={adding} onClose={closeModals} title="Add Allotment">
         <form onSubmit={submitAdd} style={{ display: "grid", gap: 10 }}>
           <Row3>
@@ -587,7 +501,7 @@ export default function AllotmentsPage() {
         </form>
       </Modal>
 
-      {/* Edit Allotment: NO SEARCH, house field locked */}
+      {/* Edit Allotment: no search, locked house */}
       <AdminOnly>
         <Modal open={!!editing} onClose={closeModals} title="Edit Allotment">
           <form onSubmit={submitEdit} style={{ display: "grid", gap: 10 }}>
@@ -620,7 +534,7 @@ export default function AllotmentsPage() {
   );
 }
 
-/* --- styles (inline for drop-in) --- */
+/* --- styles --- */
 const input = { flex: 1, padding: "10px 12px", border: "1px solid #d9d9d9", borderRadius: 8, background: "#fff", color: "#111" };
 const btn = { padding: "10px 14px", borderRadius: 8, border: "1px solid #d9d9d9", background: "#fff", cursor: "pointer", color: "#111" };
 const btnPrimary = { padding: "10px 14px", borderRadius: 8, border: "1px solid #0b65c2", background: "#0b65c2", color: "#fff", cursor: "pointer" };
