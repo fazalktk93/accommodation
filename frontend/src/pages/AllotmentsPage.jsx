@@ -77,31 +77,65 @@ function getSector(r, houseCache) {
   return pick(r.sector, r.sector_code, r.sectorCode, h.sector, h.sector_code, h.sectorCode);
 }
 
-/* --------------------- House pickers --------------------- */
-/** Add modal: shows a working search and a results dropdown */
+/** Add modal: shows a working search and a results dropdown
+ *  - Debounced search as you type
+ *  - Manual search button (type="button") so it won't submit the Add form
+ *  - Tries multiple API query shapes: ?q=, ?file_no=, ?sector=, ?street=, ?qtr_no=, ?type_code=
+ */
 function HousePickerAdd({ value, onChange }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [opts, setOpts] = useState([]);
+  const [err, setErr] = useState("");
 
+  // normalize API body into an array
+  const normalize = (body) => {
+    if (Array.isArray(body)) return body;
+    if (Array.isArray(body?.items)) return body.items;
+    if (Array.isArray(body?.results)) return body.results;
+    if (Array.isArray(body?.data)) return body.data;
+    return [];
+  };
+
+  // 1) /houses/?q=qq
+  // 2) /houses/?file_no=qq
+  // 3) /houses/?sector=qq
+  // 4) /houses/?street=qq
+  // 5) /houses/?qtr_no=qq
+  // 6) /houses/?type_code=qq
   const fetchList = async (qq) => {
     setLoading(true);
+    setErr("");
     try {
-      const params = {
-        q: qq,
-        file_no: qq,
-        sector: qq,
-        street: qq,
-        qtr_no: qq,
-        type_code: qq,
-        limit: 25,
-      };
-      const res = await api.request("GET", "/houses/", { params });
-      const list = await res.json().catch(() => []);
-      const items = Array.isArray(list) ? list : (list?.items || list?.results || list?.data || []);
-      setOpts(items);
-    } catch {
+      const tries = [
+        { q: qq },
+        { file_no: qq },
+        { sector: qq },
+        { street: qq },
+        { qtr_no: qq },
+        { type_code: qq },
+      ];
+
+      // also parse input like "G-6/1-2" into sector/street/qtr parts if present
+      const m = String(qq).match(/^([A-Za-z]-\d+)\s*\/\s*(\d+)[^0-9]*([A-Za-z0-9-]+)?$/);
+      if (m) {
+        const [, sector, street, qtrMaybe] = m;
+        tries.unshift({ sector, street, qtr_no: qtrMaybe || "" });
+      }
+
+      let results = [];
+      for (const params of tries) {
+        const res = await api.request("GET", "/houses/", { params: { ...params, limit: 25 } });
+        const body = await res.json().catch(() => []);
+        results = normalize(body);
+        if (results.length) break;
+      }
+
+      setOpts(results);
+      if (!results.length) setErr("No matching houses found.");
+    } catch (e) {
       setOpts([]);
+      setErr("Search failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -111,9 +145,9 @@ function HousePickerAdd({ value, onChange }) {
   const debTimer = useRef(null);
   useEffect(() => {
     const qq = q.trim();
-    if (!qq) { setOpts([]); return; }
+    if (!qq) { setOpts([]); setErr(""); return; }
     clearTimeout(debTimer.current);
-    debTimer.current = setTimeout(() => fetchList(qq), 300);
+    debTimer.current = setTimeout(() => fetchList(qq), 350);
     return () => clearTimeout(debTimer.current);
   }, [q]);
 
@@ -130,7 +164,10 @@ function HousePickerAdd({ value, onChange }) {
           placeholder="Find house (file/sector/street/qtr/type)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onManualSearch(); } }}
+          onKeyDown={(e) => {
+            // prevent Enter from submitting the main Add form
+            if (e.key === "Enter") { e.preventDefault(); onManualSearch(); }
+          }}
           style={input}
         />
         <button type="button" onClick={onManualSearch} style={btn}>
@@ -138,9 +175,15 @@ function HousePickerAdd({ value, onChange }) {
         </button>
       </div>
 
+      {err && <div style={{ fontSize: 12, color: "#b91c1c" }}>{err}</div>}
+
       <label style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 12, color: "#555" }}>Choose House</span>
-        <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={input}>
+        <select
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          style={input}
+        >
           <option value="">-</option>
           {opts.map((h) => (
             <option key={h.id} value={h.id}>
@@ -152,6 +195,7 @@ function HousePickerAdd({ value, onChange }) {
     </div>
   );
 }
+
 
 /** Edit modal: NO search UI, shows selected house summary; dropdown disabled */
 function HousePickerEdit({ value }) {
