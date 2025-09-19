@@ -1,8 +1,10 @@
 // frontend/src/api.js
 // Full client for your backend, with:
-// - Transparent chunked fetch for Houses when limit > 200 (no backend change needed)
+// - Transparent chunked fetch for Houses/Allotments/Files (same API as before)
 // - One-time 401 retry after /auth/me check
-// - Aliases kept so older pages (HousesPage, AllotmentsPage, FilesPage) don’t break
+// - CSRF header from cookie (x-csrf-token)
+// - Small network retry with backoff + request timeout
+// - Aliases kept so older pages don’t break
 
 import { getToken } from "./auth";
 
@@ -10,10 +12,17 @@ const RAW_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
-// remove trailing slashes; e.g. "http://host:8000/api/" -> "http://host:8000/api"
+
+// normalize base (strip trailing slashes)
 const API_BASE = String(RAW_BASE).replace(/\/+$/, "");
 
 // -------------------- helpers --------------------
+function readCsrfCookie() {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function makeUrl(path, params) {
   const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
   // absolute URL? just use it
@@ -22,8 +31,7 @@ function makeUrl(path, params) {
     if (params && typeof params === "object") {
       Object.entries(params).forEach(([k, v]) => {
         if (v == null || v === "") return;
-        Array.isArray(v) ? v.forEach((vv) => url.searchParams.append(k, vv))
-                         : url.searchParams.set(k, v);
+        Array.isArray(v) ? v.forEach((vv) => url.searchParams.append(k, vv)) : url.searchParams.set(k, v);
       });
     }
     return url.toString();
@@ -31,10 +39,12 @@ function makeUrl(path, params) {
 
   // normalize relative paths and avoid "/api/api/*"
   let rel = path.startsWith("/") ? path : `/${path}`;
-  if (rel.startsWith("/api/") && /\/api$/i.test(API_BASE)) {
-    rel = rel.slice(4); // drop the leading "/api"
-  }
-  const url = new URL(`${API_BASE}${rel}`, origin);
+  if (rel.startsWith("/api/") && /\/api$/i.test(API_BASE)) rel = rel.slice(4); // drop the leading "/api"
+
+  // avoid "//" when API_BASE is "/api" and origin already ends with "/"
+  const base = `${API_BASE}${rel}`.replace(/([^:])\/{2,}/g, "$1/");
+
+  const url = new URL(base, origin);
   if (params && typeof params === "object") {
     Object.entries(params).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
@@ -45,43 +55,81 @@ function makeUrl(path, params) {
   return url.toString();
 }
 
-async function rawFetch(method, path, { params, data, headers } = {}) {
+async function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function rawFetch(method, path, { params, data, headers, timeoutMs = 30000, signal } = {}) {
   const h = new Headers(headers || {});
   const token = getToken();
   if (token && !h.has("Authorization")) h.set("Authorization", `Bearer ${token}`);
+  const csrf = readCsrfCookie();
+  if (csrf && !h.has("x-csrf-token")) h.set("x-csrf-token", csrf);
   if (data != null && !h.has("Content-Type")) h.set("Content-Type", "application/json");
   if (!h.has("Accept")) h.set("Accept", "application/json");
 
-  let res = await fetch(makeUrl(path, params), {
-    method,
-    headers: h,
-    body:
-      data != null
-        ? h.get("Content-Type")?.includes("json")
-          ? JSON.stringify(data)
-          : data
-        : undefined,
-    credentials: "include",
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutMs);
+  const compositeSignal = signal
+    ? new AbortController()
+    : null;
 
-  return res;
+  if (compositeSignal) {
+    // fuse external and our controller; abort if either aborts
+    const onAbort = () => controller.abort(signal.reason || new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    const res = await fetch(makeUrl(path, params), {
+      method,
+      headers: h,
+      body:
+        data != null
+          ? h.get("Content-Type")?.includes("json")
+            ? JSON.stringify(data)
+            : data
+          : undefined,
+      credentials: "include",
+      signal: controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-// One-time 401 retry after /auth/me to refresh/confirm session
+// One-time 401 retry after /auth/me to refresh/confirm session + small backoff on network failures
 async function request(method, path, opts = {}) {
-  let res = await rawFetch(method, path, opts);
-  if (res.status !== 401) return res;
+  let attempt = 0;
+  const maxNetRetries = 1; // small backoff for flaky networks
+  const backoff = [250];   // ms
 
-  // Try to confirm/refresh session, then retry once
-  try {
-    const me = await rawFetch("GET", "/auth/me");
-    if (me.ok) {
-      res = await rawFetch(method, path, opts);
+  while (true) {
+    try {
+      let res = await rawFetch(method, path, opts);
+      if (res.status !== 401) return res;
+
+      // Try to confirm/refresh session, then retry once
+      try {
+        const me = await rawFetch("GET", "/auth/me", { timeoutMs: 10000 });
+        if (me.ok) {
+          res = await rawFetch(method, path, opts);
+        }
+      } catch {
+        /* ignore */
+      }
+      return res;
+    } catch (e) {
+      // network error (fetch threw) → small controlled retry
+      if (attempt < maxNetRetries) {
+        await sleep(backoff[Math.min(attempt, backoff.length - 1)]);
+        attempt += 1;
+        continue;
+      }
+      throw e;
     }
-  } catch {
-    /* ignore */
   }
-  return res;
 }
 
 async function jsonOrText(res) {
@@ -230,7 +278,6 @@ export async function getHouses(params) {
     const thisOffset = start + fetched;
     const res = await request("GET", "/houses/", { params: { ...qp, offset: thisOffset, limit: thisLimit } });
     if (!res.ok) {
-      // bubble error from server (could be 401 etc.)
       const errBody = await jsonOrText(res);
       throw new Error(typeof errBody === "string" ? errBody : JSON.stringify(errBody));
     }
@@ -267,7 +314,7 @@ export async function deleteHouse(id) {
 export const removeHouse = deleteHouse;
 
 // -------------------- ALLOTMENTS (/api/allotments/*) --------------------
-// If limit <= 1000 → single call. If > 1000 → chunked fetch in 1000s and merge.
+// If limit <= 10000 → single call. If > 10000 → chunked fetch in 10000s and merge.
 export async function getAllotments(params) {
   const qp = normAllotments(params);
   const MAX_PER_CALL = 10000; // matches backend: Query(..., le=10000)
@@ -293,9 +340,7 @@ export async function getAllotments(params) {
     });
     if (!res.ok) {
       const errBody = await jsonOrText(res);
-      throw new Error(
-        typeof errBody === "string" ? errBody : JSON.stringify(errBody)
-      );
+      throw new Error(typeof errBody === "string" ? errBody : JSON.stringify(errBody));
     }
     const data = listify(await jsonOrText(res));
     chunks.push(...data);
