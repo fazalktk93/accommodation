@@ -325,23 +325,45 @@ export default function Dashboard() {
     }));
   }, [houses]);
 
-  const retentionTaggedAllots = useMemo(() => {
-    const now = new Date();
-    return allots.map((a) => ({ ...a, __retention: getRetentionStatus(a, now) }));
-  }, [allots]);
+ const retentionTaggedAllots = useMemo(() => {
+  const today = new Date();
+  const DAY = 24 * 60 * 60 * 1000;
 
-  const byRetention = useMemo(() => {
-    const counters = new Map([["in-service",0],["retention",0],["unauthorized",0]]);
-    retentionTaggedAllots.forEach((a) => {
-      const s = a.__retention?.status || "in-service";
-      counters.set(s, (counters.get(s) || 0) + 1);
-    });
-    return Array.from(counters, ([label, value]) => ({
-      label,
-      value,
-      color: RETENTION_COLORS[label] || "#7f7f7f",
-    }));
-  }, [retentionTaggedAllots]);
+  return (Array.isArray(allots) ? allots : []).map((a) => {
+    const status = a.retention_status || "in-service";
+    const dor = a.dor ? new Date(a.dor) : null;
+    const daysPast = dor ? Math.max(0, Math.floor((today - dor) / DAY)) : 0;
+
+    return {
+      ...a,
+      __retention: {
+        status,
+        retirementDate: dor,
+        retentionUntil: a.retention_until ? new Date(a.retention_until) : null,
+        daysPast,
+      },
+    };
+  });
+}, [allots]);
+
+const byRetention = useMemo(() => {
+  const counters = new Map([
+    ["in-service", 0],
+    ["retention", 0],
+    ["unauthorized", 0],
+  ]);
+
+  (Array.isArray(allots) ? allots : []).forEach((a) => {
+    const s = a.retention_status || "in-service";
+    counters.set(s, (counters.get(s) || 0) + 1);
+  });
+
+  return Array.from(counters, ([label, value]) => ({
+    label,
+    value,
+    color: RETENTION_COLORS[label] || "#7f7f7f",
+  }));
+}, [allots]);
 
   /* ---- drill-down handlers ---- */
   function openDrill(type, key, label) {
