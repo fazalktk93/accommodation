@@ -2,6 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listHouses, listAllotments } from "../api";
 
+const now = new Date();
+const buckets = useMemo(() => computeRetentionBuckets(allotments, now), [allotments]);
+
 /* =========================
    COLOR PALETTES (distinct)
    ========================= */
@@ -34,20 +37,17 @@ const RETENTION_COLORS = {
 };
 
 /* =========================
-   RETENTION CALC (6 months)
+   RETENTION CALC (six months)
    ========================= */
 
 const DAY = 24 * 60 * 60 * 1000;
-const RETENTION_MONTHS = 6;     // exactly six calendar months
-const RETENTION_DAYS = 183;     // keep if other code expects a day constant
+const RETENTION_MONTHS = 6;   // exactly 6 calendar months
 
-// Parse a date safely in **local** time to avoid UTC off-by-one issues.
-// If format is "YYYY-MM-DD", construct Date(y, m-1, d) (local midnight).
+// Parse date safely in LOCAL time. "YYYY-MM-DD" → Date(y, m-1, d) at local midnight
 function parseDateLocal(x) {
   if (!x) return null;
   if (x instanceof Date) {
-    const t = x.getTime();
-    if (Number.isNaN(t)) return null;
+    if (Number.isNaN(x.getTime())) return null;
     return new Date(x.getFullYear(), x.getMonth(), x.getDate());
   }
   if (typeof x === "string") {
@@ -69,7 +69,7 @@ function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// Add calendar months, clamping the day (e.g., Aug 31 + 6 months = end of Feb)
+// Add N calendar months; clamp day (e.g. Aug 31 + 6 = end of Feb)
 function addMonths(d, months) {
   const y = d.getFullYear();
   const m = d.getMonth();
@@ -80,60 +80,51 @@ function addMonths(d, months) {
   return startOfDay(target);
 }
 
-// Prefer your backend field names. Fallbacks cover older payloads if any.
-function pickDor(a) {
-  return (
-    a?.dor ??
-    a?.date_of_retirement ??   // fallback alias if older shape
-    a?.retirement_date ??      // fallback alias if older shape
-    null
-  );
+// Backend field pickers (confirmed names)
+function pickDor(row) {
+  return row?.dor ?? null;
 }
-function pickRetentionUntil(a) {
-  return (
-    a?.retention_until ??
-    a?.retentionUntil ??       // fallback alias if camelCased somewhere
-    null
-  );
+function pickRetentionUntil(row) {
+  return row?.retention_until ?? null;
 }
 
-/**
- * Returns:
- * {
- *   status: "in-service" | "retention" | "unauthorized",
- *   daysPast: number,                  // days since DOR (negative if before DOR)
- *   retirementDate: Date|null,
- *   retentionUntil: Date|null
- * }
- *
- * Rules:
- * - If DOR missing           -> in-service
- * - If today < DOR           -> in-service
- * - Else if today <= retention_until (or DOR + 6 months) -> retention
- * - Else                     -> unauthorized
- */
-export function getRetentionStatus(a, now = new Date()) {
+// Core status calc
+export function getRetentionStatus(row, now = new Date()) {
   const now0 = startOfDay(now);
 
-  const rawDor = pickDor(a);
-  const dor = parseDateLocal(rawDor);
+  const dor = parseDateLocal(pickDor(row));
   if (!dor) {
     return { status: "in-service", daysPast: 0, retirementDate: null, retentionUntil: null };
   }
 
-  // If server gave an explicit cutoff, honor it; otherwise exactly DOR + 6 months.
-  const rawUntil = pickRetentionUntil(a);
-  const retentionUntil = parseDateLocal(rawUntil) || addMonths(dor, RETENTION_MONTHS);
-
+  const until = parseDateLocal(pickRetentionUntil(row)) || addMonths(dor, RETENTION_MONTHS);
   const diffDays = Math.floor((now0 - dor) / DAY);
 
   if (now0 < dor) {
-    return { status: "in-service", daysPast: diffDays, retirementDate: dor, retentionUntil };
+    return { status: "in-service", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
   }
-  if (now0 <= retentionUntil) {
-    return { status: "retention", daysPast: diffDays, retirementDate: dor, retentionUntil };
+  if (now0 <= until) {
+    return { status: "retention", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
   }
-  return { status: "unauthorized", daysPast: diffDays, retirementDate: dor, retentionUntil };
+  return { status: "unauthorized", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
+}
+
+// Helper: annotate each row with status (for tables/cards)
+export function withRetention(row, now = new Date()) {
+  const r = getRetentionStatus(row, now);
+  return { ...row, _retention: r };
+}
+
+// Helper: compute buckets for dashboard widgets
+export function computeRetentionBuckets(rows, now = new Date()) {
+  const init = { inService: 0, retention: 0, unauthorized: 0 };
+  return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
+    const { status } = getRetentionStatus(row, now);
+    if (status === "in-service") acc.inService += 1;
+    else if (status === "retention") acc.retention += 1;
+    else acc.unauthorized += 1;
+    return acc;
+  }, init);
 }
 
 
