@@ -1,3 +1,4 @@
+# backend/app/main.py
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,8 +6,7 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.db.session import engine
 from app.db.bootstrap import ensure_sqlite_schema
-from app.api.routes import houses, allotments, files, health
-from app.api.routes import auth, users
+from app.api.routes import houses, allotments, files, health, auth, users
 from app.models import Base
 
 # -----------------------------------------------------------------------------
@@ -21,7 +21,8 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS or [
-        "http://localhost:5173", "http://127.0.0.1:5173"
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
     ],
     allow_origin_regex=settings.BACKEND_CORS_ORIGIN_REGEX,
     allow_credentials=True,
@@ -38,14 +39,14 @@ def echo_auth(request: Request):
     }
 
 # -----------------------------------------------------------------------------
-# Routers (all under /api)
+# Routers (mounted under the configured API prefix, e.g. "/api" or "/api/v1")
 # -----------------------------------------------------------------------------
-app.include_router(houses.router, prefix="/api")
-app.include_router(allotments.router, prefix="/api")
-app.include_router(files.router, prefix="/api")
-app.include_router(health.router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
-app.include_router(users.router, prefix="/api")
+app.include_router(auth.router,       prefix=settings.API_PREFIX)
+app.include_router(users.router,      prefix=settings.API_PREFIX)
+app.include_router(houses.router,     prefix=settings.API_PREFIX)
+app.include_router(allotments.router, prefix=settings.API_PREFIX)
+app.include_router(files.router,      prefix=settings.API_PREFIX)
+app.include_router(health.router,     prefix=settings.API_PREFIX)
 
 # -----------------------------------------------------------------------------
 # Request logging middleware
@@ -77,7 +78,16 @@ from sqladmin.authentication import AuthenticationBackend
 import jwt
 from sqlalchemy import select
 
-from app.core.security import SECRET_KEY, ALGORITHM, verify_password, get_password_hash
+# Try to import SECRET_KEY from security; if not exported, derive from settings
+try:
+    from app.core.security import SECRET_KEY, ALGORITHM, verify_password, get_password_hash  # type: ignore
+except Exception:  # SECRET_KEY may not be exported in newer security.py
+    from app.core.security import ALGORITHM, verify_password, get_password_hash  # type: ignore
+    _k = getattr(settings, "SECRET_KEY", None) or getattr(settings, "JWT_SECRET", None)
+    if not _k:
+        raise RuntimeError("SECRET_KEY/JWT_SECRET missing; set in .env")
+    SECRET_KEY = _k  # type: ignore
+
 from app.db.session import get_session
 from app.models.user import User, Role
 from app.models.house import House
@@ -88,10 +98,10 @@ from app.models.file_movement import FileMovement
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(
     SessionMiddleware,
-    secret_key=SECRET_KEY,
+    secret_key=SECRET_KEY,   # derived above if not exported
     same_site="lax",
-    https_only=False,       # set True if strictly HTTPS
-    max_age=60 * 60 * 8,    # 8h
+    https_only=False,        # set True if strictly HTTPS
+    max_age=60 * 60 * 8,     # 8h
 )
 
 class AdminAuth(AuthenticationBackend):
@@ -174,9 +184,12 @@ class AdminAuth(AuthenticationBackend):
 from wtforms import Form, StringField, BooleanField, PasswordField, TextAreaField, SelectField
 from wtforms.validators import DataRequired, Email, Optional
 
-# Build choices from Role enum (admin/viewer, etc.)
-ROLE_CHOICES = [(r.value if hasattr(r, "value") else str(r),
-                r.value if hasattr(r, "value") else str(r)) for r in Role]
+# Build choices from Role enum (admin/manager/viewer, etc.)
+ROLE_CHOICES = [
+    (r.value if hasattr(r, "value") else str(r),
+     r.value if hasattr(r, "value") else str(r))
+    for r in Role
+]
 
 class UserForm(Form):
     username = StringField("Username", validators=[DataRequired()])
