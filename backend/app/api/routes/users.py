@@ -1,13 +1,13 @@
 # backend/app/api/routes/users.py
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.db.session import get_session
-from app.schemas.user import UserRead, UserCreate, UserUpdate  # make sure UserUpdate exists
-from app.models.user import User
+from app.schemas.user import UserRead, UserCreate, UserUpdate  # ensure UserUpdate exists
+from app.models.user import User, Role
 from app.core.security import get_current_user, require_roles
 from app.core.logging_config import audit_logger
 from app.crud.user import create as create_user_crud
@@ -20,13 +20,37 @@ def get_db():
     yield from get_session()
 
 # -----------------------------
+# Helpers
+# -----------------------------
+def _role_value(role) -> str:
+    # Accept Enum or plain string
+    if hasattr(role, "value"):
+        return role.value  # Enum
+    return str(role) if role is not None else "viewer"
+
+def _perm_list(perms) -> List[str]:
+    # Normalize permissions to a list[str]
+    if isinstance(perms, list):
+        return [str(p) for p in perms if p is not None]
+    return []
+
+def _serialize_user(u: User) -> dict:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "full_name": getattr(u, "full_name", None),
+        "email": getattr(u, "email", None),
+        "role": _role_value(getattr(u, "role", "viewer")),
+        "permissions": _perm_list(getattr(u, "permissions", [])),
+    }
+
+# -----------------------------
 # Create user
 # -----------------------------
 @router.post(
     "/",
     response_model=UserRead,
     status_code=status.HTTP_201_CREATED,
-    # use string roles so it works even if the Role enum lags
     dependencies=[Depends(require_roles("admin", "manager"))],
 )
 def create_user(
@@ -40,7 +64,11 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
 
     created = create_user_crud(db, payload)
-    # audit
+
+    # Make sure odd DB defaults don't break response validation
+    created.role = _role_value(created.role)
+    created.permissions = _perm_list(created.permissions)
+
     try:
         audit_logger.emit(
             actor=actor.username,
@@ -50,10 +78,10 @@ def create_user(
             success=True,
         )
     except Exception:
-        # don't break request if audit sink has issues
         pass
 
-    return created
+    # Return a safe shape
+    return _serialize_user(created)
 
 # -----------------------------
 # List users (with optional pagination)
@@ -70,7 +98,8 @@ def list_users(
 ):
     try:
         stmt = select(User).offset(offset).limit(limit)
-        return db.scalars(stmt).all()
+        rows = db.scalars(stmt).all()
+        return [_serialize_user(u) for u in rows]
     except Exception as e:
         # TEMP: surface details to help diagnose 500s during setup
         raise HTTPException(status_code=500, detail=f"/users list failed: {e}")
@@ -90,7 +119,7 @@ def get_user(
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return user
+    return _serialize_user(user)
 
 # -----------------------------
 # Update user
@@ -129,7 +158,7 @@ def update_user(
     except Exception:
         pass
 
-    return updated
+    return _serialize_user(updated)
 
 # -----------------------------
 # Role helpers for the frontend
