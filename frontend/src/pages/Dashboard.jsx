@@ -41,8 +41,13 @@ const RETENTION_COLORS = {
 const DAY = 24 * 60 * 60 * 1000;
 const RETENTION_MONTHS = 6;   // exactly 6 calendar months
 
+// month name map for "21-Aug-2024", "21 Aug 2024", etc.
+const MONTHS = {
+  jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11
+};
+
 // Parse date safely in LOCAL time.
-// Supports: "YYYY-MM-DD", "YYYY/MM/DD", "DD-MM-YYYY", "DD/MM/YYYY", ISO strings.
+// Supports: "YYYY-MM-DD", "YYYY/MM/DD", "DD-MM-YYYY", "DD/MM/YYYY", "DD-MMM-YYYY", "DD MMM YYYY", "DD-MM-YY", ISO strings.
 function parseDateLocal(x) {
   if (!x) return null;
 
@@ -65,13 +70,26 @@ function parseDateLocal(x) {
     m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(s);
     if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 
-    // DD-MM-YYYY  (common in PK)
+    // DD-MM-YYYY
     m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
     if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
 
     // DD/MM/YYYY
     m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
     if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+    // DD-MM-YY (assume 20YY)
+    m = /^(\d{2})-(\d{2})-(\d{2})$/.exec(s);
+    if (m) return new Date(2000 + Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+    // DD-MMM-YYYY or DD MMM YYYY  (e.g., 21-Aug-2024 / 21 Aug 2024)
+    m = /^(\d{1,2})[ \-]([A-Za-z]{3,})[ \-](\d{4})$/.exec(s);
+    if (m) {
+      const day = Number(m[1]);
+      const mon = MONTHS[m[2].toLowerCase()];
+      const year = Number(m[3]);
+      if (mon != null) return new Date(year, mon, day);
+    }
 
     // Fallback: let JS parse (ISO like 2025-03-01T00:00:00Z)
     const d = new Date(s);
@@ -106,12 +124,29 @@ function addMonths(d, months) {
   return startOfDay(target);
 }
 
-// Backend field names (confirmed in your models/schemas)
+// Backend field pickers with broad fallbacks (covers legacy/CSV shapes)
 function pickDor(row) {
-  return row?.dor ?? null;
+  return (
+    row?.dor ??
+    row?.date_of_retirement ??
+    row?.retirement_date ??
+    row?.retire_date ??
+    row?.retired_on ??
+    row?.dor_date ??
+    row?.dor_str ??
+    null
+  );
 }
 function pickRetentionUntil(row) {
-  return row?.retention_until ?? null;
+  return (
+    row?.retention_until ??
+    row?.retention_till ??
+    row?.retention_upto ??
+    row?.retentionUntil ??
+    row?.retentionTill ??
+    row?.retentionUpto ??
+    null
+  );
 }
 
 // Core status calc
@@ -140,24 +175,6 @@ export function getRetentionStatus(row, now = new Date()) {
     return { status: "retention", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
   }
   return { status: "unauthorized", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
-}
-
-// annotate rows (handy for detail tables)
-export function withRetention(row, now = new Date()) {
-  const r = getRetentionStatus(row, now);
-  return { ...row, _retention: r };
-}
-
-// bucket counts for dashboard widgets
-export function computeRetentionBuckets(rows, now = new Date()) {
-  const init = { inService: 0, retention: 0, unauthorized: 0 };
-  return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
-    const { status } = getRetentionStatus(row, now);
-    if (status === "in-service") acc.inService += 1;
-    else if (status === "retention") acc.retention += 1;
-    else acc.unauthorized += 1;
-    return acc;
-  }, init);
 }
 
 
@@ -559,8 +576,13 @@ const safe = (x) => (x === null || x === undefined || String(x).trim() === "" ? 
 const fmtDate = (d) => {
   try {
     const dt = d instanceof Date ? d : new Date(d);
-    return dt.toISOString().slice(0, 10);
-  } catch { return "-"; }
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const day = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  } catch {
+    return "-";
+  }
 };
 const formatHouse = (h) =>
   [h?.sector, h?.street ? `St-${h.street}` : null, h?.qtr_no ? `Qtr-${h.qtr_no}` : null]
