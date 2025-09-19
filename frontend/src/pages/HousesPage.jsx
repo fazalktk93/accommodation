@@ -430,9 +430,8 @@ export default function HousesPage() {
                 onChange={onChange("pool")}
                 options={[
                   { value: "", label: "-" },
-                  { value: "general", label: "General" },
-                  { value: "m/o", label: "M/O" },
-                  { value: "h/o", label: "H/O" },
+                  { value: "CDA", label: "CDA" },
+                  { value: "ESTATE OFFICE", label: "ESTATE OFFICE" },
                 ]}
               />
             </Row3>
