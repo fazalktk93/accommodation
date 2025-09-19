@@ -2,8 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { listHouses, listAllotments } from "../api";
 
-const now = new Date();
-const buckets = useMemo(() => computeRetentionBuckets(allotments, now), [allotments]);
 
 /* =========================
    COLOR PALETTES (distinct)
@@ -43,23 +41,51 @@ const RETENTION_COLORS = {
 const DAY = 24 * 60 * 60 * 1000;
 const RETENTION_MONTHS = 6;   // exactly 6 calendar months
 
-// Parse date safely in LOCAL time. "YYYY-MM-DD" → Date(y, m-1, d) at local midnight
+// Parse date safely in LOCAL time.
+// Supports: "YYYY-MM-DD", "YYYY/MM/DD", "DD-MM-YYYY", "DD/MM/YYYY", ISO strings.
 function parseDateLocal(x) {
   if (!x) return null;
+
+  // Date instance → normalize to local midnight
   if (x instanceof Date) {
-    if (Number.isNaN(x.getTime())) return null;
+    const t = x.getTime();
+    if (Number.isNaN(t)) return null;
     return new Date(x.getFullYear(), x.getMonth(), x.getDate());
   }
+
   if (typeof x === "string") {
     const s = x.trim();
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!s) return null;
+
+    // YYYY-MM-DD
+    let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
     if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+
+    // YYYY/MM/DD
+    m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(s);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+
+    // DD-MM-YYYY  (common in PK)
+    m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(s);
+    if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+    // DD/MM/YYYY
+    m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
+    if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+    // Fallback: let JS parse (ISO like 2025-03-01T00:00:00Z)
     const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Number.isNaN(d.getTime())
+      ? null
+      : new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
+
+  // numbers or other objects that Date can handle
   try {
     const d = new Date(x);
-    return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Number.isNaN(d.getTime())
+      ? null
+      : new Date(d.getFullYear(), d.getMonth(), d.getDate());
   } catch {
     return null;
   }
@@ -69,7 +95,7 @@ function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// Add N calendar months; clamp day (e.g. Aug 31 + 6 = end of Feb)
+// Add N calendar months; clamp to end of target month when needed
 function addMonths(d, months) {
   const y = d.getFullYear();
   const m = d.getMonth();
@@ -80,7 +106,7 @@ function addMonths(d, months) {
   return startOfDay(target);
 }
 
-// Backend field pickers (confirmed names)
+// Backend field names (confirmed in your models/schemas)
 function pickDor(row) {
   return row?.dor ?? null;
 }
@@ -97,7 +123,14 @@ export function getRetentionStatus(row, now = new Date()) {
     return { status: "in-service", daysPast: 0, retirementDate: null, retentionUntil: null };
   }
 
-  const until = parseDateLocal(pickRetentionUntil(row)) || addMonths(dor, RETENTION_MONTHS);
+  // Prefer explicit cutoff from server, else DOR + 6 months
+  let until = parseDateLocal(pickRetentionUntil(row)) || addMonths(dor, RETENTION_MONTHS);
+
+  // Guard against bad data: if until < dor, recompute as dor+6m
+  if (until < dor) {
+    until = addMonths(dor, RETENTION_MONTHS);
+  }
+
   const diffDays = Math.floor((now0 - dor) / DAY);
 
   if (now0 < dor) {
@@ -109,13 +142,13 @@ export function getRetentionStatus(row, now = new Date()) {
   return { status: "unauthorized", daysPast: diffDays, retirementDate: dor, retentionUntil: until };
 }
 
-// Helper: annotate each row with status (for tables/cards)
+// annotate rows (handy for detail tables)
 export function withRetention(row, now = new Date()) {
   const r = getRetentionStatus(row, now);
   return { ...row, _retention: r };
 }
 
-// Helper: compute buckets for dashboard widgets
+// bucket counts for dashboard widgets
 export function computeRetentionBuckets(rows, now = new Date()) {
   const init = { inService: 0, retention: 0, unauthorized: 0 };
   return (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
@@ -126,6 +159,7 @@ export function computeRetentionBuckets(rows, now = new Date()) {
     return acc;
   }, init);
 }
+
 
 
 /* ================
