@@ -11,8 +11,15 @@ import ProtectedRoute from './components/ProtectedRoute.jsx';
 import HouseAllotmentHistory from "./pages/HouseAllotmentHistory";
 import { useAuth } from './context/AuthProvider'; // <-- use context (not raw isLoggedIn/logout)
 
+// 👇 ADDED: Users page
+import UsersPage from './pages/UsersPage.jsx';
+
 export default function App() {
-  const { loading, isAuthed, signout } = useAuth();
+  // 👇 CHANGED: also pull `user` so we can show the Users link only for admin/manager
+  const { loading, isAuthed, signout, user } = useAuth();
+
+  // 👇 ADDED: simple role check
+  const canManageUsers = !!user && (user.role === 'admin' || user.role === 'manager');
 
   return (
     <div>
@@ -23,6 +30,8 @@ export default function App() {
             <NavLink to="/">Houses</NavLink>
             <NavLink to="/allotments">Allotments</NavLink>
             <NavLink to="/files">File Movement</NavLink>
+            {/* 👇 ADDED: show Users link only to admin/manager */}
+            {canManageUsers && <NavLink to="/users">Users</NavLink>}
           </div>
           <div className="nav-right">
             {loading ? (
@@ -52,6 +61,16 @@ export default function App() {
             <Route path="/houses/:fileNo/allotments" element={<HouseAllotmentsPage />} />
             <Route path="/history/file/:fileNo" element={<HouseAllotmentHistory />} />
             <Route path="/history/house/:houseId" element={<HouseAllotmentHistory />} />
+
+            {/* 👇 ADDED: Users page route; only admin/manager can access */}
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute roles={['admin', 'manager']}>
+                  <UsersPage />
+                </ProtectedRoute>
+              }
+            />
           </Route>
         </Routes>
       </div>
