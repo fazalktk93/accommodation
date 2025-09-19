@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+// frontend/src/pages/UsersPage.jsx
+import { useEffect, useState } from "react";
 import { getUsers, createUser } from "../api";
 import RoleSelect from "../components/RoleSelect";
 
@@ -19,7 +20,7 @@ export default function UsersPage() {
     setErr("");
     try {
       const list = await getUsers({ limit: 500 });
-      setUsers(list);
+      setUsers(Array.isArray(list) ? list : []);
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -39,8 +40,7 @@ export default function UsersPage() {
         password,
         full_name: fullName,
         email,
-        role,            // <- only role is sent; backend derives permissions
-        // permissions: [] // not needed
+        role, // backend derives permissions from role
       });
       setUsername(""); setPassword(""); setFullName(""); setEmail(""); setRole("viewer");
       await load();
@@ -79,7 +79,7 @@ export default function UsersPage() {
             <RoleSelect value={role} onChange={setRole} />
           </label>
 
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button className="btn" type="submit" disabled={busy}>Create</button>
             {err ? <div style={{ color: "crimson" }}>{err}</div> : null}
           </div>
@@ -98,8 +98,8 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id}>
-                  <td>{u.id}</td>
+                <tr key={u.id ?? u.username}>
+                  <td>{u.id ?? "—"}</td>
                   <td>{u.username}</td>
                   <td>{u.full_name || "—"}</td>
                   <td>{u.email || "—"}</td>

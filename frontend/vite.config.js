@@ -1,9 +1,9 @@
-// frontend/vite.config.js
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Change this to your backend origin if different:
-const BACKEND = process.env.VITE_BACKEND_ORIGIN || 'http://127.0.0.1:8000'
+// no IP here — only a port (defaults to 8000)
+const PORT = process.env.VITE_BACKEND_PORT || '8000'
+const TARGET = `http://127.0.0.1:${PORT}`
 
 export default defineConfig({
   plugins: [react()],
@@ -11,9 +11,9 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      // anything starting with /api will be proxied to FastAPI
+      // forward every /api/* call from Vite to FastAPI on the same machine
       '/api': {
-        target: BACKEND,
+        target: TARGET,
         changeOrigin: true,
         secure: false,
         ws: false,
