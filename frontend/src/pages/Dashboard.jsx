@@ -33,79 +33,86 @@ const RETENTION_COLORS = {
   "unauthorized": "#e53935",
 };
 
-/* ================
-   RETENTION LOGIC
-   ================ */
-const DAY = 24 * 60 * 60 * 1000;
-// keep if you like a day-based fallback; we’ll compute 6 calendar months by default
-const RETENTION_DAYS = 183; // ~6 months
+/* =========================
+   RETENTION CALC (6 months)
+   ========================= */
 
-// Parse a date value safely in LOCAL time.
-// If it's "YYYY-MM-DD", construct Date(y, m-1, d) so we avoid UTC parsing.
+const DAY = 24 * 60 * 60 * 1000;
+const RETENTION_MONTHS = 6;     // exactly six calendar months
+const RETENTION_DAYS = 183;     // keep if other code expects a day constant
+
+// Parse a date safely in **local** time to avoid UTC off-by-one issues.
+// If format is "YYYY-MM-DD", construct Date(y, m-1, d) (local midnight).
 function parseDateLocal(x) {
   if (!x) return null;
-  if (x instanceof Date) return isNaN(x.getTime()) ? null : new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  if (x instanceof Date) {
+    const t = x.getTime();
+    if (Number.isNaN(t)) return null;
+    return new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  }
   if (typeof x === "string") {
     const s = x.trim();
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-    if (m) {
-      const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3]);
-      return new Date(y, mo, d); // local midnight
-    }
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     const d = new Date(s);
-    return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
   try {
     const d = new Date(x);
-    return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Number.isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
   } catch {
     return null;
   }
 }
 
-// Start-of-day (local) to make diff math stable
 function startOfDay(d) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// Add calendar months, clamping day-of-month when needed (e.g., Jan 31 + 1 month = Feb 29/28)
+// Add calendar months, clamping the day (e.g., Aug 31 + 6 months = end of Feb)
 function addMonths(d, months) {
   const y = d.getFullYear();
   const m = d.getMonth();
   const day = d.getDate();
   const target = new Date(y, m + months, 1);
-  // last day of target month
   const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
   target.setDate(Math.min(day, lastDay));
   return startOfDay(target);
 }
 
-// robust DOR/retention field extraction
+// Prefer your backend field names. Fallbacks cover older payloads if any.
 function pickDor(a) {
   return (
     a?.dor ??
-    a?.date_of_retirement ??
-    a?.retirement_date ??
-    a?.retireDate ??
+    a?.date_of_retirement ??   // fallback alias if older shape
+    a?.retirement_date ??      // fallback alias if older shape
     null
   );
 }
 function pickRetentionUntil(a) {
   return (
     a?.retention_until ??
-    a?.retentionUntil ??
+    a?.retentionUntil ??       // fallback alias if camelCased somewhere
     null
   );
 }
 
 /**
- * Status rules:
- * - If DOR unknown   -> "in-service"
- * - If today < DOR   -> "in-service"
- * - Else, if now <= retention_until (or DOR+6mo) -> "retention"
- * - Else             -> "unauthorized"
+ * Returns:
+ * {
+ *   status: "in-service" | "retention" | "unauthorized",
+ *   daysPast: number,                  // days since DOR (negative if before DOR)
+ *   retirementDate: Date|null,
+ *   retentionUntil: Date|null
+ * }
+ *
+ * Rules:
+ * - If DOR missing           -> in-service
+ * - If today < DOR           -> in-service
+ * - Else if today <= retention_until (or DOR + 6 months) -> retention
+ * - Else                     -> unauthorized
  */
-function getRetentionStatus(a, now = new Date()) {
+export function getRetentionStatus(a, now = new Date()) {
   const now0 = startOfDay(now);
 
   const rawDor = pickDor(a);
@@ -114,9 +121,9 @@ function getRetentionStatus(a, now = new Date()) {
     return { status: "in-service", daysPast: 0, retirementDate: null, retentionUntil: null };
   }
 
+  // If server gave an explicit cutoff, honor it; otherwise exactly DOR + 6 months.
   const rawUntil = pickRetentionUntil(a);
-  const retentionUntil =
-    parseDateLocal(rawUntil) || addMonths(dor, 6); // prefer server field, else DOR+6 months
+  const retentionUntil = parseDateLocal(rawUntil) || addMonths(dor, RETENTION_MONTHS);
 
   const diffDays = Math.floor((now0 - dor) / DAY);
 
