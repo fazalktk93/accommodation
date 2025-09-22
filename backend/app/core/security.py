@@ -125,30 +125,28 @@ def get_current_user(
     db: Session = Depends(get_db),
 ) -> User:
     """
-    Unified authentication:
-      1) Try signed session cookie (preferred for browser)
-      2) Fallback to JWT Bearer token (for API/tools)
-    Populates request.state.user for decorator-style permission checks.
+    Authenticate using either:
+      1) Signed cookie session (preferred for browsers), or
+      2) Bearer JWT token (for API/CLI).
     """
     username: Optional[str] = None
 
-    # 1) Cookie session
+    # 1) Try cookie session first
     try:
         username = get_user_from_cookie(request)  # raises 401 if absent/invalid
     except HTTPException:
         username = None
 
-    # 2) JWT fallback
+    # 2) Fallback to Bearer token
     if username is None:
         token = _extract_token(request, token)
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
-
         try:
             payload = jwt.decode(
                 token,
                 _require_secret(),
-                algorithms=["HS256"],
+                algorithms=[ALGORITHM],
                 options={"require": ["sub", "exp"], "verify_signature": True},
                 audience=getattr(settings, "JWT_AUDIENCE", None),
                 leeway=15,
@@ -169,7 +167,7 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Inactive or missing user")
 
-    setattr(request.state, "user", user)  # for decorator-style checks
+    setattr(request.state, "user", user)
     return user
 
 # Optional explicit cookie-only dependency (kept because you had it)
