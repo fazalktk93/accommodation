@@ -214,3 +214,6 @@ conn.close()
 PY
 q
 
+
+
+ACCESS_TOKEN_EXPIRE_MINUTES=480
