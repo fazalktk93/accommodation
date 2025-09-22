@@ -1,23 +1,37 @@
 # backend/app/core/session.py
-import base64, hashlib, hmac, json, time
+
+import base64
+import hashlib
+import hmac
+import json
+import time
 from fastapi import Request, HTTPException, status
 from app.core.config import settings
 
-# IMPORTANT: ensure SECRET_KEY is set in your .env in prod!
+# Cookie name used across the app
+COOKIE_NAME = "session"
+
+# IMPORTANT: set SECRET_KEY in .env in production!
 _SECRET = getattr(settings, "SECRET_KEY", None) or "CHANGE_ME_DEV_ONLY"
 
 def _sign(b: bytes) -> str:
     mac = hmac.new(_SECRET.encode(), b, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(mac).decode().rstrip("=")
 
-def create_session_cookie_value(username: str, ttl_seconds: int = 60*60*12) -> str:
+def create_session(username: str, ttl_seconds: int = 60 * 60 * 12) -> str:
+    """
+    Make a signed, expiring session value for an HttpOnly cookie.
+    """
     payload = {"u": username, "exp": int(time.time()) + ttl_seconds}
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     sig = _sign(raw)
     return base64.urlsafe_b64encode(raw).decode().rstrip("=") + "." + sig
 
 def get_user_from_cookie(request: Request) -> str:
-    v = request.cookies.get("session")
+    """
+    Read and validate the cookie. Return username or raise 401.
+    """
+    v = request.cookies.get(COOKIE_NAME)
     if not v:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No session")
     try:
