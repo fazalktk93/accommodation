@@ -55,7 +55,6 @@ def _get_exp_minutes() -> int:
         log.warning("ACCESS_TOKEN_EXPIRE_MINUTES=%r is not an int; defaulting to 480", v)
         return 8 * 60
 
-# IMPORTANT: reflect the real mount (/api)
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_PREFIX}/auth/token",
     auto_error=False,
@@ -70,7 +69,6 @@ def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> 
         "sub": sub,
         "exp": expire,
         "iat": datetime.utcnow(),
-        # jti just to make tokens unique-ish without state
         "jti": jwt.utils.base64url_encode(jwt.utils.force_bytes(sub + str(expire))).decode(),
         "iss": getattr(settings, "JWT_ISSUER", "accommodation.api"),
         "aud": getattr(settings, "JWT_AUDIENCE", "accommodation.frontend"),
@@ -81,10 +79,9 @@ def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> 
 # DB dependency
 # -----------------------------------------------------------------------------
 def get_db() -> Session:
-    # keep the exact generator behavior your code expects
     yield from get_session()
 
-get_session_db = get_db  # alias for consistency/back-compat
+get_session_db = get_db  # alias for back-compat
 
 # -----------------------------------------------------------------------------
 # Token extraction (header / custom / query)
@@ -102,14 +99,14 @@ def _extract_token(request: Request, header_token: Optional[str]) -> Optional[st
         if len(parts) == 2 and parts[0].lower() == "bearer":
             return parts[1]
 
-    # Custom headers (kept for back-compat; warn to migrate)
+    # Legacy custom headers (kept for back-compat)
     for k in ("X-Auth-Token", "X-Api-Token"):
         v = request.headers.get(k)
         if v:
             log.warning("Using custom header %s for auth; migrate to Bearer", k)
             return v
 
-    # Optional query tokens (discouraged in prod, but kept if enabled)
+    # Optional query tokens
     if ALLOW_QUERY_TOKENS:
         for k in ("access_token", "token"):
             v = request.query_params.get(k)
@@ -151,7 +148,7 @@ def get_current_user(
             payload = jwt.decode(
                 token,
                 _require_secret(),
-                algorithms=[ALGORITHM],
+                algorithms=["HS256"],
                 options={"require": ["sub", "exp"], "verify_signature": True},
                 audience=getattr(settings, "JWT_AUDIENCE", None),
                 leeway=15,
@@ -188,7 +185,7 @@ def get_current_user_cookie(
     return user
 
 # -----------------------------------------------------------------------------
-# Role / permission checks (kept + small hardening)
+# Role / permission checks (kept)
 # -----------------------------------------------------------------------------
 def require_roles(*roles: Role):
     want = {r.value if hasattr(r, "value") else r for r in roles}
@@ -199,7 +196,6 @@ def require_roles(*roles: Role):
         return user
     return _dep
 
-# dependency-style permission check
 def require_permissions_dep(*perms: str):
     need = set(perms)
     def _dep(user: User = Depends(get_current_user)) -> User:
@@ -209,7 +205,6 @@ def require_permissions_dep(*perms: str):
         return user
     return _dep
 
-# decorator-style permission check
 def _run_maybe_async(fn, *args, **kwargs):
     if inspect.iscoroutinefunction(fn):
         return fn(*args, **kwargs)
@@ -230,7 +225,6 @@ def require_permissions(perms: Iterable[str]):
         return wrapper
     return _decorator
 
-# Keep alias so both forms are accessible
 route_decorator_require_permissions = require_permissions
 
 # -----------------------------------------------------------------------------
