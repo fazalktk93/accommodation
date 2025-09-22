@@ -5,8 +5,8 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
-// Show 5 rows per page in the table
-const PAGE_SIZE = 5;
+// Show 50 rows per page in the table
+const PAGE_SIZE = 50;
 
 // How many rows to ask per network call during the initial prefetch.
 // We'll loop through pages until we've fetched everything for the current query.
