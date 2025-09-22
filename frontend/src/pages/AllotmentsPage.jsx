@@ -5,8 +5,12 @@ import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
 
-const API_MAX_LIMIT = 3000;
-const PAGE_SIZE = 50;
+// Show 5 rows per page in the table
+const PAGE_SIZE = 5;
+
+// How many rows to ask per network call during the initial prefetch.
+// We'll loop through pages until we've fetched everything for the current query.
+const PREFETCH_CHUNK = 500;
 
 function useQuery() {
   const { search } = useLocation();
@@ -218,7 +222,10 @@ export default function AllotmentsPage() {
   const query = useQuery();
   const [page, setPage] = useState(Number(query.get("page") || 0));
   const [q, setQ] = useState(query.get("q") || "");
-  const [rows, setRows] = useState([]);
+
+  // Client-side dataset & pagination state
+  const [allRows, setAllRows] = useState([]);   // full dataset
+  const [rows, setRows] = useState([]);         // current page slice
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -231,34 +238,68 @@ export default function AllotmentsPage() {
     window.history.replaceState(null, "", `?${sp.toString()}`);
   };
 
-  const load = async () => {
+  // Prefetch ALL allotments for current query in chunks, then page locally
+  const loadAll = async () => {
     setLoading(true); setError("");
     try {
-      const skip = page * PAGE_SIZE;
-      const params = {
-        skip, limit: PAGE_SIZE,
-        q: q || undefined,
-        person_name: q || undefined,
-        designation: q || undefined,
-        directorate: q || undefined,
-        cnic: q || undefined,
-        house_q: q || undefined,
-      };
-      const res = await api.request("GET", "/allotments/", { params });
-      const body = await res.json().catch(() => []);
-      const items = Array.isArray(body) ? body
-        : Array.isArray(body?.items) ? body.items
-        : Array.isArray(body?.results) ? body.results
-        : Array.isArray(body?.data) ? body.data : [];
-      const totalFromHeader = parseInt(res.headers.get("X-Total-Count") || "", 10);
-      setRows(items);
-      setTotal(Number.isFinite(totalFromHeader) ? totalFromHeader : items.length);
+      const gathered = [];
+      let skip = 0;
+      let keepGoing = true;
+
+      while (keepGoing) {
+        const params = {
+          skip,
+          limit: PREFETCH_CHUNK,
+          q: q || undefined,
+          person_name: q || undefined,
+          designation: q || undefined,
+          directorate: q || undefined,
+          cnic: q || undefined,
+          house_q: q || undefined,
+        };
+        const res = await api.request("GET", "/allotments/", { params });
+        if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+        const body = await res.json().catch(() => []);
+        const batch = Array.isArray(body) ? body
+          : Array.isArray(body?.items) ? body.items
+          : Array.isArray(body?.results) ? body.results
+          : Array.isArray(body?.data) ? body.data
+          : [];
+
+        gathered.push(...batch);
+        if (batch.length < PREFETCH_CHUNK) {
+          keepGoing = false;
+        } else {
+          skip += PREFETCH_CHUNK;
+        }
+      }
+
+      setAllRows(gathered);
+      setTotal(gathered.length);
+      setPage(0);            // reset to first page for a new query
+      pushUrl(0, q);
     } catch (e) {
-      setRows([]); setTotal(0); setError(String(e));
-    } finally { setLoading(false); }
+      setAllRows([]);
+      setTotal(0);
+      setError(String(e?.message || e));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { pushUrl(page, q); load(); /* eslint-disable-next-line */ }, [page, q]);
+  // When query changes, prefetch entire result set once
+  useEffect(() => {
+    loadAll(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+
+  // Slice current page from full dataset
+  useEffect(() => {
+    const start = page * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    setRows(allRows.slice(start, end));
+    pushUrl(page, q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allRows, page]);
 
   // Enrich visible rows with house data if missing
   useEffect(() => {
@@ -331,8 +372,7 @@ export default function AllotmentsPage() {
       };
       await createAllotment(payload);
       closeModals();
-      setPage(0);
-      await load();
+      await loadAll();  // refresh full dataset
     } catch (err) {
       alert(`Create failed: ${err}`);
     }
@@ -348,7 +388,7 @@ export default function AllotmentsPage() {
       };
       await updateAllotment(editing.id, payload);
       closeModals();
-      await load();
+      await loadAll();  // refresh full dataset; page slice updates automatically
     } catch (err) {
       alert(`Update failed: ${err}`);
     }
@@ -357,7 +397,7 @@ export default function AllotmentsPage() {
     if (!window.confirm("Delete this allotment?")) return;
     try {
       await deleteAllotment(row.id);
-      await load();
+      await loadAll();  // refresh full dataset
     } catch (err) {
       alert(`Delete failed: ${err}`);
     }
@@ -380,7 +420,7 @@ export default function AllotmentsPage() {
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <form
-          onSubmit={(e) => { e.preventDefault(); setPage(0); load(); }}
+          onSubmit={async (e) => { e.preventDefault(); setPage(0); await loadAll(); }}
           style={{ display: "flex", gap: 8, alignItems: "center", flex: 1 }}
         >
           <input
@@ -390,7 +430,7 @@ export default function AllotmentsPage() {
             style={input}
           />
           <button type="submit" style={btn}>Search</button>
-          <button type="button" onClick={() => { setQ(""); setPage(0); }} style={btn}>
+          <button type="button" onClick={async () => { setQ(""); setPage(0); await loadAll(); }} style={btn}>
             Clear
           </button>
         </form>
