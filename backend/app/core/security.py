@@ -115,47 +115,47 @@ def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    token = _extract_token(request, token)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    """
+    Unified auth:
+    1) Try signed session cookie (preferred)
+    2) Fallback to JWT Bearer token
+    """
+    username = None
 
+    # --- Try cookie session ---
     try:
-        payload = jwt.decode(
-            token,
-            _require_secret(),
-            algorithms=[ALGORITHM],
-            options={"require": ["sub", "exp"], "verify_signature": True},
-            audience=getattr(settings, "JWT_AUDIENCE", None),
-            leeway=15,
-        )
-        sub = payload.get("sub")
-        if not sub:
-            log.error("JWT missing 'sub': %r", payload)
-            raise HTTPException(status_code=401, detail="Invalid token payload")
-    except jwt.ExpiredSignatureError:
-        log.warning("JWT expired")
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidSignatureError:
-        log.error("JWT invalid signature (wrong SECRET_KEY?)")
-        raise HTTPException(status_code=401, detail="Invalid token signature")
-    except Exception as e:
-        log.exception("JWT decode failed: %s", e)
-        raise HTTPException(status_code=401, detail="Invalid token")
+        username = get_user_from_cookie(request)  # raises if no/invalid cookie
+    except HTTPException:
+        username = None
 
-    user = db.scalar(select(User).where(User.username == sub))
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="User inactive or not found")
-    setattr(request.state, "user", user)  # populate request.state.user
-    return user
+    # --- Fallback: JWT Bearer ---
+    if username is None:
+        token = _extract_token(request, token)
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
 
-def get_current_user_cookie(
-    request: Request,
-    db: Session = Depends(get_session),
-) -> User:
-    username = get_user_from_cookie(request)
+        try:
+            payload = jwt.decode(
+                token,
+                _require_secret(),
+                algorithms=[ALGORITHM],
+                options={"require": ["sub", "exp"], "verify_signature": True},
+                audience=getattr(settings, "JWT_AUDIENCE", None),
+                leeway=15,
+            )
+            username = payload.get("sub")
+            if not username:
+                raise HTTPException(status_code=401, detail="Invalid token payload")
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expired")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+    # --- Load user from DB ---
     user = db.scalar(select(User).where(User.username == username))
     if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
+        raise HTTPException(status_code=401, detail="Inactive or missing user")
+
     setattr(request.state, "user", user)
     return user
 
