@@ -1,34 +1,34 @@
 # backend/app/core/session.py
-
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import base64, hashlib, hmac, json, time
 from fastapi import Request, HTTPException, status
 from app.core.config import settings
 
-COOKIE_NAME = "session"
+# IMPORTANT: ensure SECRET_KEY is set in your .env in prod!
+_SECRET = getattr(settings, "SECRET_KEY", None) or "CHANGE_ME_DEV_ONLY"
 
-# Use the single SECRET_KEY from .env to sign sessions
-_serializer = URLSafeTimedSerializer(settings.SECRET_KEY, salt="session")
+def _sign(b: bytes) -> str:
+    mac = hmac.new(_SECRET.encode(), b, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(mac).decode().rstrip("=")
 
-def create_session(username: str) -> str:
-    """Create a signed session string containing the username."""
-    return _serializer.dumps({"sub": username})
-
-def read_session(token: str) -> dict:
-    """Validate and read the signed session."""
-    try:
-        return _serializer.loads(
-            token,
-            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        )
-    except SignatureExpired:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
-    except BadSignature:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+def create_session_cookie_value(username: str, ttl_seconds: int = 60*60*12) -> str:
+    payload = {"u": username, "exp": int(time.time()) + ttl_seconds}
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    sig = _sign(raw)
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=") + "." + sig
 
 def get_user_from_cookie(request: Request) -> str:
-    """Extract username from the signed session cookie."""
-    cookie = request.cookies.get(COOKIE_NAME)
-    if not cookie:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    data = read_session(cookie)
-    return data["sub"]
+    v = request.cookies.get("session")
+    if not v:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No session")
+    try:
+        body_b64, sig = v.split(".", 1)
+        pad = "=" * (-len(body_b64) % 4)
+        body = base64.urlsafe_b64decode(body_b64 + pad)
+        if _sign(body) != sig:
+            raise ValueError("bad signature")
+        data = json.loads(body)
+        if int(time.time()) > int(data["exp"]):
+            raise ValueError("expired")
+        return data["u"]
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")

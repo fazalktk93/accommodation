@@ -178,3 +178,7 @@ def list_user_roles():
 )
 def permission_catalog():
     return catalog()
+
+@router.get("/me", response_model=UserRead)
+def users_me(user: User = Depends(get_current_user)):
+    return user

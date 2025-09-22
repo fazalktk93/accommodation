@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Form, Response, R
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import json
+from app.core.session import create_session, COOKIE_NAME
 
 from app.core.security import (
     verify_password,
@@ -132,3 +133,8 @@ def logout():
         path="/",
     )
     return response
+
+@router.post("/cookie-login", summary="Compat alias for /auth/login")
+async def cookie_login_compat(request: Request, db: Session = Depends(get_db)):
+    # simply reuse the main handler
+    return await login_form(request=request, db=db)
