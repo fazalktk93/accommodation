@@ -1,7 +1,13 @@
 # app/core/security.py
+
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from typing import Optional, Iterable
-import logging, functools, inspect, anyio
+import logging
+import functools
+import inspect
+import anyio
 import jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends, Request
@@ -14,15 +20,24 @@ from time import time
 from app.core.config import settings
 from app.db.session import get_session
 from app.models.user import User, Role
-from app.core.session import get_user_from_cookie
+from app.core.session import get_user_from_cookie  # cookie session helper
 
 log = logging.getLogger("auth")
 
+# -----------------------------------------------------------------------------
+# Password hashing
+# -----------------------------------------------------------------------------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
-# -------------------------------
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+# -----------------------------------------------------------------------------
 # Config / constants
-# -------------------------------
+# -----------------------------------------------------------------------------
 ALGORITHM = "HS256"
 
 def _require_secret() -> str:
@@ -46,89 +61,87 @@ oauth2_scheme = OAuth2PasswordBearer(
     auto_error=False,
 )
 
-# -------------------------------
-# Password helpers
-# -------------------------------
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-# -------------------------------
+# -----------------------------------------------------------------------------
 # JWT helpers
-# -------------------------------
+# -----------------------------------------------------------------------------
 def create_access_token(sub: str, expires_delta: Optional[timedelta] = None) -> str:
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=_get_exp_minutes()))
     payload = {
         "sub": sub,
         "exp": expire,
         "iat": datetime.utcnow(),
+        # jti just to make tokens unique-ish without state
         "jti": jwt.utils.base64url_encode(jwt.utils.force_bytes(sub + str(expire))).decode(),
         "iss": getattr(settings, "JWT_ISSUER", "accommodation.api"),
         "aud": getattr(settings, "JWT_AUDIENCE", "accommodation.frontend"),
     }
     return jwt.encode(payload, _require_secret(), algorithm=ALGORITHM)
 
-# -------------------------------
+# -----------------------------------------------------------------------------
 # DB dependency
-# -------------------------------
+# -----------------------------------------------------------------------------
 def get_db() -> Session:
+    # keep the exact generator behavior your code expects
     yield from get_session()
 
-get_session_db = get_db  # alias for consistency
+get_session_db = get_db  # alias for consistency/back-compat
 
-# -------------------------------
-# Token extraction
-# -------------------------------
+# -----------------------------------------------------------------------------
+# Token extraction (header / custom / query)
+# -----------------------------------------------------------------------------
 ALLOW_QUERY_TOKENS = getattr(settings, "ALLOW_QUERY_TOKENS", False)
 
 def _extract_token(request: Request, header_token: Optional[str]) -> Optional[str]:
     if header_token:
         return header_token
-    # Bearer fallback
+
+    # Standard Authorization: Bearer <token>
     auth = request.headers.get("authorization")
     if auth:
         parts = auth.split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             return parts[1]
-    # Custom headers
+
+    # Custom headers (kept for back-compat; warn to migrate)
     for k in ("X-Auth-Token", "X-Api-Token"):
         v = request.headers.get(k)
         if v:
             log.warning("Using custom header %s for auth; migrate to Bearer", k)
             return v
-    # Query params (optional)
+
+    # Optional query tokens (discouraged in prod, but kept if enabled)
     if ALLOW_QUERY_TOKENS:
         for k in ("access_token", "token"):
             v = request.query_params.get(k)
             if v:
                 log.warning("Token via query param %s; consider disabling in production", k)
                 return v
+
     return None
 
-# -------------------------------
-# Current user dependencies
-# -------------------------------
+# -----------------------------------------------------------------------------
+# Current user dependency (UNIFIED: Cookie first, then JWT)
+# -----------------------------------------------------------------------------
 def get_current_user(
     request: Request,
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
     """
-    Unified auth:
-    1) Try signed session cookie (preferred)
-    2) Fallback to JWT Bearer token
+    Unified authentication:
+      1) Try signed session cookie (preferred for browser)
+      2) Fallback to JWT Bearer token (for API/tools)
+    Populates request.state.user for decorator-style permission checks.
     """
-    username = None
+    username: Optional[str] = None
 
-    # --- Try cookie session ---
+    # 1) Cookie session
     try:
-        username = get_user_from_cookie(request)  # raises if no/invalid cookie
+        username = get_user_from_cookie(request)  # raises 401 if absent/invalid
     except HTTPException:
         username = None
 
-    # --- Fallback: JWT Bearer ---
+    # 2) JWT fallback
     if username is None:
         token = _extract_token(request, token)
         if not token:
@@ -145,35 +158,53 @@ def get_current_user(
             )
             username = payload.get("sub")
             if not username:
+                log.error("JWT missing 'sub': %r", payload)
                 raise HTTPException(status_code=401, detail="Invalid token payload")
         except jwt.ExpiredSignatureError:
+            log.warning("JWT expired")
             raise HTTPException(status_code=401, detail="Token expired")
         except jwt.InvalidTokenError:
+            log.error("JWT invalid token")
             raise HTTPException(status_code=401, detail="Invalid token")
 
-    # --- Load user from DB ---
+    # Load user
     user = db.scalar(select(User).where(User.username == username))
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Inactive or missing user")
 
+    setattr(request.state, "user", user)  # for decorator-style checks
+    return user
+
+# Optional explicit cookie-only dependency (kept because you had it)
+def get_current_user_cookie(
+    request: Request,
+    db: Session = Depends(get_session),
+) -> User:
+    username = get_user_from_cookie(request)
+    user = db.scalar(select(User).where(User.username == username))
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
     setattr(request.state, "user", user)
     return user
 
-# -------------------------------
-# Role / Permission checks
-# -------------------------------
+# -----------------------------------------------------------------------------
+# Role / permission checks (kept + small hardening)
+# -----------------------------------------------------------------------------
 def require_roles(*roles: Role):
+    want = {r.value if hasattr(r, "value") else r for r in roles}
     def _dep(user: User = Depends(get_current_user)) -> User:
-        if user.role not in [r.value if hasattr(r, "value") else r for r in roles]:
+        user_role = getattr(user, "role", None)
+        if user_role not in want:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return user
     return _dep
 
 # dependency-style permission check
 def require_permissions_dep(*perms: str):
+    need = set(perms)
     def _dep(user: User = Depends(get_current_user)) -> User:
-        user_perms = set(user.permissions or [])
-        if not set(perms).issubset(user_perms):
+        user_perms = set(getattr(user, "permissions", []) or [])
+        if not need.issubset(user_perms):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing permission")
         return user
     return _dep
@@ -192,19 +223,19 @@ def require_permissions(perms: Iterable[str]):
             request: Request = kwargs.get("request") or next((a for a in args if isinstance(a, Request)), None)
             if not request or not getattr(request.state, "user", None):
                 raise HTTPException(status_code=401, detail="Not authenticated")
-            user_perms = set(request.state.user.permissions or [])
+            user_perms = set(getattr(request.state.user, "permissions", []) or [])
             if not perms_set.issubset(user_perms):
                 raise HTTPException(status_code=403, detail="Insufficient permissions")
             return await _run_maybe_async(fn, *args, **kwargs)
         return wrapper
     return _decorator
 
-# keep alias so both forms are accessible
+# Keep alias so both forms are accessible
 route_decorator_require_permissions = require_permissions
 
-# -------------------------------
-# Simple rate limit for login attempts
-# -------------------------------
+# -----------------------------------------------------------------------------
+# Simple rate limit for login attempts (kept)
+# -----------------------------------------------------------------------------
 _LOGIN_FAILS = defaultdict(list)  # ip -> list[timestamp]
 
 def too_many_failures(ip: str, window=900, max_n=10):

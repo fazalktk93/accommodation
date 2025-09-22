@@ -1,113 +1,97 @@
 # backend/app/api/routes/auth.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Form, Response
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Response, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 import json
 
-from app.core.security import verify_password, create_access_token, get_current_user
+from app.core.security import (
+    verify_password,
+    create_access_token,
+    get_current_user,
+    too_many_failures,
+    record_failure,
+)
 from app.db.session import get_session
 from app.models.user import User
-from app.schemas.user import Token, LoginRequest, UserRead
+from app.schemas.user import Token, UserRead
 from app.core.config import settings
 from app.core.session import create_session, COOKIE_NAME  # cookie sessions
 
 # Mounted under /auth (and /api/auth via main.py)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
+# -----------------------------------------------------------------------------
+# Helper: DB session
+# -----------------------------------------------------------------------------
 def get_db():
-    """DB session dependency."""
     yield from get_session()
 
-
-@router.get("/me", response_model=UserRead)
-def whoami(user: User = Depends(get_current_user)):
-    """JWT-protected 'who am I' endpoint (kept as-is)."""
-    return user
-
-
-# -------------------------------
-# JWT / Bearer token endpoints
-# -------------------------------
-
-@router.post("/token", response_model=Token)
-def login_for_access_token(payload: LoginRequest, db: Session = Depends(get_db)):
-    """
-    JSON login:
-    POST /auth/token
-    Body: {"username": "...", "password": "..."}
-    """
-    user = db.scalar(select(User).where(User.username == payload.username))
-    if not user or not user.is_active or not verify_password(payload.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-    # create_access_token expects the subject as a string
-    token = create_access_token(user.username)
-    return {"access_token": token, "token_type": "bearer"}
-
-
-@router.post("/login", response_model=Token)
-def login_alias(
+# -----------------------------------------------------------------------------
+# POST /auth/token  -> JWT for tools/integrations
+# -----------------------------------------------------------------------------
+@router.post("/token", response_model=Token, summary="Password grant: return JWT")
+def issue_token(
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
-    """
-    Form login:
-    POST /auth/login
-    Content-Type: application/x-www-form-urlencoded
-    Body: username=...&password=...
-    """
+    if too_many_failures(request.client.host if request else "0.0.0.0"):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try later.")
+
     user = db.scalar(select(User).where(User.username == username))
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-    token = create_access_token(user.username)
-    return {"access_token": token, "token_type": "bearer"}
+        record_failure(request.client.host if request else "0.0.0.0")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect credentials")
 
+    token = create_access_token(sub=user.username)
+    return Token(access_token=token, token_type="bearer")
 
-@router.post("/jwt/login", response_model=Token)
-def jwt_login_compat(
-    username: str = Form(...),
-    password: str = Form(...),
+# -----------------------------------------------------------------------------
+# POST /auth/login  -> set session cookie for browser use
+# -----------------------------------------------------------------------------
+@router.post(
+    "/login",
+    summary="Browser login: sets signed session cookie; also returns {'ok': True, user}",
+)
+async def login_form(
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
-    Compatibility alias used by some frontends:
-    POST /auth/jwt/login
+    Accepts either JSON body {username, password} or
+    form-encoded fields (username/password).
+    Validates username/password from DB; requires active user.
     """
+    # Accept json or form
+    username = None
+    password = None
+    ctype = (request.headers.get("content-type") or "").lower()
+    try:
+        if "application/json" in ctype:
+            body = await request.json()
+            username = (body.get("username") or "").strip()
+            password = body.get("password") or ""
+        else:
+            form = await request.form()
+            username = (form.get("username") or "").strip()
+            password = form.get("password") or ""
+    except Exception:
+        pass
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username/password required")
+
     user = db.scalar(select(User).where(User.username == username))
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
-    token = create_access_token(user.username)
-    return {"access_token": token, "token_type": "bearer"}
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect credentials")
 
-
-# -------------------------------
-# Cookie session endpoint (NEW)
-# -------------------------------
-
-@router.post("/cookie-login")
-def cookie_login(
-    username: str = Form(...),
-    password: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    """
-    Signed cookie session login (no JWT required by the client).
-    Sets an HttpOnly cookie named 'session' signed with SECRET_KEY.
-    """
-    user = db.scalar(select(User).where(User.username == username))
-    if not user or not user.is_active or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
-
-    # Create signed session from SECRET_KEY
+    # Create signed cookie session
     sess = create_session(user.username)
+
     payload = {"ok": True, "user": {"username": user.username}}
     response = Response(content=json.dumps(payload), media_type="application/json")
 
@@ -118,7 +102,33 @@ def cookie_login(
         httponly=True,
         samesite="lax",
         secure=False,  # change to True in production behind HTTPS
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        max_age=getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 60) * 60,
+        path="/",
+    )
+    return response
+
+# -----------------------------------------------------------------------------
+# GET /auth/me  -> who am I (works with cookie or JWT)
+# -----------------------------------------------------------------------------
+@router.get("/me", response_model=UserRead, summary="Return current user")
+def me(user: User = Depends(get_current_user)):
+    return UserRead(
+        id=user.id,
+        username=user.username,
+        role=getattr(user, "role", None),
+        permissions=getattr(user, "permissions", []) or [],
+        is_active=getattr(user, "is_active", True),
+    )
+
+# -----------------------------------------------------------------------------
+# POST /auth/logout -> clear session cookie (browser)
+# -----------------------------------------------------------------------------
+@router.post("/logout", summary="Logout browser session (clears cookie)")
+def logout():
+    # Return a response that clears the cookie on the browser
+    response = Response(content=json.dumps({"ok": True}), media_type="application/json")
+    response.delete_cookie(
+        key=COOKIE_NAME,
         path="/",
     )
     return response
