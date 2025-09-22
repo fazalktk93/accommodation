@@ -10,7 +10,7 @@ const PAGE_SIZE = 50;
 
 // How many rows to ask per network call during the initial prefetch.
 // We'll loop through pages until we've fetched everything for the current query.
-const PREFETCH_CHUNK = 500;
+const PREFETCH_CHUNK = 3000;
 
 function useQuery() {
   const { search } = useLocation();
