@@ -19,6 +19,7 @@ class AllotteeStatus(str, Enum):
     in_service = "in_service"
     retired = "retired"
     cancelled = "cancelled"
+    unauthorized = "unauthorized"
 
 
 class Allotment(Base):
