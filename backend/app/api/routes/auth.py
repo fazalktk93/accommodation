@@ -32,7 +32,7 @@ def issue_token(
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db),
-    request: Request | None = None,
+    request: Request = None,
 ):
     if request and too_many_failures(request.client.host):
         raise HTTPException(status_code=429, detail="Too many attempts. Try later.")
