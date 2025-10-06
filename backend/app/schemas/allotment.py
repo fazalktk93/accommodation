@@ -161,6 +161,7 @@ class AllotmentOut(AllotmentBase):
     person_name: Optional[str] = None
     qtr_status: Optional[QtrStatus] = None
     allottee_status: Optional[AllotteeStatus] = None
+    retention_status: Optional[str] = None
 
     id: int
     period_of_stay: Optional[int] = None
