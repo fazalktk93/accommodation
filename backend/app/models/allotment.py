@@ -18,6 +18,7 @@ class QtrStatus(str, Enum):
 class AllotteeStatus(str, Enum):
     in_service = "in_service"
     retired = "retired"
+    retention  = "retention"
     cancelled = "cancelled"
     unauthorized = "unauthorized"
 
