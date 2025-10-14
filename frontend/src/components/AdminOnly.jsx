@@ -4,29 +4,56 @@ import { useAuth } from "../context/AuthProvider";
 
 /**
  * Renders children only if the current user is an admin.
- * Recognizes several common shapes:
+ * Recognizes shapes:
  *   user.role === "admin"
- *   user.is_admin === true
- *   user.isAdmin === true
- *   user.is_superuser === true
- *   user.permissions includes "admin"
- * DEV helper: set VITE_FORCE_ADMIN=1 to always show admin UI in dev.
+ *   user.user.role === "admin"
+ *   user.roles includes "admin"
+ *   user.is_admin / isAdmin / is_superuser === true
+ *   user.permissions (or user.user.permissions) includes "admin"/"superuser"/"users.manage"
+ * DEV: set VITE_FORCE_ADMIN=1 to always show admin UI in dev.
  */
-export default function AdminOnly({ children, fallback = null }) {
-  const force = import.meta?.env?.VITE_FORCE_ADMIN === "1";
-  const ctx = typeof useAuth === "function" ? useAuth() : { user: null };
-  const u = ctx?.user || {};
-  const role = (u.role || u.user?.role || "").toString().toLowerCase();
-  const perms = Array.isArray(u.permissions) ? u.permissions.map((p) => String(p).toLowerCase()) : [];
-  const isAdmin =
-    force ||
-    role === "admin" ||
+export default function AdminOnly({ children, fallback = null, force = false }) {
+  const devForce = import.meta?.env?.VITE_FORCE_ADMIN === "1";
+  const { user, loading } = useAuth?.() ?? { user: null, loading: false };
+
+  if (loading) return null; // avoid flicker while auth state is resolving
+
+  const u = user ?? {};
+
+  // Normalize role
+  const role =
+    (u.role ??
+     u.user?.role ??
+     (Array.isArray(u.roles) ? u.roles[0] : null) ??
+     "").toString().toLowerCase();
+
+  // Normalize roles array
+  const roles = (Array.isArray(u.roles) ? u.roles : [])
+    .concat(Array.isArray(u.user?.roles) ? u.user.roles : [])
+    .map((r) => String(r).toLowerCase());
+
+  // Normalize permissions
+  const perms = (Array.isArray(u.permissions) ? u.permissions : [])
+    .concat(Array.isArray(u.user?.permissions) ? u.user.permissions : [])
+    .map((p) => String(p).toLowerCase());
+
+  const flagAdmin =
     u.is_admin === true ||
     u.isAdmin === true ||
     u.is_superuser === true ||
+    u.isSuperuser === true;
+
+  const isAdmin =
+    force ||
+    devForce ||
+    flagAdmin ||
+    role === "admin" ||
+    roles.includes("admin") ||
+    roles.includes("superuser") ||
     perms.includes("admin") ||
     perms.includes("superuser") ||
-    perms.includes("manage");
+    perms.includes("users.manage") ||
+    perms.includes("users:manage");
 
   return isAdmin ? children : fallback;
 }
