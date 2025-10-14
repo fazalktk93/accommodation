@@ -9,8 +9,10 @@ let RAW_BASE =
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
-if (RAW_BASE === "/api" && typeof location !== "undefined" && location.port === "5173") {
-  RAW_BASE = `${location.protocol}//${location.hostname}:8000/api`;
+if (typeof location !== "undefined" && location.port === "5173") {
+  if (!RAW_BASE || RAW_BASE === "/api") {
+    RAW_BASE = `${location.protocol}//${location.hostname}:8000`; // note: no /api here
+  }
 }
 
 // --- normalize "/api" once (no trailing slash, no double /api) ---
