@@ -1,36 +1,36 @@
 // src/auth.js
-// Robust auth helper for FastAPI (backend has API prefix "/api").
+// Clean, final auth helper for this app (FastAPI backend uses API prefix "/api").
 // Exports: getToken, setToken, isLoggedIn, logout, login, authFetch, default auth.
 
 const AUTH_STORAGE_KEY = "auth_token";
 
 /* -------------------------------------------------------------------------- */
-/* 1) Resolve API base                                                         */
+/* 1) Resolve base ORIGIN for the backend (no path here)                       */
 /* -------------------------------------------------------------------------- */
-let RAW_BASE =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-  (typeof window !== "undefined" && window.API_BASE_URL) ||
-  "/api"; // default to API prefix
+let ORIGIN =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_ORIGIN) ||
+  (typeof window !== "undefined" && window.API_ORIGIN) ||
+  "";
 
-// In Vite dev (:5173) with no explicit base, point to backend on :8000 **with /api**
-if (typeof location !== "undefined" && location.port === "5173") {
-  if (!RAW_BASE || RAW_BASE === "/api") {
-    RAW_BASE = `${location.protocol}//${location.hostname}:8000/api`;
-  }
+// In Vite dev (:5173), default to FastAPI on :8000 (origin only, no path)
+if (!ORIGIN && typeof location !== "undefined" && location.port === "5173") {
+  ORIGIN = `${location.protocol}//${location.hostname}:8000`;
 }
 
-// Normalize base (preserve scheme, trim trailing slash)
-function normBase(b) {
-  if (!b) return "/api";
-  if (/^https?:\/\//i.test(b)) {
-    const u = new URL(b);
-    u.pathname = u.pathname.replace(/\/+$/g, "");
-    return u.toString().replace(/\/+$/g, "");
+// Final origin normalization (keep scheme, strip trailing slash)
+function normOrigin(v) {
+  if (!v) return "";
+  if (/^https?:\/\//i.test(v)) {
+    const u = new URL(v);
+    u.pathname = ""; // origin only
+    return u.origin;
   }
-  if (!b.startsWith("/")) b = "/" + b;
-  return b.replace(/\/+$/g, "");
+  return v; // otherwise leave empty (we'll use relative URLs)
 }
-const API_BASE = normBase(RAW_BASE);
+const API_ORIGIN = normOrigin(ORIGIN);
+
+// The backend API prefix (your FastAPI uses "/api" — do NOT change unless you change backend)
+const API_PREFIX = "/api";
 
 /* -------------------------------------------------------------------------- */
 /* 2) Token helpers                                                            */
@@ -39,7 +39,10 @@ export function getToken() {
   try { return localStorage.getItem(AUTH_STORAGE_KEY); } catch { return null; }
 }
 export function setToken(v) {
-  try { v ? localStorage.setItem(AUTH_STORAGE_KEY, v) : localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
+  try {
+    v ? localStorage.setItem(AUTH_STORAGE_KEY, v)
+      : localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {}
 }
 export function isLoggedIn() { return !!getToken(); }
 export function logout() {
@@ -48,13 +51,32 @@ export function logout() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 3) URL builder (never breaks http://)                                       */
+/* 3) URL builder — ALWAYS ensures "/api/..." path                             */
 /* -------------------------------------------------------------------------- */
+function ensureApiPath(path) {
+  // absolute URLs pass through
+  if (/^https?:\/\//i.test(path)) return path;
+
+  // ensure it starts with "/"
+  let p = path.startsWith("/") ? path : `/${path}`;
+
+  // prepend /api if missing
+  if (!p.startsWith(`${API_PREFIX}/`) && p !== API_PREFIX) {
+    p = `${API_PREFIX}${p}`;
+  }
+  return p;
+}
+
 function makeUrl(path) {
-  if (/^https?:\/\//i.test(path)) return path;                // already absolute
-  const p = path.startsWith("/") ? path : `/${path}`;
-  if (/^https?:\/\//i.test(API_BASE)) return new URL(p, API_BASE).toString(); // join on absolute base
-  return `${API_BASE}${p}`;                                   // base is "/api"
+  const p = ensureApiPath(path);
+
+  // absolute origin (dev/prod with explicit origin)
+  if (API_ORIGIN) {
+    return new URL(p, API_ORIGIN).toString();
+  }
+
+  // no origin provided → relative to current host (useful behind reverse proxy)
+  return p;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -68,7 +90,9 @@ async function doFetch(url, options = {}) {
 export async function authFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const tok = getToken();
-  if (tok && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${tok}`);
+  if (tok && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${tok}`);
+  }
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   return doFetch(path, { ...options, headers });
 }
@@ -78,7 +102,7 @@ export async function authFetch(path, options = {}) {
 /* -------------------------------------------------------------------------- */
 export async function login(username, password) {
   const attempts = [
-    // OAuth2PasswordRequestForm (prevents 422)
+    // Most FastAPI OAuth2 apps
     { method: "POST", path: "/auth/token", form: { grant_type: "password", username, password } },
     // JSON login (if backend supports it)
     { method: "POST", path: "/auth/login", json: { username, password } },
@@ -87,10 +111,12 @@ export async function login(username, password) {
   ];
 
   let lastErr = null;
+
   for (const a of attempts) {
     try {
       const headers = new Headers();
       let body;
+
       if (a.form) {
         headers.set("Content-Type", "application/x-www-form-urlencoded");
         body = new URLSearchParams(a.form);
@@ -101,17 +127,29 @@ export async function login(username, password) {
 
       const res = await doFetch(a.path, { method: a.method, headers, body });
       const text = await res.text();
-      if (!res.ok) { lastErr = text || `${res.status}`; continue; }
 
-      let data = null; try { data = text ? JSON.parse(text) : null; } catch {}
+      if (!res.ok) {
+        lastErr = text || `${res.status}`;
+        continue;
+      }
+
+      // capture tokens if present
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch {}
+
       const accessToken =
-        data?.access_token || data?.token || data?.data?.access_token || null;
+        data?.access_token ||
+        data?.token ||
+        data?.data?.access_token ||
+        null;
+
       if (accessToken) setToken(accessToken);
       return { ok: true, data: data ?? {} };
     } catch (e) {
       lastErr = String(e);
     }
   }
+
   return { ok: false, error: lastErr || "Login failed" };
 }
 
