@@ -9,6 +9,10 @@ let RAW_BASE =
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
+if (RAW_BASE === "/api" && typeof location !== "undefined" && location.port === "5173") {
+  RAW_BASE = `${location.protocol}//${location.hostname}:8000/api`;
+}
+
 // --- normalize "/api" once (no trailing slash, no double /api) ---
 function normBase(b) {
   if (!b) return "/api";
@@ -60,13 +64,14 @@ export async function authFetch(path, options = {}) {
 // ---- Login that matches THIS backend: tries JSON + form + cookie session ----
 export async function login(username, password) {
   const attempts = [
-    // exact matches for your backend
-    { path: "/auth/token",      type: "json" }, // expects JSON {username,password}
-    { path: "/auth/login",      type: "form" },
-    { path: "/auth/jwt/login",  type: "form" },
-    { path: "/auth/cookie-login", type: "form" }, // sets HttpOnly cookie
-    // harmless fallbacks
-    { path: "/login",           type: "form" },
+    // JSON login (keep if your backend supports it)
+    { method: "POST", path: "/auth/login", json: { username, password } },
+
+    // OAuth2PasswordRequestForm requires grant_type=password (prevents 422)
+    { method: "POST", path: "/auth/token", form: { grant_type: "password", username, password } },
+
+    // Cookie login (optional; keep if present)
+    { method: "POST", path: "/auth/cookie-login", json: { username, password } },
   ];
 
   let lastErr = null;

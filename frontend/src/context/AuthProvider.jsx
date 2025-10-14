@@ -11,18 +11,14 @@ const Ctx = createContext(null);
 
 // Try common "who am I" endpoints. Return a user object or null.
 async function fetchCurrentUser() {
-  const paths = ["/auth/me", "/users/me", "/me"];
-  for (const p of paths) {
-    try {
-      const res = await authFetch(p);
-      if (!res || !res.ok) continue;
-      const data = await res.json().catch(() => null);
-      if (data && typeof data === "object") return data;
-    } catch {
-      // keep trying next path
-    }
+  try {
+    const res = await authFetch("/auth/me");
+    if (!res || !res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return (data && typeof data === "object") ? data : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export function AuthProvider({ children }) {
