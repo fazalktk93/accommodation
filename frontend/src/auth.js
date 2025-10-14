@@ -1,36 +1,43 @@
 // src/auth.js
-// Clean, final auth helper for this app (FastAPI backend uses API prefix "/api").
+// Final, verified auth helper for this app (FastAPI uses API prefix "/api").
 // Exports: getToken, setToken, isLoggedIn, logout, login, authFetch, default auth.
 
 const AUTH_STORAGE_KEY = "auth_token";
 
 /* -------------------------------------------------------------------------- */
-/* 1) Resolve base ORIGIN for the backend (no path here)                       */
+/* 1) Compute API_BASE (origin + prefix)                                      */
 /* -------------------------------------------------------------------------- */
-let ORIGIN =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_ORIGIN) ||
-  (typeof window !== "undefined" && window.API_ORIGIN) ||
+// If you set VITE_API_BASE_URL (e.g. "http://host:8000/api"), it will be used.
+let RAW_BASE =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
+  (typeof window !== "undefined" && window.API_BASE_URL) ||
   "";
 
-// In Vite dev (:5173), default to FastAPI on :8000 (origin only, no path)
-if (!ORIGIN && typeof location !== "undefined" && location.port === "5173") {
-  ORIGIN = `${location.protocol}//${location.hostname}:8000`;
+// In dev (Vite on :5173) with no explicit base, target FastAPI on :8000 + "/api"
+if (!RAW_BASE && typeof location !== "undefined" && location.port === "5173") {
+  RAW_BASE = `${location.protocol}//${location.hostname}:8000/api`;
 }
 
-// Final origin normalization (keep scheme, strip trailing slash)
-function normOrigin(v) {
-  if (!v) return "";
-  if (/^https?:\/\//i.test(v)) {
-    const u = new URL(v);
-    u.pathname = ""; // origin only
-    return u.origin;
+// Normalize: keep scheme, remove trailing slashes, and ensure we end up with either
+// an absolute ".../api" or a relative "/api"
+function normalizeBase(b) {
+  if (!b) return "/api";
+  if (/^https?:\/\//i.test(b)) {
+    const u = new URL(b);
+    // ensure trailing "/api" in the path if not present
+    let path = u.pathname.replace(/\/+$/g, "");
+    if (!path.endsWith("/api")) path = (path || "") + "/api";
+    u.pathname = path;
+    return u.toString().replace(/\/+$/g, "");
   }
-  return v; // otherwise leave empty (we'll use relative URLs)
+  // relative
+  let p = b.replace(/\/+$/g, "");
+  if (!p.startsWith("/")) p = "/" + p;
+  if (!p.endsWith("/api")) p = p + "/api";
+  return p;
 }
-const API_ORIGIN = normOrigin(ORIGIN);
 
-// The backend API prefix (your FastAPI uses "/api" — do NOT change unless you change backend)
-const API_PREFIX = "/api";
+const API_BASE = normalizeBase(RAW_BASE); // e.g. "http://host:8000/api" or "/api"
 
 /* -------------------------------------------------------------------------- */
 /* 2) Token helpers                                                            */
@@ -39,10 +46,7 @@ export function getToken() {
   try { return localStorage.getItem(AUTH_STORAGE_KEY); } catch { return null; }
 }
 export function setToken(v) {
-  try {
-    v ? localStorage.setItem(AUTH_STORAGE_KEY, v)
-      : localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch {}
+  try { v ? localStorage.setItem(AUTH_STORAGE_KEY, v) : localStorage.removeItem(AUTH_STORAGE_KEY); } catch {}
 }
 export function isLoggedIn() { return !!getToken(); }
 export function logout() {
@@ -51,32 +55,16 @@ export function logout() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 3) URL builder — ALWAYS ensures "/api/..." path                             */
+/* 3) URL joiner — ALWAYS prefixes with /api and never breaks http://          */
 /* -------------------------------------------------------------------------- */
-function ensureApiPath(path) {
-  // absolute URLs pass through
+function makeUrl(path) {
+  // pass through absolute URLs
   if (/^https?:\/\//i.test(path)) return path;
 
-  // ensure it starts with "/"
-  let p = path.startsWith("/") ? path : `/${path}`;
-
-  // prepend /api if missing
-  if (!p.startsWith(`${API_PREFIX}/`) && p !== API_PREFIX) {
-    p = `${API_PREFIX}${p}`;
-  }
-  return p;
-}
-
-function makeUrl(path) {
-  const p = ensureApiPath(path);
-
-  // absolute origin (dev/prod with explicit origin)
-  if (API_ORIGIN) {
-    return new URL(p, API_ORIGIN).toString();
-  }
-
-  // no origin provided → relative to current host (useful behind reverse proxy)
-  return p;
+  // ensure leading slash
+  const p = path.startsWith("/") ? path : `/${path}`;
+  // API_BASE has no trailing slash; join by string
+  return `${API_BASE}${p}`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -90,23 +78,22 @@ async function doFetch(url, options = {}) {
 export async function authFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const tok = getToken();
-  if (tok && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${tok}`);
-  }
+  if (tok && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${tok}`);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   return doFetch(path, { ...options, headers });
 }
 
 /* -------------------------------------------------------------------------- */
-/* 5) Login (works with OAuth2 form, JSON, or cookie sessions)                 */
+/* 5) Login — supports OAuth2 password form, JSON, and cookie flows            */
 /* -------------------------------------------------------------------------- */
 export async function login(username, password) {
+  // Your backend exposes all of these under /api/auth/...
   const attempts = [
-    // Most FastAPI OAuth2 apps
+    // OAuth2PasswordRequestForm (FastAPI standard)
     { method: "POST", path: "/auth/token", form: { grant_type: "password", username, password } },
-    // JSON login (if backend supports it)
+    // JSON login
     { method: "POST", path: "/auth/login", json: { username, password } },
-    // Cookie-based login (optional)
+    // Cookie session login
     { method: "POST", path: "/auth/cookie-login", json: { username, password } },
   ];
 
@@ -133,7 +120,7 @@ export async function login(username, password) {
         continue;
       }
 
-      // capture tokens if present
+      // Try to parse token payload
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch {}
 
