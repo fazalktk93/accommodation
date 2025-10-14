@@ -4,6 +4,8 @@ import { useLocation } from "react-router-dom";
 import AdminOnly from "../components/AdminOnly";
 import Modal from "../components/Modal";
 import { api, createAllotment, updateAllotment, deleteAllotment } from "../api";
+import { authFetch } from "../auth";
+import { useAuth } from "../context/AuthProvider";
 
 // Show 50 rows per page in the table
 const PAGE_SIZE = 50;
@@ -87,7 +89,10 @@ function HousePickerAdd({ value, onChange }) {
     setLoading(true);
     setErr("");
     try {
-      const res = await api.request("GET", "/houses/", { params: { q: qq, limit: 5000 } });
+      const qs = new URLSearchParams({ q: qq, limit: 5000 }).toString();
+      const res = await authFetch(`/houses/?${qs}`);
+      if (res.status === 401) throw new Error("Unauthorized");
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
       const body = await res.json().catch(() => []);
       const items = normalize(body);
       setOpts(items);
@@ -153,7 +158,7 @@ function HousePickerEdit({ value }) {
     async function loadCurrent() {
       if (!value) { setSelected(null); return; }
       try {
-        const res = await api.request("GET", `/houses/${value}`);
+        const res = await authFetch(`/houses/${value}`);
         if (!res.ok) return;
         const h = await res.json();
         if (!cancelled) setSelected(h);
@@ -220,6 +225,7 @@ function Actions({ onCancel, submitText }) {
 /* ======================== Page ======================== */
 export default function AllotmentsPage() {
   const query = useQuery();
+  const { signout } = useAuth();
   const [page, setPage] = useState(Number(query.get("page") || 0));
   const [q, setQ] = useState(query.get("q") || "");
 
@@ -257,7 +263,13 @@ export default function AllotmentsPage() {
           cnic: q || undefined,
           house_q: q || undefined,
         };
-        const res = await api.request("GET", "/allotments/", { params });
+        const qs = new URLSearchParams(params).toString();
+        const res = await authFetch(`/allotments/?${qs}`);
+        if (res.status === 401) {
+          // session expired / invalid — sign out so route guards can handle redirect
+          await signout();
+          return;
+        }
         if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
         const body = await res.json().catch(() => []);
         const batch = Array.isArray(body) ? body
@@ -314,7 +326,7 @@ export default function AllotmentsPage() {
       const newCache = {};
       for (const id of needIds) {
         try {
-          const res = await api.request("GET", `/houses/${id}`);
+          const res = await authFetch(`/houses/${id}`);
           if (!res.ok) continue;
           const h = await res.json();
           newCache[id] = h;
