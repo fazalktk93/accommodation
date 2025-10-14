@@ -1,37 +1,31 @@
 // src/auth.js
-// Clean, minimal, and correct auth helper for FastAPI + Vite dev setup.
-// It exports: getToken, setToken, isLoggedIn, logout, login, authFetch, and default auth.
+// Minimal, robust auth helper for FastAPI (+ Vite).
+// Exports: getToken, setToken, isLoggedIn, logout, login, authFetch, default auth.
 
 const AUTH_STORAGE_KEY = "auth_token";
 
 /* -------------------------------------------------------------------------- */
-/*  1. Base URL detection — works both in dev (Vite 5173) and production      */
+/*  1) Resolve API base                                                       */
 /* -------------------------------------------------------------------------- */
 let RAW_BASE =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
-// --- In dev (Vite :5173) point to FastAPI backend on :8000 ---
+// In Vite dev (5173), default to FastAPI on :8000 **with /api prefix**
 if (typeof location !== "undefined" && location.port === "5173") {
   if (!RAW_BASE || RAW_BASE === "/api") {
-    // 👇 if your backend routes look like /api/auth/login, keep /api here
     RAW_BASE = `${location.protocol}//${location.hostname}:8000/api`;
-    // 👉 if your backend routes are just /auth/login (no /api prefix),
-    // then change the above line to:
-    // RAW_BASE = `${location.protocol}//${location.hostname}:8000`;
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  2. Normalize base — keeps scheme safe, trims trailing slashes             */
-/* -------------------------------------------------------------------------- */
+// Normalize base (preserve scheme, trim trailing slash)
 function normBase(b) {
   if (!b) return "/api";
   if (/^https?:\/\//i.test(b)) {
     const u = new URL(b);
-    u.pathname = u.pathname.replace(/\/+$/g, "");
-    return u.toString().replace(/\/+$/g, "");
+    u.pathname = u.pathname.replace(/\/+$/g, ""); // trim trailing slash only
+    return u.toString().replace(/\/+$/g, "");     // trim any trailing slashes
   }
   if (!b.startsWith("/")) b = "/" + b;
   return b.replace(/\/+$/g, "");
@@ -39,44 +33,44 @@ function normBase(b) {
 const API_BASE = normBase(RAW_BASE);
 
 /* -------------------------------------------------------------------------- */
-/*  3. Token helpers                                                          */
+/*  2) Token helpers                                                          */
 /* -------------------------------------------------------------------------- */
 export function getToken() {
-  try {
-    return localStorage.getItem(AUTH_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(AUTH_STORAGE_KEY); } catch { return null; }
 }
 export function setToken(v) {
   try {
-    v
-      ? localStorage.setItem(AUTH_STORAGE_KEY, v)
-      : localStorage.removeItem(AUTH_STORAGE_KEY);
+    if (v) localStorage.setItem(AUTH_STORAGE_KEY, v);
+    else localStorage.removeItem(AUTH_STORAGE_KEY);
   } catch {}
 }
-export function isLoggedIn() {
-  return !!getToken();
-}
+export function isLoggedIn() { return !!getToken(); }
 export function logout() {
   setToken(null);
   if (typeof window !== "undefined") window.location.href = "/login";
 }
 
 /* -------------------------------------------------------------------------- */
-/*  4. URL join helper (never breaks http://)                                 */
+/*  3) URL builder                                                            */
 /* -------------------------------------------------------------------------- */
 function makeUrl(path) {
+  // If path already absolute (http/https), use as-is
   if (/^https?:\/\//i.test(path)) return path;
+
+  // Ensure path starts with "/"
   const p = path.startsWith("/") ? path : `/${path}`;
+
+  // If API_BASE is absolute, join with URL()
   if (/^https?:\/\//i.test(API_BASE)) {
     return new URL(p, API_BASE).toString();
   }
+
+  // Relative base like "/api"
   return `${API_BASE}${p}`;
 }
 
 /* -------------------------------------------------------------------------- */
-/*  5. Low-level fetch helpers                                                */
+/*  4) Fetch helpers                                                          */
 /* -------------------------------------------------------------------------- */
 async function doFetch(url, options = {}) {
   const finalUrl = makeUrl(url);
@@ -86,22 +80,23 @@ async function doFetch(url, options = {}) {
 export async function authFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const tok = getToken();
-  if (tok && !headers.has("Authorization"))
+  if (tok && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${tok}`);
+  }
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
   return doFetch(path, { ...options, headers });
 }
 
 /* -------------------------------------------------------------------------- */
-/*  6. Login that works with both token + cookie backends                     */
+/*  5) Login (works with OAuth2 form, JSON, or cookie sessions)               */
 /* -------------------------------------------------------------------------- */
 export async function login(username, password) {
   const attempts = [
-    // Most FastAPI apps
+    // Most FastAPI OAuth2 apps (prevents 422)
     { method: "POST", path: "/auth/token", form: { grant_type: "password", username, password } },
-    // Alternative JSON login
+    // JSON login (if your backend supports it)
     { method: "POST", path: "/auth/login", json: { username, password } },
-    // Cookie-based
+    // Cookie-based login (optional)
     { method: "POST", path: "/auth/cookie-login", json: { username, password } },
   ];
 
@@ -128,10 +123,9 @@ export async function login(username, password) {
         continue;
       }
 
+      // Try to parse token payload
       let data = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {}
+      try { data = text ? JSON.parse(text) : null; } catch {}
 
       const accessToken =
         data?.access_token ||
@@ -150,15 +144,11 @@ export async function login(username, password) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  7. Export unified auth object                                             */
+/*  6) Unified export                                                         */
 /* -------------------------------------------------------------------------- */
 export const auth = {
-  get token() {
-    return getToken();
-  },
-  set token(v) {
-    setToken(v);
-  },
+  get token() { return getToken(); },
+  set token(v) { setToken(v); },
   isLoggedIn,
   logout,
   login,
