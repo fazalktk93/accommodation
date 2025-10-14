@@ -18,11 +18,18 @@ if (typeof location !== "undefined" && location.port === "5173") {
 // --- normalize "/api" once (no trailing slash, no double /api) ---
 function normBase(b) {
   if (!b) return "/api";
-  if (!/^https?:\/\//i.test(b) && !b.startsWith("/")) b = "/" + b;
-  b = b.replace(/\/{2,}/g, "/");                // collapse //
-  b = b.replace(/\/api\/?api(\/|$)/, "/api$1"); // drop duplicate api
-  if (b.endsWith("/")) b = b.slice(0, -1);
-  return b;
+
+  // Absolute URL (http/https) → use URL parser, never collapse '://'
+  if (/^https?:\/\//i.test(b)) {
+    const u = new URL(b);
+    // normalize trailing slash on pathname only
+    u.pathname = u.pathname.replace(/\/+$/g, "");
+    return u.toString().replace(/\/+$/g, "");
+  }
+
+  // Relative base (e.g., "/api" or "api") → force leading "/" and trim trailing
+  if (!b.startsWith("/")) b = "/" + b;
+  return b.replace(/\/+$/g, "");
 }
 const API_BASE = normBase(RAW_BASE);
 
