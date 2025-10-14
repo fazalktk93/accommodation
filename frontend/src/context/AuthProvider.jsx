@@ -94,14 +94,22 @@ export function AuthProvider({ children }) {
     }
 
     // After any login (JWT or cookie), load the user
-    const u = await refresh();
-    if (!u && !hasToken()) {
-      // edge case: login endpoint succeeded but no session visible
-      throw new Error("Login succeeded but session not established");
+    let u = null;
+    try {
+      u = await refresh();
+    } catch {
+      u = null;
     }
+
+    const tokenPresent = !!hasToken();
+    if (!u && !tokenPresent) {
+      await new Promise(r => setTimeout(r, 150));
+      try { u = await refresh(); } catch { /* ignore */ }
+    }
+
+    // Do not throw here. Let route guards handle rare edge cases.
     return { ok: true, user: u };
   }
-
   // Sign out from both client and server (if your ../auth.logout calls backend)
   async function signout() {
     try {

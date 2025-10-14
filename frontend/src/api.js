@@ -13,8 +13,14 @@ const RAW_BASE =
   (typeof window !== "undefined" && window.API_BASE_URL) ||
   "/api";
 
-// normalize base (strip trailing slashes)
-const API_BASE = String(RAW_BASE).replace(/\/+$/, "");
+// Normalize once (leading slash, no trailing slash)
+function normalizeApiBase(b) {
+  if (!b) return "/api";
+  if (!/^https?:\/\//i.test(b) && !b.startsWith("/")) b = "/" + b;  // <-- stops "api/..." bug
+  b = b.replace(/\/+$/g, "");                                       // strip trailing slashes
+  return b;
+}
+const API_BASE = normalizeApiBase(RAW_BASE);
 
 // -------------------- helpers --------------------
 function readCsrfCookie() {

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional, Any, List
 from datetime import date, datetime
 from pydantic import BaseModel, validator
+from pydantic import ConfigDict
 
 from app.models.allotment import QtrStatus, AllotteeStatus
 
@@ -43,6 +44,7 @@ ALLOWED_POOLS = {'CDA': 'CDA', 'ESTATE OFFICE': 'Estate Office'}
 # ---------- base ----------
 
 class AllotmentBase(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     house_id: int
     person_name: str
     designation: Optional[str] = None
@@ -158,6 +160,7 @@ class AllotmentUpdate(BaseModel):
 
 class AllotmentOut(AllotmentBase):
     # override fields that can be NULL in DB to accept None in responses
+    model_config = ConfigDict(from_attributes=True)
     person_name: Optional[str] = None
     qtr_status: Optional[QtrStatus] = None
     allottee_status: Optional[AllotteeStatus] = None
